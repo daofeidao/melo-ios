@@ -100,6 +100,9 @@ enum StreamResolver {
            let state = JS.string(status["status"]),
            state != "OK" {
             let reason = JS.string(status["reason"]) ?? state
+            if state == "LOGIN_REQUIRED" {
+                throw ApiError.unavailable("YouTube 判定当前网络需要人机验证，请切换代理节点后重试（原文：\(reason)）")
+            }
             throw ApiError.unavailable(reason)
         }
 

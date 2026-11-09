@@ -71,3 +71,17 @@ targets:
             googlevideo.com:
               NSIncludesSubdomains: true
               NSExceptionRequiresForwardSecrecy: false
+
+schemes:
+  Melo:
+    build:
+      targets:
+        Melo: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

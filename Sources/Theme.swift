@@ -13,6 +13,28 @@ enum Theme {
     static var tertiaryLabel: Color { Color(UIColor.tertiaryLabel) }
 }
 
+enum Layout {
+    static var safeBottom: CGFloat {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+            ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        let inset = scene?.windows.first { $0.isKeyWindow }?.safeAreaInsets.bottom
+            ?? scene?.windows.first?.safeAreaInsets.bottom
+            ?? 0
+        return inset
+    }
+
+    /// 标准 TabBar 高度（49）+ 底部安全区
+    static var tabBarHeight: CGFloat { 49 + safeBottom }
+
+    /// 迷你播放器占位（56）+ 间距
+    static var miniPlayerHeight: CGFloat { 64 }
+
+    /// 滚动内容需要预留的底部空间
+    static var contentBottomInset: CGFloat { tabBarHeight + miniPlayerHeight + 12 }
+}
+
 extension Color {
     init(hex: UInt32) {
         self.init(

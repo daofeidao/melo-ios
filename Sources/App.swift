@@ -1,0 +1,46 @@
+import SwiftUI
+import UIKit
+
+@main
+struct MeloApp: App {
+    @StateObject private var player = PlayerEngine.shared
+    @StateObject private var library = Library.shared
+
+    init() {
+        MeloAppearance.apply()
+    }
+
+    var body: some Scene {
+        WindowGroup {
+            RootView()
+                .environmentObject(player)
+                .environmentObject(library)
+                .accentColor(Theme.accent)
+        }
+    }
+}
+
+enum MeloAppearance {
+    static func apply() {
+        let tabAppearance = UITabBarAppearance()
+        tabAppearance.configureWithDefaultBackground()
+        UITabBar.appearance().standardAppearance = tabAppearance
+        if #available(iOS 15.0, *) {
+            UITabBar.appearance().scrollEdgeAppearance = tabAppearance
+        }
+        UITabBar.appearance().tintColor = Theme.accentUI
+        UITabBar.appearance().unselectedItemTintColor = UIColor.secondaryLabel
+
+        let navAppearance = UINavigationBarAppearance()
+        navAppearance.configureWithDefaultBackground()
+        UINavigationBar.appearance().standardAppearance = navAppearance
+        UINavigationBar.appearance().compactAppearance = navAppearance
+        if #available(iOS 15.0, *) {
+            UINavigationBar.appearance().scrollEdgeAppearance = navAppearance
+        }
+        UINavigationBar.appearance().tintColor = Theme.accentUI
+        UINavigationBar.appearance().largeTitleTextAttributes = [
+            .font: UIFont.systemFont(ofSize: 34, weight: .bold)
+        ]
+    }
+}

@@ -1,0 +1,99 @@
+name: build-ipa
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain info
+        run: |
+          xcodebuild -version
+          xcode-select -p
+          swift --version
+
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build for simulator
+        run: |
+          set -o pipefail
+          xcodebuild -project Melo.xcodeproj -scheme Melo \
+            -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build-sim \
+            CODE_SIGNING_ALLOWED=NO \
+            build -quiet
+
+      - name: Simulator smoke test
+        run: |
+          set -x
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for runtime, devices in data['devices'].items():
+    for d in devices:
+        if 'iPhone' in d['name']:
+            print(d['udid'])
+            raise SystemExit
+")
+          echo "device=$DEVICE_ID"
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          APP="build-sim/Build/Products/Debug-iphonesimulator/Melo.app"
+          ls -la "$APP"
+          xcrun simctl install "$DEVICE_ID" "$APP"
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo || true
+          sleep 12
+          xcrun simctl io "$DEVICE_ID" screenshot shot-01-listennow.png
+          xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -i melo || echo "process not listed"
+
+      - name: Build for device (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild -project Melo.xcodeproj -scheme Melo \
+            -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build-dev \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build -quiet
+
+      - name: Package IPA
+        run: |
+          set -e
+          APP="build-dev/Build/Products/Release-iphoneos/Melo.app"
+          ls -la "$APP"
+          echo "--- Info.plist ---"
+          plutil -p "$APP/Info.plist" | grep -E 'MinimumOSVersion|CFBundleIdentifier|CFBundleDisplayName|UIBackgroundModes' || true
+          echo "--- arch ---"
+          lipo -archs "$APP/Melo"
+          rm -rf Payload && mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry "Melo-1.0.0-unsigned.ipa" Payload
+          ls -lh "Melo-1.0.0-unsigned.ipa"
+          echo "--- ipa contents ---"
+          unzip -l "Melo-1.0.0-unsigned.ipa" | head -20
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: melo-build
+          path: |
+            Melo-1.0.0-unsigned.ipa
+            shot-01-listennow.png
+          if-no-files-found: warn
+          retention-days: 30

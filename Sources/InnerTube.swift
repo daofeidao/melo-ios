@@ -94,13 +94,52 @@ final class InnerTube {
 
     // MARK: - Public API
 
-    func search(query: String) async throws -> SearchResults {
-        let body: [String: Any] = ["context": musicContext(), "query": query]
-        let root = try await post(
+    /// 分类筛选参数；缺少它只会返回普通视频（没有艺人/专辑字段）
+    static let songsFilter = "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D"
+    static let albumsFilter = "EgWKAQIYAWoKEAkQChAFEAMQBA%3D%3D"
+    static let playlistsFilter = "EgWKAQIoAWoKEAkQChAFEAMQBA%3D%3D"
+
+    private func rawSearch(query: String, filter: String) async throws -> [String: Any] {
+        let body: [String: Any] = ["context": musicContext(), "query": query, "params": filter]
+        return try await post(
             host: "music.youtube.com", endpoint: "search", key: musicKey,
             body: body, userAgent: webUserAgent
         )
-        return InnerTube.parseSearch(root)
+    }
+
+    /// 歌曲 / 专辑 / 歌单三类并发查询后合并
+    func search(query: String) async throws -> SearchResults {
+        async let songsRoot = rawSearch(query: query, filter: InnerTube.songsFilter)
+        async let albumsRoot = rawSearch(query: query, filter: InnerTube.albumsFilter)
+        async let playlistsRoot = rawSearch(query: query, filter: InnerTube.playlistsFilter)
+
+        var roots: [[String: Any]] = []
+        var lastError: Error?
+
+        do { roots.append(try await songsRoot) } catch { lastError = error }
+        do { roots.append(try await albumsRoot) } catch { lastError = error }
+        do { roots.append(try await playlistsRoot) } catch { lastError = error }
+
+        guard !roots.isEmpty else {
+            throw lastError ?? ApiError.parse("搜索失败")
+        }
+
+        var merged = SearchResults()
+        var seenTracks = Set<String>()
+        var seenCollections = Set<String>()
+
+        for root in roots {
+            let partial = InnerTube.parseSearch(root)
+            for track in partial.tracks where !seenTracks.contains(track.videoId) {
+                seenTracks.insert(track.videoId)
+                merged.tracks.append(track)
+            }
+            for collection in partial.collections where !seenCollections.contains(collection.browseId) {
+                seenCollections.insert(collection.browseId)
+                merged.collections.append(collection)
+            }
+        }
+        return merged
     }
 
     func home() async throws -> [Shelf] {
@@ -146,11 +185,19 @@ final class InnerTube {
         var results = SearchResults()
 
         var seenTracks = Set<String>()
+        var seenResponsiveCollections = Set<String>()
+
         for renderer in JS.collect("musicResponsiveListItemRenderer", in: root) {
-            guard let track = track(from: renderer) else { continue }
-            guard !seenTracks.contains(track.videoId) else { continue }
-            seenTracks.insert(track.videoId)
-            results.tracks.append(track)
+            if let track = track(from: renderer) {
+                guard !seenTracks.contains(track.videoId) else { continue }
+                seenTracks.insert(track.videoId)
+                results.tracks.append(track)
+            } else if let collection = collection(fromResponsive: renderer) {
+                // 专辑/歌单搜索结果同样是 responsive 条目，靠 browseEndpoint 区分
+                guard !seenResponsiveCollections.contains(collection.browseId) else { continue }
+                seenResponsiveCollections.insert(collection.browseId)
+                results.collections.append(collection)
+            }
         }
 
         var seenCollections = Set<String>()
@@ -285,6 +332,55 @@ final class InnerTube {
             artwork: bestArtwork(in: renderer),
             isRound: pageType == "MUSIC_PAGE_TYPE_ARTIST"
         ))
+    }
+
+    static func collection(fromResponsive renderer: [String: Any]) -> MediaCollection? {
+        let columns = JS.collect("musicResponsiveListItemFlexColumnRenderer", in: renderer)
+        guard let title = columns.first.flatMap({ JS.text($0["text"]) }), !title.isEmpty else {
+            return nil
+        }
+
+        var browseId: String?
+        var matchedPageType: String?
+
+        for column in columns {
+            for run in JS.runs(column["text"]) {
+                guard let pageType = run.pageType else { continue }
+                if pageType == "MUSIC_PAGE_TYPE_ALBUM" || pageType == "MUSIC_PAGE_TYPE_PLAYLIST" {
+                    browseId = run.browseId
+                    matchedPageType = pageType
+                    break
+                }
+            }
+            if browseId != nil { break }
+        }
+
+        if browseId == nil {
+            for endpoint in JS.collect("browseEndpoint", in: renderer) {
+                guard let candidate = JS.string(endpoint["browseId"]) else { continue }
+                if candidate.hasPrefix("MPRE") || candidate.hasPrefix("VL") {
+                    browseId = candidate
+                    break
+                }
+            }
+        }
+
+        guard let id = browseId else { return nil }
+
+        var subtitle = ""
+        if columns.count > 1, let raw = JS.text(columns[1]["text"]) {
+            subtitle = raw
+                .replacingOccurrences(of: " • ", with: " · ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return MediaCollection(
+            browseId: id,
+            title: title,
+            subtitle: subtitle,
+            artwork: bestArtwork(in: renderer),
+            isRound: matchedPageType == "MUSIC_PAGE_TYPE_ARTIST"
+        )
     }
 
     static func track(from renderer: [String: Any]) -> Track? {

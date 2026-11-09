@@ -1,0 +1,9 @@
+build/
+build-sim/
+build-dev/
+Payload/
+*.ipa
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+.DS_Store
+Melo.xcodeproj/

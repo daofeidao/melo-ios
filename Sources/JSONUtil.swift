@@ -4,6 +4,10 @@ import Foundation
 /// 用通用遍历而不是强类型 Codable，避免字段一改就整页解析失败。
 enum JS {
 
+    private static func isContainer(_ value: Any) -> Bool {
+        value is [String: Any] || value is [Any] || value is NSDictionary || value is NSArray
+    }
+
     static func dict(_ any: Any?) -> [String: Any]? {
         if let d = any as? [String: Any] { return d }
         if let d = any as? NSDictionary { return d as? [String: Any] }
@@ -45,10 +49,10 @@ enum JS {
             if let d = dict(node) {
                 if let hit = d[key] as? [Any] { out.append(hit) }
                 for (_, v) in d {
-                    if v is [String: Any] || v is [Any] { queue.append(v) }
+                    if isContainer(v) { queue.append(v) }
                 }
             } else if let a = array(node) {
-                for v in a where v is [String: Any] || v is [Any] {
+                for v in a where isContainer(v) {
                     queue.append(v)
                 }
             }
@@ -68,10 +72,10 @@ enum JS {
             if let d = dict(node) {
                 if let hit = dict(d[key]) { out.append(hit) }
                 for (_, v) in d {
-                    if v is [String: Any] || v is [Any] { queue.append(v) }
+                    if isContainer(v) { queue.append(v) }
                 }
             } else if let a = array(node) {
-                for v in a where v is [String: Any] || v is [Any] {
+                for v in a where isContainer(v) {
                     queue.append(v)
                 }
             }
