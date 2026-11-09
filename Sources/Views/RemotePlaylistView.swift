@@ -139,6 +139,8 @@ struct RemotePlaylistView: View {
                 loading = false
                 if converted.isEmpty { error = L("Nothing here yet") }
             }
+            // 用户还在看列表，前几首的直链先解析好
+            await MainActor.run { player.prewarm(tracks: converted) }
         } catch {
             await MainActor.run {
                 tracks = []

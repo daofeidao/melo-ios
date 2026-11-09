@@ -70,6 +70,7 @@
 "Dark" = "Dark";
 "Appearance follows the system by default. Pick Light or Dark to override it for this app only." = "Appearance follows the system by default. Pick Light or Dark to override it for this app only.";
 "Save to Library" = "Save to Library";
+"Loading…" = "Loading…";
 "Recent Searches" = "Recent Searches";
 "Browse by Genre" = "Browse by Genre";
 "Mandarin" = "Mandarin";

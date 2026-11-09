@@ -103,6 +103,8 @@ final class PlayerEngine: ObservableObject {
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             guard let self = self else { return }
+            // 正在解析新歌时，player 里还挂着上一首的 item，别拿它的时间覆盖界面
+            if self.isLoading { return }
             let seconds = time.seconds
             if seconds.isFinite {
                 self.elapsed = max(0, seconds)
@@ -125,6 +127,7 @@ final class PlayerEngine: ObservableObject {
         ) { [weak self] note in
             guard let self = self else { return }
             guard let item = note.object as? AVPlayerItem, item === self.player.currentItem else { return }
+            guard !self.isLoading else { return }
             self.handleTrackEnded()
         }
 
@@ -357,11 +360,16 @@ final class PlayerEngine: ObservableObject {
                 self.isLoading = false
                 // 先把错误留在界面上，再静默重解析一次；重试也失败就直接停住，
                 // 不要像以前那样"转圈一整轮再报错"
+                // 记下来：下次解析跳过这条直链，直接按歌名去国内源找同一首
+                if let track = self.currentTrack {
+                    AudioSource.notePlaybackFailure(track)
+                }
                 if self.retryBudget > 0 {
                     self.retryCurrentTrack()
                 } else {
                     self.isPlaying = false
                     self.player.pause()
+                    self.player.replaceCurrentItem(with: nil)
                 }
             }
     }
@@ -395,12 +403,11 @@ final class PlayerEngine: ObservableObject {
         duration = Double(track.duration)
         updateNowPlaying()
 
-        // 关键：先把旧音频停掉再解析。
-        // 以前要等新直链解析完才 replaceCurrentItem，这 1~3 秒里界面已经换了新歌，
-        // 耳朵里还是上一首；解析失败更是永远停在上一首（还只改了个 isPlaying 变量，
-        // AVPlayer 根本不知道）。宁可静音，也不能放错歌。
+        // 先把旧音频停掉再解析：界面已经换了新歌，耳朵里不能还是上一首。
+        // 这里只 pause 不拆 item —— 拆了再建等于两次管线重建，白花 100~200ms。
+        // 旧 item 留在 player 里但不再出声，时间观察器和"播完"回调都会用
+        // isLoading 挡住，失败时再 replaceCurrentItem(nil) 清状态。
         player.pause()
-        player.replaceCurrentItem(with: nil)
         prefetchedIndex = nil
 
         let quality = self.quality()
@@ -425,6 +432,7 @@ final class PlayerEngine: ObservableObject {
                     guard let self = self, self.loadToken == token else { return }
                     self.isLoading = false
                     self.isPlaying = false
+                    self.player.replaceCurrentItem(with: nil)
                     self.errorText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                     self.updateNowPlaying()
                 }
@@ -432,34 +440,60 @@ final class PlayerEngine: ObservableObject {
         }
     }
 
-    /// 当前曲目开播后立刻在后台解析下一首。
-    /// 成熟播放器都是这么做的：在听 A 的时候已经把 B 的直链握在手里。
+    /// 当前曲目开播后在后台把后面几首的直链也解析好。
+    /// 只解析一首的话，用户在列表里连点两下、或者顺序播放切到第三首时还是要等。
+    /// 串行解析、不并发：国内源并发多了会被限流。
     private func prefetchUpcoming() {
         prefetchTask?.cancel()
         guard queue.count > 1 else { return }
 
-        let nextIndex: Int
+        var targets: [Int] = []
         if isShuffle {
-            nextIndex = (index + 1 + Int.random(in: 0..<max(1, queue.count - 1))) % queue.count
-        } else if index + 1 < queue.count {
-            nextIndex = index + 1
-        } else if repeatMode == .all {
-            nextIndex = 0
+            targets = [(index + 1 + Int.random(in: 0..<max(1, queue.count - 1))) % queue.count]
         } else {
-            return
+            for step in 1...3 {
+                let candidate = index + step
+                if candidate < queue.count {
+                    targets.append(candidate)
+                } else if repeatMode == .all {
+                    targets.append(candidate % queue.count)
+                }
+            }
         }
-        guard nextIndex != index, nextIndex >= 0, nextIndex < queue.count else { return }
-        prefetchedIndex = nextIndex
+        targets = targets.filter { $0 != index }
+        guard let first = targets.first else { return }
+        prefetchedIndex = first
 
-        let upcoming = queue[nextIndex]
         let quality = self.quality()
-        let key = cacheKey(for: upcoming)
-        guard StreamCache.shared.stream(forKey: key) == nil else { return }
+        let jobs = targets
+            .map { queue[$0] }
+            .map { (track: $0, key: cacheKey(for: $0)) }
+            .filter { StreamCache.shared.stream(forKey: $0.key) == nil }
+        guard !jobs.isEmpty else { return }
 
         prefetchTask = Task {
-            guard let stream = try? await AudioSource.resolve(track: upcoming, quality: quality) else { return }
-            if Task.isCancelled { return }
-            StreamCache.shared.store(stream, forKey: key)
+            for job in jobs {
+                if Task.isCancelled { return }
+                guard let stream = try? await AudioSource.resolve(track: job.track, quality: quality) else { continue }
+                StreamCache.shared.store(stream, forKey: job.key)
+            }
+        }
+    }
+
+    /// 列表页拿到曲目后调用：先把前几首解析好，用户翻列表的时间就够用了
+    func prewarm(tracks: [Track], limit: Int = 3) {
+        let quality = self.quality()
+        let jobs = tracks
+            .prefix(limit)
+            .map { (track: $0, key: cacheKey(for: $0)) }
+            .filter { StreamCache.shared.stream(forKey: $0.key) == nil }
+        guard !jobs.isEmpty else { return }
+
+        Task.detached(priority: .utility) {
+            for job in jobs {
+                guard let stream = try? await AudioSource.resolve(track: job.track, quality: quality) else { continue }
+                StreamCache.shared.store(stream, forKey: job.key)
+            }
         }
     }
 

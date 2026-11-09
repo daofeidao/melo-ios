@@ -134,6 +134,7 @@ struct ExternalPlaylistView: View {
         await MainActor.run {
             tracks = list
             loading = false
+            if !list.isEmpty { player.prewarm(tracks: list) }
         }
     }
 }

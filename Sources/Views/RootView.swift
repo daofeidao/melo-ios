@@ -44,6 +44,7 @@ struct RootView: View {
         }
         .onAppear {
             runSmokeTestIfNeeded()
+            AudioSource.warmUp()
             // 进 App 就在后台把热门歌单的内容抓下来，点开排行榜卡片直接有列表。
             // 用 detached：解析几千首 JSON 不该占主线程。
             Task.detached(priority: .utility) {

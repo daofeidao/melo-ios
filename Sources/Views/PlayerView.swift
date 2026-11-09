@@ -40,6 +40,16 @@ struct PlayerView: View {
 
                     if let track = player.currentTrack {
                         titleBlock(track)
+                        if player.isLoading {
+                            HStack(spacing: 6) {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                                Text(L("Loading…"))
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.white.opacity(0.6))
+                            }
+                            .padding(.top, 6)
+                        }
                         Spacer().frame(height: 26)
                         if player.errorText != nil {
                             errorCard

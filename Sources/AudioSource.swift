@@ -19,6 +19,28 @@ enum AudioSource {
         blockedAt = Date()
     }
 
+    /// 直链已经拿过、但 AVPlayer 播不出来的曲目。
+    /// 标记之后下次解析跳过直链，直接按歌名去国内源找同一首 —— 这就是
+    /// "把 probe 移出关键路径"的代价补偿：让播放器当裁判，失败一次就换路。
+    private static var failedTracks = Set<String>()
+
+    static func notePlaybackFailure(_ track: Track) {
+        failedTracks.insert(track.id)
+    }
+
+    /// 冷启动预热：国内源都是新的域名，TLS 握手比 RTT 还贵
+    static func warmUp() {
+        let hosts = ["https://m.kugou.com/", "https://songsearch.kugou.com/", "https://music.163.com/"]
+        for string in hosts {
+            guard let url = URL(string: string) else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "HEAD"
+            request.timeoutInterval = 8
+            request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
+            URLSession.shared.dataTask(with: request) { _, _, _ in }.resume()
+        }
+    }
+
     static func resolve(track: Track, quality: StreamResolver.Quality) async throws -> AudioStream {
         // 本地导入的音频：直接给 file URL，不联网、不解析
         if track.source == LocalMusicStore.sourceTag {
@@ -28,7 +50,7 @@ enum AudioSource {
             return AudioStream(url: url, itag: -1, bitrate: 0, mime: "audio/mpeg")
         }
 
-        if let domestic = await domesticStream(for: track) {
+        if !failedTracks.contains(track.id), let domestic = await domesticStream(for: track) {
             return domestic
         }
 
@@ -96,7 +118,10 @@ enum AudioSource {
         }
 
         guard let url = resolved else { return nil }
-        return await probe(url.absoluteString)
+        // 起播前不再 probe：那会多一个 RTT，超时还要拖 4~6 秒，而它拦的只是
+        // "VIP 跳到 HTML 404"这一种情况。现在直接交给 AVPlayer，播不出来会走
+        // retryCurrentTrack → notePlaybackFailure → 下次按歌名兜底。
+        return AudioStream(url: url, itag: -1, bitrate: 128_000, mime: "audio/mpeg")
     }
 
     // MARK: - 各平台

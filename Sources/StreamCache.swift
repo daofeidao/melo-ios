@@ -19,7 +19,9 @@ final class StreamCache {
         let savedAt: Date
     }
 
-    private let ttl: TimeInterval = 30 * 60
+    // 6 小时：YouTube 直链本身大约 6 小时过期，国内直链活得更久。
+    // 过期后如果播不出来，PlayerEngine 会清掉这条缓存重新解析。
+    private let ttl: TimeInterval = 6 * 3600
     private let lock = NSLock()
     private var memory: [String: Entry] = [:]
     private var primed = false

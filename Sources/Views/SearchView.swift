@@ -281,6 +281,9 @@ struct SearchView: View {
             hasSearched = true
             // @State 只能在主线程改
             rememberSearch(trimmed)
+            // 结果一出来就先把前几首解析好，点下去就是缓存命中
+            let preroll = playable.isEmpty ? merged.tracks : playable
+            player.prewarm(tracks: preroll, limit: 5)
 
             if youtubeResults == nil, playable.isEmpty {
                 error = L("YouTube blocked this network, and no playable song was found on domestic sources either.")

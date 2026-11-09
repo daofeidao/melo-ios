@@ -70,6 +70,7 @@
 "Dark" = "深色";
 "Appearance follows the system by default. Pick Light or Dark to override it for this app only." = "默认跟随系统。选择浅色或深色只影响本应用。";
 "Save to Library" = "收藏到资料库";
+"Loading…" = "正在加载…";
 "Recent Searches" = "最近搜索";
 "Browse by Genre" = "按风格浏览";
 "Mandarin" = "华语";

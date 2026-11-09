@@ -96,6 +96,7 @@ TABLE = [
      "默认跟随系统。选择浅色或深色只影响本应用。"),
     ("Save to Library", "收藏到资料库"),
     # 搜索空态 / 风格分类
+    ("Loading…", "正在加载…"),
     ("Recent Searches", "最近搜索"),
     ("Browse by Genre", "按风格浏览"),
     ("Mandarin", "华语"),
