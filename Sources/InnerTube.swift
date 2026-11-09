@@ -20,7 +20,7 @@ enum ApiError: LocalizedError {
         case .botCheck(let reason):
             return String(
                 format: L("YouTube flagged this IP as a bot. All %d clients were blocked. Switch to a non-datacenter proxy node and retry."),
-                StreamResolver.clients.count
+                StreamResolver.clientCount
             ) + "（\(reason)）"
         }
     }

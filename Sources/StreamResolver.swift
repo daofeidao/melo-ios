@@ -34,11 +34,14 @@ enum StreamResolver {
     }
 
     /// 播放器起播时也带上同一个 UA，避免个别节点做 UA 校验
+    /// 对外只暴露数量，`Client` 是私有类型
+    static var clientCount: Int { clients.count }
+
     static let clientUserAgent = "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
 
     /// 实测：ANDROID_VR 是当前唯一能稳定返回未加密直链的客户端；
     /// IOS 返回 400、ANDROID_MUSIC 要求登录、TVHTML5 已停用、WEB 判定不可播。
-    static let clients: [Client] = [
+    private static let clients: [Client] = [
         Client(
             name: "ANDROID_VR",
             version: "1.60.19",
