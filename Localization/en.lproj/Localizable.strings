@@ -45,7 +45,7 @@
 "Playback failed: %@" = "Playback failed: %@";
 "Step 0 · IP reputation" = "Step 0 · IP reputation";
 "Not flagged as a bot" = "Not flagged as a bot";
-"YouTube flagged this IP as a bot. All %d clients were blocked. Switch to a non-datacenter proxy node and retry." = "YouTube flagged this IP as a bot. All %d clients were blocked. Switch to a non-datacenter proxy node and retry.";
+"YouTube blocked this network, and no matching version was found on domestic sources. Switch to a non-datacenter proxy node, or play songs imported from a domestic playlist." = "YouTube blocked this network, and no matching version was found on domestic sources. Switch to a non-datacenter proxy node, or play songs imported from a domestic playlist.";
 "Step 1 · Resolve audio URL" = "Step 1 · Resolve audio URL";
 "Step 2 · Audio CDN" = "Step 2 · Audio CDN";
 "Step 3 · AVPlayer" = "Step 3 · AVPlayer";

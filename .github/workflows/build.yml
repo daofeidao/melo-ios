@@ -159,6 +159,12 @@ jobs:
           sleep 30
           xcrun simctl io "$DEVICE_ID" screenshot shot-12-domestic-song.png
 
+          echo "=== 搜索点播走国内兜底（YouTube 被拦 -> 网易云同名同艺人）==="
+          xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-play-search '孤勇者' -smoke-player || true
+          sleep 32
+          xcrun simctl io "$DEVICE_ID" screenshot shot-14-search-fallback.png
+
           echo "=== 播放失败态（故意用无效视频）==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
           xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-play AAAAAAAAAAA -smoke-player || true
@@ -172,7 +178,7 @@ jobs:
         if: always()
         run: |
           mkdir -p shots
-          for f in shot-01-home-zh.png shot-02-settings-zh.png shot-03-miniplayer.png shot-04-player.png shot-05-english-dark.png shot-06-library-playlists.png shot-07-import-playlist.png shot-08-import-result.png shot-09-playback-diagnostics.png shot-10-playback-error.png shot-11-real-song.png shot-12-domestic-song.png shot-13-netease-count.png; do
+          for f in shot-01-home-zh.png shot-02-settings-zh.png shot-03-miniplayer.png shot-04-player.png shot-05-english-dark.png shot-06-library-playlists.png shot-07-import-playlist.png shot-08-import-result.png shot-09-playback-diagnostics.png shot-10-playback-error.png shot-11-real-song.png shot-12-domestic-song.png shot-13-netease-count.png shot-14-search-fallback.png; do
             if [ -f "$f" ]; then
               sips -Z 1400 "$f" --out "shots/$f" >/dev/null
             fi
@@ -217,7 +223,7 @@ jobs:
         id: pkg
         run: |
           APP="$APP_PATH"
-          IPA_NAME="Melo-v1.6.0.B${GITHUB_RUN_NUMBER}.ipa"
+          IPA_NAME="Melo-v1.7.0.B${GITHUB_RUN_NUMBER}.ipa"
           echo "IPA_NAME=${IPA_NAME}" >> "$GITHUB_ENV"
           mkdir -p Payload
           cp -R "$APP" Payload/
@@ -234,7 +240,7 @@ jobs:
         with:
           name: melo-build
           path: |
-            Melo-v1.6.0.B*.ipa
+            Melo-v1.7.0.B*.ipa
             shots/shot-01-home-zh.png
             shots/shot-02-settings-zh.png
             shots/shot-03-miniplayer.png
@@ -248,6 +254,7 @@ jobs:
             shots/shot-11-real-song.png
             shots/shot-12-domestic-song.png
             shots/shot-13-netease-count.png
+            shots/shot-14-search-fallback.png
           if-no-files-found: warn
           retention-days: 30
 
@@ -275,6 +282,7 @@ jobs:
             shots/shot-11-real-song.png
             shots/shot-12-domestic-song.png
             shots/shot-13-netease-count.png
+            shots/shot-14-search-fallback.png
           draft: false
           prerelease: true
           generate_release_notes: false

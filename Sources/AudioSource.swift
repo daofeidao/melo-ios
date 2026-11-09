@@ -10,7 +10,116 @@ enum AudioSource {
         if let domestic = await domesticStream(for: track) {
             return domestic
         }
-        return try await StreamResolver.resolve(videoId: track.videoId, quality: quality)
+
+        do {
+            return try await StreamResolver.resolve(videoId: track.videoId, quality: quality)
+        } catch {
+            // YouTube 被判定为机器人（或取不到直链）时，按歌名 + 艺人去国内音源找同一个版本。
+            // 搜索/浏览里的歌没有平台 ID，这条兜底是它们唯一的出路。
+            if let fallback = await domesticFallback(for: track) {
+                return fallback
+            }
+            throw error
+        }
+    }
+
+    // MARK: - 按歌名兜底国内音源
+
+    /// 宁可找不到，也不播翻唱：标题必须同名、艺人必须对得上
+    private static func domesticFallback(for track: Track) async -> AudioStream? {
+        guard let id = await netEaseMatch(for: track) else { return nil }
+        return await probe("https://music.163.com/song/media/outer/url?id=\(id).mp3")
+    }
+
+    private static func netEaseMatch(for track: Track) async -> String? {
+        let query = [track.title, track.artist]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard !query.isEmpty,
+              let encoded = query.addingPercentEncoding(withAllowedCharacters: .alphanumerics),
+              let url = URL(string: "https://music.163.com/api/search/get/web?s=\(encoded)&type=1&limit=30&offset=0")
+        else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
+        request.setValue("https://music.163.com/", forHTTPHeaderField: "Referer")
+
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let result = JS.dict(root["result"]),
+              let songs = JS.array(result["songs"]) else { return nil }
+
+        let wantedTitle = normalize(track.title)
+        let wantedArtist = normalize(track.artist)
+
+        var best: (id: String, score: Int)?
+
+        for raw in songs {
+            guard let song = JS.dict(raw),
+                  let id = JS.int(song["id"]).map(String.init),
+                  let name = JS.string(song["name"]) else { continue }
+
+            let candidateTitle = normalize(name)
+            var score = 0
+
+            if candidateTitle == wantedTitle {
+                score += 100
+            } else if candidateTitle.contains(wantedTitle) || wantedTitle.contains(candidateTitle) {
+                score += 50
+            } else {
+                continue
+            }
+
+            let artistNames = (JS.array(song["artists"]) ?? [])
+                .compactMap { JS.dict($0) }
+                .compactMap { JS.string($0["name"]) }
+                .map(normalize)
+
+            if !wantedArtist.isEmpty {
+                let matched = artistNames.contains {
+                    $0 == wantedArtist || $0.contains(wantedArtist) || wantedArtist.contains($0)
+                }
+                // 艺人没对上基本就是翻唱，直接跳过，避免播成别人的版本
+                guard matched else { continue }
+                score += 60
+            }
+
+            let seconds = (JS.int(song["duration"]) ?? 0) / 1000
+            if track.duration > 20, seconds > 20 {
+                let diff = abs(seconds - track.duration)
+                if diff <= 5 {
+                    score += 30
+                } else if diff <= 15 {
+                    score += 10
+                } else if diff > 60 {
+                    continue
+                }
+            }
+
+            if score > (best?.score ?? 0) {
+                best = (id, score)
+            }
+        }
+
+        guard let picked = best, picked.score >= 100 else { return nil }
+        return picked.id
+    }
+
+    /// 小写、去括号内容、去标点与空白，让「晴天 (Live)」和「晴天」能对上
+    private static func normalize(_ text: String) -> String {
+        let lowered = text.lowercased()
+        let stripped = lowered.replacingOccurrences(
+            of: "\\([^)]*\\)|（[^）]*）|\\[[^\\]]*\\]",
+            with: "",
+            options: .regularExpression
+        )
+        // 只留数字、小写字母和 CJK 基本区，避免依赖 ICU 的 \u 转义
+        let cleaned = String(stripped.unicodeScalars.filter { scalar in
+            let v = scalar.value
+            return (v >= 48 && v <= 57) || (v >= 97 && v <= 122) || (v >= 0x4E00 && v <= 0x9FA5)
+        })
+        return cleaned.isEmpty ? lowered.trimmingCharacters(in: .whitespaces) : cleaned
     }
 
     /// 该曲目是否有可能走国内音源

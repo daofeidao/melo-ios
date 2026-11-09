@@ -17,11 +17,8 @@ enum ApiError: LocalizedError {
             return message
         case .unavailable(let message):
             return message
-        case .botCheck(let reason):
-            return String(
-                format: L("YouTube flagged this IP as a bot. All %d clients were blocked. Switch to a non-datacenter proxy node and retry."),
-                StreamResolver.clientCount
-            ) + "（\(reason)）"
+        case .botCheck:
+            return L("YouTube blocked this network, and no matching version was found on domestic sources. Switch to a non-datacenter proxy node, or play songs imported from a domestic playlist.")
         }
     }
 }
