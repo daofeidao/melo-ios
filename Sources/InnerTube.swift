@@ -113,6 +113,12 @@ final class InnerTube {
         )
     }
 
+    /// 只查歌曲，供歌单批量匹配使用（单请求，比三路并发轻）
+    func searchSongs(query: String) async throws -> [Track] {
+        let root = try await rawSearch(query: query, filter: InnerTube.songsFilter)
+        return InnerTube.parseSearch(root).tracks
+    }
+
     /// 歌曲 / 专辑 / 歌单三类并发查询后合并
     func search(query: String) async throws -> SearchResults {
         async let songsRoot = rawSearch(query: query, filter: InnerTube.songsFilter)
