@@ -494,6 +494,6 @@ final class InnerTube {
     }
 
     static func youtubeFallback(videoId: String) -> String {
-        "https://i.ytimg.com/vi/\(videoId)/hqdefault.jpg"
+        "https://i.ytimg.com/vi/\(videoId)/mqdefault.jpg"
     }
 }

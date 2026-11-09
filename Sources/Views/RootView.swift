@@ -49,7 +49,7 @@ struct RootView: View {
         player.play(tracks: [SmokeTest.makeTrack(videoId: videoId)], startAt: 0)
 
         if SmokeTest.presentsPlayer {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 14) {
                 showPlayer = true
             }
         }

@@ -262,7 +262,16 @@ struct SystemVolumeSlider: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ uiView: MPVolumeView, context: Context) {}
+    func updateUIView(_ uiView: MPVolumeView, context: Context) {
+        // MPVolumeView 内部就是一支 UISlider；不改它的轨道色，
+        // 在深色播放页上整条轨道会完全看不见。
+        for subview in uiView.subviews where subview is UISlider {
+            guard let slider = subview as? UISlider else { continue }
+            slider.minimumTrackTintColor = .white
+            slider.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.28)
+            slider.thumbTintColor = .white
+        }
+    }
 }
 
 // MARK: - 空状态

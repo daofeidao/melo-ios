@@ -24,7 +24,7 @@ enum SmokeTest {
             artist: "CI Runner",
             album: nil,
             duration: 213,
-            artwork: "https://i.ytimg.com/vi/\(videoId)/hqdefault.jpg"
+            artwork: "https://i.ytimg.com/vi/\(videoId)/mqdefault.jpg"
         )
     }
 }

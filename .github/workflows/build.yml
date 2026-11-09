@@ -66,8 +66,10 @@ jobs:
           echo "=== 冒烟播放：验证 直链解析 -> AVPlayer -> 播放页 ==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
           xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -smoke-play dQw4w9WgXcQ -smoke-player || true
-          sleep 22
-          xcrun simctl io "$DEVICE_ID" screenshot shot-02-player.png
+          sleep 8
+          xcrun simctl io "$DEVICE_ID" screenshot shot-02-miniplayer.png
+          sleep 16
+          xcrun simctl io "$DEVICE_ID" screenshot shot-03-player.png
           echo "--- 播放相关日志 ---"
           xcrun simctl spawn "$DEVICE_ID" log show --last 60s --style compact \
             --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null | grep -iE 'error|fail|denied|AVPlayer' | tail -20 || echo "no error lines"
@@ -124,7 +126,8 @@ jobs:
           path: |
             Melo-v1.0.0.B*.ipa
             shot-01-listennow.png
-            shot-02-player.png
+            shot-02-miniplayer.png
+            shot-03-player.png
           if-no-files-found: warn
           retention-days: 30
 
