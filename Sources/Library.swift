@@ -41,6 +41,14 @@ final class Library: ObservableObject {
         Self.save(recent, recentKey)
     }
 
+    /// 从备份恢复：整体替换，不做合并 —— 合并只会让"恢复"变得不可预期
+    func replace(favorites newFavorites: [Track], recent newRecent: [Track]) {
+        favorites = newFavorites
+        recent = newRecent
+        Self.save(favorites, favoritesKey)
+        Self.save(recent, recentKey)
+    }
+
     private static func load(_ key: String) -> [Track] {
         guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
         return (try? JSONDecoder().decode([Track].self, from: data)) ?? []

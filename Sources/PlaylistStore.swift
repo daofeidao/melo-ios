@@ -93,6 +93,12 @@ final class PlaylistStore: ObservableObject {
         scheduleSave()
     }
 
+    /// 从备份恢复：整体替换
+    func replaceAll(_ items: [ImportedPlaylist]) {
+        playlists = items
+        scheduleSave()
+    }
+
     /// 仅供 CI 截图用：只写内存，不落盘
     func seedForSmokeTest() {
         guard playlists.isEmpty else { return }

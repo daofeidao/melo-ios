@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct LibraryView: View {
     @EnvironmentObject private var library: Library
@@ -116,6 +117,14 @@ struct SettingsView: View {
     @State private var playbackTesting = false
     @State private var playbackLines: [DiagnosticLine] = []
 
+    // 备份 / 恢复
+    @State private var exporting = false
+    @State private var importing = false
+    @State private var exportDocument: BackupDocument?
+    @State private var alertTitle = ""
+    @State private var alertText = ""
+    @State private var showAlert = false
+
     var body: some View {
         List {
             Section {
@@ -218,6 +227,33 @@ struct SettingsView: View {
             }
 
             Section {
+                Button {
+                    prepareExport()
+                } label: {
+                    HStack {
+                        Text(L("Export Backup"))
+                        Spacer()
+                        Image(systemName: "square.and.arrow.up")
+                            .foregroundColor(Theme.secondaryLabel)
+                    }
+                }
+                Button {
+                    importing = true
+                } label: {
+                    HStack {
+                        Text(L("Restore from Backup"))
+                        Spacer()
+                        Image(systemName: "square.and.arrow.down")
+                            .foregroundColor(Theme.secondaryLabel)
+                    }
+                }
+            } header: {
+                Text(L("Backup & Restore"))
+            } footer: {
+                Text(L("Your favorites and playlists live inside the app. Installing a new build over it keeps them; deleting the app erases them. Export to Files — iCloud Drive works — so you can restore after reinstalling."))
+            }
+
+            Section {
                 HStack {
                     Text(L("Version"))
                     Spacer()
@@ -253,6 +289,68 @@ struct SettingsView: View {
             }
             Button(L("Cancel"), role: .cancel) {}
         }
+        .fileExporter(
+            isPresented: $exporting,
+            document: exportDocument,
+            contentType: .json,
+            defaultFilename: BackupService.defaultFileName()
+        ) { result in
+            switch result {
+            case .success:
+                show(title: L("Backup & Restore"), message: L("Backup saved. Keep it in Files or iCloud Drive."))
+            case .failure(let error):
+                show(
+                    title: L("Backup & Restore"),
+                    message: String(format: L("Export failed: %@"), error.localizedDescription)
+                )
+            }
+        }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
+            switch result {
+            case .success(let url):
+                restore(from: url)
+            case .failure(let error):
+                show(
+                    title: L("Backup & Restore"),
+                    message: String(format: L("Restore failed: %@"), error.localizedDescription)
+                )
+            }
+        }
+        .alert(alertTitle, isPresented: $showAlert) {
+            Button(L("Done"), role: .cancel) {}
+        } message: {
+            Text(alertText)
+        }
+    }
+
+    private func prepareExport() {
+        do {
+            exportDocument = BackupDocument(data: try BackupService.encoded())
+            exporting = true
+        } catch {
+            show(
+                title: L("Backup & Restore"),
+                message: String(format: L("Export failed: %@"), error.localizedDescription)
+            )
+        }
+    }
+
+    private func restore(from url: URL) {
+        do {
+            let summary = try BackupService.restore(from: url)
+            show(title: L("Backup & Restore"), message: summary.text)
+        } catch {
+            show(
+                title: L("Backup & Restore"),
+                message: String(format: L("Restore failed: %@"), error.localizedDescription)
+            )
+        }
+    }
+
+    private func show(title: String, message: String) {
+        alertTitle = title
+        alertText = message
+        showAlert = true
     }
 
     private func runPlaybackTest() async {

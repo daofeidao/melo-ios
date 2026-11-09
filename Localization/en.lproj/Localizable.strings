@@ -71,6 +71,14 @@
 "Appearance follows the system by default. Pick Light or Dark to override it for this app only." = "Appearance follows the system by default. Pick Light or Dark to override it for this app only.";
 "Clear Recently Played" = "Clear Recently Played";
 "Clear recently played?" = "Clear recently played?";
+"Backup & Restore" = "Backup & Restore";
+"Export Backup" = "Export Backup";
+"Restore from Backup" = "Restore from Backup";
+"Backup saved. Keep it in Files or iCloud Drive." = "Backup saved. Keep it in Files or iCloud Drive.";
+"Export failed: %@" = "Export failed: %@";
+"Restore failed: %@" = "Restore failed: %@";
+"Restored %d favorites, %d recently played and %d playlists." = "Restored %d favorites, %d recently played and %d playlists.";
+"Your favorites and playlists live inside the app. Installing a new build over it keeps them; deleting the app erases them. Export to Files — iCloud Drive works — so you can restore after reinstalling." = "Your favorites and playlists live inside the app. Installing a new build over it keeps them; deleting the app erases them. Export to Files — iCloud Drive works — so you can restore after reinstalling.";
 "Version" = "Version";
 "Data Source" = "Data Source";
 "About" = "About";

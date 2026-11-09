@@ -50,6 +50,11 @@ enum SmokeTest {
         ProcessInfo.processInfo.arguments.contains("-smoke-count-only")
     }
 
+    /// 备份文件编解码往返一次，验证 Codable 没有漏字段
+    static var runsBackupTest: Bool {
+        ProcessInfo.processInfo.arguments.contains("-smoke-backup")
+    }
+
     /// 直接播一首网易云歌曲，用来验证国内音源链路
     static var neteaseSongID: String? {
         let args = ProcessInfo.processInfo.arguments

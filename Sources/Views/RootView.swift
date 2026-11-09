@@ -62,6 +62,9 @@ struct RootView: View {
         if SmokeTest.seedsPlaylist {
             PlaylistStore.shared.seedForSmokeTest()
         }
+        if SmokeTest.runsBackupTest {
+            runBackupRoundTrip()
+        }
         if let songID = SmokeTest.neteaseSongID {
             Task {
                 guard let track = await AudioSource.netEaseTrack(id: songID) else { return }
@@ -107,6 +110,20 @@ struct RootView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
                 showSettings = true
             }
+        }
+    }
+
+    /// 备份往返：编码 → 写文件 → 解码 → 覆盖回内存，确认收藏/歌单没在 Codable 上丢东西
+    private func runBackupRoundTrip() {
+        Library.shared.toggleFavorite(SmokeTest.makeTrack(videoId: "backupProbe"))
+        do {
+            let data = try BackupService.encoded()
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("melo-backup-probe.json")
+            try data.write(to: url, options: .atomic)
+            let summary = try BackupService.restore(from: url)
+            NSLog("SMOKE_BACKUP ok bytes=\(data.count) favorites=\(summary.favorites) recent=\(summary.recent) playlists=\(summary.playlists)")
+        } catch {
+            NSLog("SMOKE_BACKUP failed \(error)")
         }
     }
 }

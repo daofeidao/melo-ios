@@ -143,9 +143,12 @@ jobs:
 
           echo "=== 播放诊断 ==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
-          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 3 -smoke-settings-page -smoke-playback-test || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 3 -smoke-settings-page -smoke-playback-test -smoke-backup || true
           sleep 30
           xcrun simctl io "$DEVICE_ID" screenshot shot-09-playback-diagnostics.png
+          echo "--- 备份往返 ---"
+          xcrun simctl spawn "$DEVICE_ID" log show --last 40s --style compact \
+            --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null | grep 'SMOKE_BACKUP' | tail -2 || echo "no backup sample"
 
           echo "=== 真实曲目播放（搜索周杰伦，取第一首）==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true

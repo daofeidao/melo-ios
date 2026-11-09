@@ -96,6 +96,18 @@ TABLE = [
      "默认跟随系统。选择浅色或深色只影响本应用。"),
     ("Clear Recently Played", "清空最近播放"),
     ("Clear recently played?", "确定清空最近播放？"),
+
+    # 备份 / 恢复
+    ("Backup & Restore", "备份与恢复"),
+    ("Export Backup", "导出备份"),
+    ("Restore from Backup", "从备份恢复"),
+    ("Backup saved. Keep it in Files or iCloud Drive.", "备份已保存。请放在「文件」或 iCloud Drive 里。"),
+    ("Export failed: %@", "导出失败：%@"),
+    ("Restore failed: %@", "恢复失败：%@"),
+    ("Restored %d favorites, %d recently played and %d playlists.",
+     "已恢复 %d 首收藏、%d 首最近播放、%d 个歌单。"),
+    ("Your favorites and playlists live inside the app. Installing a new build over it keeps them; deleting the app erases them. Export to Files — iCloud Drive works — so you can restore after reinstalling.",
+     "收藏和歌单存在 App 内：覆盖安装新版本不会丢，删除 App 会一起清掉。导出到「文件」（可存 iCloud Drive）留一份，重装后再导入即可恢复。"),
     ("Version", "版本"),
     ("Data Source", "数据来源"),
     ("About", "关于"),
