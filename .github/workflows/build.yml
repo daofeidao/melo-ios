@@ -170,6 +170,9 @@ jobs:
           xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-search '孤勇者' || true
           sleep 26
           xcrun simctl io "$DEVICE_ID" screenshot shot-15-search-domestic.png
+          echo "--- 搜索双源计数 ---"
+          xcrun simctl spawn "$DEVICE_ID" log show --last 60s --style compact \
+            --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null | grep 'SMOKE_SEARCH' | tail -3 || echo "no sample"
 
           echo "=== 播放失败态（故意用无效视频）==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
@@ -229,7 +232,7 @@ jobs:
         id: pkg
         run: |
           APP="$APP_PATH"
-          IPA_NAME="Melo-v1.8.0.B${GITHUB_RUN_NUMBER}.ipa"
+          IPA_NAME="Melo-v1.9.0.B${GITHUB_RUN_NUMBER}.ipa"
           echo "IPA_NAME=${IPA_NAME}" >> "$GITHUB_ENV"
           mkdir -p Payload
           cp -R "$APP" Payload/
@@ -246,7 +249,7 @@ jobs:
         with:
           name: melo-build
           path: |
-            Melo-v1.8.0.B*.ipa
+            Melo-v1.9.0.B*.ipa
             shots/shot-01-home-zh.png
             shots/shot-02-settings-zh.png
             shots/shot-03-miniplayer.png

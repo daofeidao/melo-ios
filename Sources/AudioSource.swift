@@ -48,12 +48,12 @@ enum AudioSource {
 
     /// 宁可找不到，也不播翻唱：标题必须同名、艺人必须对得上
     private static func domesticFallback(for track: Track) async -> AudioStream? {
-        guard let id = await DomesticSource.match(
+        guard let matched = await DomesticSource.match(
             title: track.title,
             artist: track.artist,
             duration: track.duration
         ) else { return nil }
-        return await probe("https://music.163.com/song/media/outer/url?id=\(id).mp3")
+        return await domesticStream(for: matched)
     }
 
     /// 该曲目是否有可能走国内音源
@@ -68,34 +68,24 @@ enum AudioSource {
               !id.isEmpty,
               let platform = PlaylistPlatform(rawValue: source) else { return nil }
 
+        let resolved: URL?
         switch platform {
         case .netease:
-            // 网易云「外链」：不需要签名，302 到 CDN 的 mp3；VIP/无版权会跳到 404 页面
-            return await probe("https://music.163.com/song/media/outer/url?id=\(id).mp3")
+            // 网易云「外链」：不需要签名，302 到 CDN 的 mp3；VIP/无版权会跳到 404 网页
+            resolved = await DomesticSource.neteaseStreamURL(id: id)
         case .kugou:
-            return await kugouStream(hash: id)
+            resolved = await DomesticSource.kugouStreamURL(hash: id)
         case .qq:
             // QQ 需要 vkey，公开请求拿不到 purl，只能回落 YouTube
-            return nil
+            resolved = nil
         }
+
+        guard let url = resolved else { return nil }
+        return await probe(url.absoluteString)
     }
 
     // MARK: - 各平台
 
-    private static func kugouStream(hash: String) async -> AudioStream? {
-        guard let url = URL(string: "http://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash=\(hash)") else {
-            return nil
-        }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 12
-        request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
-        guard let (data, _) = try? await URLSession.shared.data(for: request),
-              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let playURL = JS.string(root["url"]), !playURL.isEmpty else {
-            return nil
-        }
-        return await probe(playURL)
-    }
 
     /// 先拉 1KB 确认「真的很像音频」，再交给播放器 —— 否则 VIP 曲目会跳到一个 HTML 404 页
     private static func probe(_ urlString: String) async -> AudioStream? {

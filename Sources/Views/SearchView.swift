@@ -186,6 +186,13 @@ struct SearchView: View {
         let domesticRaw = await domesticTask
         let playable = await DomesticSource.playableOnes(from: domesticRaw, limit: 10)
 
+        NSLog(
+            "SMOKE_SEARCH youtube=%d domesticRaw=%d playable=%d",
+            youtubeResults?.tracks.count ?? -1,
+            domesticRaw.count,
+            playable.count
+        )
+
         await MainActor.run {
             var merged = youtubeResults ?? SearchResults()
             merged.domestic = playable
