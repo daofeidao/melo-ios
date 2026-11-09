@@ -1,16 +1,24 @@
-name: build-ipa
+name: Build IPA
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  HOMEBREW_NO_INSTALL_CLEANUP: 1
+
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Toolchain info
         run: |
@@ -18,12 +26,8 @@ jobs:
           xcode-select -p
           swift --version
 
-      - name: Install XcodeGen
-        run: |
-          if ! command -v xcodegen >/dev/null 2>&1; then
-            brew install xcodegen
-          fi
-          xcodegen --version
+      - name: Install build tools
+        run: brew install xcodegen ldid
 
       - name: Generate Xcode project
         run: xcodegen generate
@@ -31,8 +35,11 @@ jobs:
       - name: Build for simulator
         run: |
           set -o pipefail
-          xcodebuild -project Melo.xcodeproj -scheme Melo \
-            -configuration Debug -sdk iphonesimulator \
+          xcodebuild \
+            -project Melo.xcodeproj \
+            -scheme Melo \
+            -configuration Debug \
+            -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build-sim \
             CODE_SIGNING_ALLOWED=NO \
@@ -53,36 +60,52 @@ jobs:
           ls -la "$APP"
           xcrun simctl install "$DEVICE_ID" "$APP"
           xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo || true
-          sleep 14
+          sleep 15
           xcrun simctl io "$DEVICE_ID" screenshot shot-01-listennow.png
+          echo "--- process check ---"
           xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -i melo || echo "process not listed"
 
-      - name: Build for device (unsigned)
+      - name: Build for device
         run: |
           set -o pipefail
-          xcodebuild -project Melo.xcodeproj -scheme Melo \
-            -configuration Release -sdk iphoneos \
+          xcodebuild \
+            -project Melo.xcodeproj \
+            -scheme Melo \
+            -configuration Release \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build-dev \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_ALLOWED=NO \
+            CURRENT_PROJECT_VERSION=${GITHUB_RUN_NUMBER} \
             build -quiet
 
-      - name: Package IPA
+      - name: Fakesign
         run: |
-          set -e
-          APP="build-dev/Build/Products/Release-iphoneos/Melo.app"
-          ls -la "$APP"
-          echo "--- Info.plist ---"
-          plutil -p "$APP/Info.plist" | grep -E 'MinimumOSVersion|CFBundleIdentifier|CFBundleDisplayName|UIBackgroundModes' || true
-          echo "--- arch ---"
+          APP=$(find build-dev/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app')
+          test -n "$APP"
+          echo "APP_PATH=$APP" >> "$GITHUB_ENV"
+          echo "--- 主二进制 ---"
+          ldid -S "$APP/Melo"
+          echo "--- 架构 ---"
           lipo -archs "$APP/Melo"
-          rm -rf Payload
+          echo "--- Info.plist 关键项 ---"
+          /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes' "$APP/Info.plist"
+
+      - name: Package IPA
+        id: pkg
+        run: |
+          APP="$APP_PATH"
+          IPA_NAME="Melo-v1.0.0.B${GITHUB_RUN_NUMBER}.ipa"
+          echo "IPA_NAME=${IPA_NAME}" >> "$GITHUB_ENV"
           mkdir -p Payload
           cp -R "$APP" Payload/
-          zip -qry "Melo-1.0.0-unsigned.ipa" Payload
-          ls -lh "Melo-1.0.0-unsigned.ipa"
-          echo "--- ipa contents ---"
-          unzip -l "Melo-1.0.0-unsigned.ipa" | head -25
+          zip -qry "$IPA_NAME" Payload
+          rm -rf Payload
+          test -s "$IPA_NAME"
+          ls -lh "$IPA_NAME"
+          echo "--- 内容 ---"
+          unzip -l "$IPA_NAME" | head -20
 
       - name: Upload artifacts
         if: always()
@@ -90,7 +113,24 @@ jobs:
         with:
           name: melo-build
           path: |
-            Melo-1.0.0-unsigned.ipa
+            Melo-v1.0.0.B*.ipa
             shot-01-listennow.png
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Publish release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Melo build ${{ github.run_number }}
+          body: |
+            未签名 IPA，iOS 15.0+，用 TrollStore 安装。
+          files: |
+            ${{ env.IPA_NAME }}
+          draft: false
+          prerelease: true
+          generate_release_notes: false
+
+      # CI 里不要加发邮件：macOS runner 在 Azure 上，平台封禁出站 SMTP，
+      # 投递由本机脚本负责。
