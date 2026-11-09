@@ -86,14 +86,16 @@ final class ChartLibrary: ObservableObject {
         lock.unlock()
         guard !alreadyWarm else { return }
 
-        for platform in [PlaylistPlatform.netease, .qq] {
+        for platform in [PlaylistPlatform.netease, .qq, .kugou] {
             if Task.isCancelled { return }
             guard let list = try? await HotPlaylists.fetch(platform), !list.isEmpty else {
                 NSLog("SMOKE_CHART \(platform.rawValue) playlists=0")
                 continue
             }
+            // 酷狗榜单前几个就够验证「点开能播」，别一次抓太多
+            let take = platform == .kugou ? 2 : 6
             var loaded = 0
-            for item in list.prefix(6) {
+            for item in list.prefix(take) {
                 if Task.isCancelled { return }
                 if !(await load(item)).isEmpty { loaded += 1 }
             }

@@ -26,6 +26,9 @@ struct ChartsView: View {
                     ForEach(platforms) { platform in
                         if let items = external[platform.rawValue], !items.isEmpty {
                             platformSection(platform: platform, items: items)
+                        } else if failures[platform.rawValue] != nil {
+                            // 抓失败时也要留一块位置，不然用户以为这个源根本没做
+                            unavailableSection(platform)
                         }
                     }
 
@@ -52,6 +55,22 @@ struct ChartsView: View {
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
+    }
+
+    private func unavailableSection(_ platform: PlaylistPlatform) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                SectionHeader(title: platform.label)
+                Text(L("Temporarily unavailable"))
+                    .font(.system(size: 11))
+                    .foregroundColor(.red)
+            }
+            Text(failures[platform.rawValue] ?? "")
+                .font(.system(size: 12))
+                .foregroundColor(Theme.secondaryLabel)
+                .lineLimit(2)
+        }
+        .padding(.horizontal, 16)
     }
 
     private func describe(_ error: Error) -> String {
