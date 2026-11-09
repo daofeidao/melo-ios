@@ -242,7 +242,7 @@ struct PlayerView: View {
                 .font(.system(size: 11))
                 .foregroundColor(.white.opacity(0.45))
             SystemVolumeSlider()
-                .frame(height: 26)
+                .frame(height: 30)
             Image(systemName: "speaker.wave.3.fill")
                 .font(.system(size: 11))
                 .foregroundColor(.white.opacity(0.45))
