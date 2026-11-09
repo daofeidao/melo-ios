@@ -238,7 +238,10 @@ jobs:
         id: pkg
         run: |
           APP="$APP_PATH"
-          IPA_NAME="Melo-v1.9.0.B${GITHUB_RUN_NUMBER}.ipa"
+          # 版本号只认 project.yml，避免改名时漏改工作流
+          VERSION=$(grep -m1 'MARKETING_VERSION' project.yml | sed -E 's/.*"([0-9]+(\.[0-9]+)*)".*/\1/')
+          : "${VERSION:=0.0.0}"
+          IPA_NAME="Melo-v${VERSION}.B${GITHUB_RUN_NUMBER}.ipa"
           echo "IPA_NAME=${IPA_NAME}" >> "$GITHUB_ENV"
           mkdir -p Payload
           cp -R "$APP" Payload/
@@ -255,7 +258,7 @@ jobs:
         with:
           name: melo-build
           path: |
-            Melo-v1.9.0.B*.ipa
+            Melo-v*.ipa
             shots/shot-01-home-zh.png
             shots/shot-02-settings-zh.png
             shots/shot-03-miniplayer.png
