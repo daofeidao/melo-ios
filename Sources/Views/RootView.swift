@@ -53,6 +53,12 @@ struct RootView: View {
 
     private func runSmokeTestIfNeeded() {
         // 各项冒烟动作互相独立，不能用 guard 提前返回
+        if let tab = SmokeTest.initialTab {
+            selection = tab
+        }
+        if SmokeTest.seedsPlaylist {
+            PlaylistStore.shared.seedForSmokeTest()
+        }
         if let videoId = SmokeTest.autoPlayVideoId {
             player.play(tracks: [SmokeTest.makeTrack(videoId: videoId)], startAt: 0)
 

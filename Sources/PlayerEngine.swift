@@ -43,6 +43,10 @@ final class PlayerEngine: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var endObserver: NSObjectProtocol?
     private var interruptionObserver: NSObjectProtocol?
+    private var routeObserver: NSObjectProtocol?
+    private var failureObserver: NSObjectProtocol?
+    private var mediaResetObserver: NSObjectProtocol?
+    private var retryBudget = 1
     private var loadToken = UUID()
     private var streamCache: [String: (stream: AudioStream, date: Date)] = [:]
     private var artworkCache: [String: UIImage] = [:]
@@ -132,10 +136,62 @@ final class PlayerEngine: ObservableObject {
                 self.player.pause()
             case .ended:
                 try? AVAudioSession.sharedInstance().setActive(true)
+                let raw = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+                let options = AVAudioSession.InterruptionOptions(rawValue: raw)
+                if options.contains(.shouldResume), self.hasTrack {
+                    self.player.play()
+                }
             @unknown default:
                 break
             }
         }
+
+        // 拔耳机/断开蓝牙时暂停，符合系统音乐 App 的行为
+        routeObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self = self,
+                  let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                  let reason = AVAudioSession.RouteChangeReason(rawValue: raw) else { return }
+            if reason == .oldDeviceUnavailable {
+                self.player.pause()
+            }
+        }
+
+        // 直链过期导致播放失败时，静默重新解析一次
+        failureObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemFailedToPlayToEndTime,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self = self,
+                  let item = note.object as? AVPlayerItem,
+                  item === self.player.currentItem else { return }
+            self.retryCurrentTrack()
+        }
+
+        // 媒体服务被系统重置（来电、其他 App 抢占等极端情况）：重建会话并续播
+        mediaResetObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.mediaServicesWereResetNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            let wasPlaying = self.isPlaying
+            self.configureSession()
+            if self.hasTrack {
+                self.load(autoPlay: wasPlaying, resetBudget: true)
+            }
+        }
+    }
+
+    private func retryCurrentTrack() {
+        guard retryBudget > 0, let track = currentTrack else { return }
+        retryBudget -= 1
+        streamCache.removeValue(forKey: track.videoId)
+        load(autoPlay: true, resetBudget: false)
     }
 
     private func setupRemoteCommands() {
@@ -274,6 +330,11 @@ final class PlayerEngine: ObservableObject {
     // MARK: - Loading
 
     func loadCurrent(autoPlay: Bool) {
+        load(autoPlay: autoPlay, resetBudget: true)
+    }
+
+    private func load(autoPlay: Bool, resetBudget: Bool) {
+        if resetBudget { retryBudget = 1 }
         guard let track = currentTrack else { return }
 
         let token = UUID()

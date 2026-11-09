@@ -3,10 +3,35 @@ import SwiftUI
 struct LibraryView: View {
     @EnvironmentObject private var library: Library
     @EnvironmentObject private var player: PlayerEngine
+    @EnvironmentObject private var store: PlaylistStore
+
+    @State private var showImport = false
 
     var body: some View {
         NavigationView {
             List {
+                Section {
+                    Button {
+                        showImport = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundColor(Theme.accent)
+                            Text(L("Import Playlist"))
+                                .foregroundColor(Theme.accent)
+                            Spacer()
+                        }
+                    }
+
+                    ForEach(store.playlists) { playlist in
+                        NavigationLink(destination: PlaylistDetailView(playlist: playlist)) {
+                            PlaylistRow(playlist: playlist)
+                        }
+                    }
+                } header: {
+                    Text(L("My Playlists"))
+                }
+
                 if !library.favorites.isEmpty {
                     Section {
                         ForEach(Array(library.favorites.enumerated()), id: \.offset) { index, track in
@@ -31,7 +56,7 @@ struct LibraryView: View {
                     }
                 }
 
-                if library.favorites.isEmpty, library.recent.isEmpty {
+                if library.favorites.isEmpty, library.recent.isEmpty, store.playlists.isEmpty {
                     EmptyHint(
                         symbol: "heart",
                         title: L("Your library is empty"),
@@ -56,9 +81,26 @@ struct LibraryView: View {
             .navigationTitle(L("Library"))
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        showImport = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     NavigationLink(destination: SettingsView()) {
                         Image(systemName: "gearshape")
+                    }
+                }
+            }
+            .sheet(isPresented: $showImport) {
+                ImportPlaylistView()
+            }
+            .onAppear {
+                if SmokeTest.opensImport {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                        showImport = true
                     }
                 }
             }

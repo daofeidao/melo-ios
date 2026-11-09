@@ -21,6 +21,22 @@ enum SmokeTest {
         ProcessInfo.processInfo.arguments.contains("-smoke-settings")
     }
 
+    static var initialTab: Int? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let index = args.firstIndex(of: "-smoke-tab"), index + 1 < args.count else {
+            return nil
+        }
+        return Int(args[index + 1])
+    }
+
+    static var seedsPlaylist: Bool {
+        ProcessInfo.processInfo.arguments.contains("-smoke-seed-playlist")
+    }
+
+    static var opensImport: Bool {
+        ProcessInfo.processInfo.arguments.contains("-smoke-import")
+    }
+
     static func makeTrack(videoId: String) -> Track {
         Track(
             videoId: videoId,

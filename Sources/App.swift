@@ -5,6 +5,7 @@ import UIKit
 struct MeloApp: App {
     @StateObject private var player = PlayerEngine.shared
     @StateObject private var library = Library.shared
+    @StateObject private var playlists = PlaylistStore.shared
 
     /// 外观偏好：system / light / dark，持久化在 UserDefaults
     @AppStorage("melo.appearance") private var appearance = AppearanceMode.system.rawValue
@@ -18,6 +19,7 @@ struct MeloApp: App {
             RootView()
                 .environmentObject(player)
                 .environmentObject(library)
+                .environmentObject(playlists)
                 .accentColor(Theme.accent)
                 .preferredColorScheme((AppearanceMode(rawValue: appearance) ?? .system).colorScheme)
         }
