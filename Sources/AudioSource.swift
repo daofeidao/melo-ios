@@ -6,13 +6,25 @@ enum AudioSource {
 
     static let browserUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
-    /// 上一次判定"YouTube 拦截本网络"的时间。命中后 10 分钟内直接走国内音源，
-    /// 避免每首歌都要先空等两次失败的 player 请求。
-    private static var blockedAt: Date?
+    /// 上一次判定"YouTube 走不通"的时间。
+    /// 持久化到 UserDefaults：不然每次冷启动第一首歌都要再等一次 12 秒超时。
+    private static let blockedAtKey = "melo.youtubeBlockedAt"
+    private static let blockedWindow: TimeInterval = 30 * 60
+
+    private static var blockedAt: Date? {
+        get { UserDefaults.standard.object(forKey: blockedAtKey) as? Date }
+        set {
+            if let value = newValue {
+                UserDefaults.standard.set(value, forKey: blockedAtKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: blockedAtKey)
+            }
+        }
+    }
 
     private static var youtubeLikelyBlocked: Bool {
         guard let blockedAt = blockedAt else { return false }
-        return Date().timeIntervalSince(blockedAt) < 600
+        return Date().timeIntervalSince(blockedAt) < blockedWindow
     }
 
     static func noteYouTubeBlocked() {
@@ -50,31 +62,39 @@ enum AudioSource {
             return AudioStream(url: url, itag: -1, bitrate: 0, mime: "audio/mpeg")
         }
 
+        // 直链能拿到就直接播（probe 已经移出关键路径）
         if !failedTracks.contains(track.id), let domestic = await domesticStream(for: track) {
             return domestic
         }
 
-        // 有国内来源但拿不到直链（VIP / 无版权 / QQ 要登录）时，
-        // 先按歌名在国内源里找同一首，不要先去撞 YouTube ——
-        // 没代理时那一轮只会白等十几秒，而且照样失败。
-        if track.source != nil, let fallback = await domesticFallback(for: track) {
-            return fallback
-        }
-
-        // 已确认被拦时不再等 YouTube，直接按歌名找国内音源
-        if youtubeLikelyBlocked, let fallback = await domesticFallback(for: track) {
+        // 有国内来源但拿不到直链（网易云 VIP / QQ 要登录）：
+        // 按歌名在国内源里找同一首。一次解析只做一次，别搜两遍。
+        var attemptedFallback = false
+        if track.source != nil {
+            attemptedFallback = true
+            if let fallback = await domesticFallback(for: track) {
+                return fallback
+            }
+            // 已经确认 YouTube 被拦，就别再空等一轮了
+            if youtubeLikelyBlocked {
+                throw ApiError.unavailable(L("This song is not available on domestic sources right now."))
+            }
+        } else if youtubeLikelyBlocked, let fallback = await domesticFallback(for: track) {
             return fallback
         }
 
         do {
             return try await StreamResolver.resolve(videoId: track.videoId, quality: quality)
         } catch {
-            // YouTube 被判定为机器人（或取不到直链）时，按歌名 + 艺人去国内音源找同一个版本。
-            // 搜索/浏览里的歌没有平台 ID，这条兜底是它们唯一的出路。
             if let typed = error as? ApiError, case .botCheck = typed {
                 noteYouTubeBlocked()
+            } else if error is URLError {
+                // 超时 / 连不上 / DNS 失败同样是"这条路走不通"，
+                // 以前只认 botCheck，所以熔断几乎从来没生效过
+                noteYouTubeBlocked()
             }
-            if let fallback = await domesticFallback(for: track) {
+            // 上面已经搜过一次就别重复搜（QQ 歌在这条路径上最容易白等两轮）
+            if !attemptedFallback, let fallback = await domesticFallback(for: track) {
                 return fallback
             }
             throw error

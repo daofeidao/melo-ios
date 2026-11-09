@@ -72,6 +72,13 @@
 "Save to Library" = "Save to Library";
 "Loading…" = "Loading…";
 "Recent Searches" = "Recent Searches";
+"Playlists" = "Playlists";
+"Albums" = "Albums";
+"YouTube" = "YouTube";
+"More results from YouTube" = "More results from YouTube";
+"YouTube is not reachable on this network." = "YouTube is not reachable on this network.";
+"Nothing found on domestic sources. Open “More results” to try YouTube." = "Nothing found on domestic sources. Open “More results” to try YouTube.";
+"This album could not be loaded." = "This album could not be loaded.";
 "Browse by Genre" = "Browse by Genre";
 "Mandarin" = "Mandarin";
 "Western" = "Western";
@@ -95,6 +102,7 @@
 "Favorites and history live on the Listen Now page; this page keeps your imported files." = "Favorites and history live on the Listen Now page; this page keeps your imported files.";
 "Import a playlist link, or add audio files to Local Music." = "Import a playlist link, or add audio files to Local Music.";
 "Temporarily unavailable" = "Temporarily unavailable";
+"This song is not available on domestic sources right now." = "This song is not available on domestic sources right now.";
 "Kugou charts are not reachable right now." = "Kugou charts are not reachable right now.";
 "Saved to Library" = "Saved to Library";
 "No lyrics for this song" = "No lyrics for this song";

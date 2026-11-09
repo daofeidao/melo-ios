@@ -57,6 +57,8 @@ struct TrackRow: View {
     var showArtwork: Bool = true
     var showIndex: Bool = false
     var index: Int = 0
+    /// 右侧小标签，目前用来标 VIP
+    var badge: String? = nil
     var onTap: () -> Void
 
     @EnvironmentObject private var player: PlayerEngine
@@ -97,6 +99,17 @@ struct TrackRow: View {
                     }
                 }
                 Spacer(minLength: 8)
+                if let badge = badge {
+                    Text(badge)
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(Theme.accent)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1.5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .stroke(Theme.accent.opacity(0.7), lineWidth: 0.8)
+                        )
+                }
                 Text(track.durationText)
                     .font(.system(size: 13))
                     .foregroundColor(Theme.secondaryLabel)

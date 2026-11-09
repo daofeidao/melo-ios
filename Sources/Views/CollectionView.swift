@@ -124,6 +124,38 @@ struct CollectionView: View {
             loading = true
             error = nil
         }
+
+        // 国内专辑：browseId 带前缀，直接从网易云拿曲目，不经 YouTube
+        if browseId.hasPrefix("netease:album:") {
+            let id = String(browseId.dropFirst("netease:album:".count))
+            let result = await DomesticSource.neteaseAlbumDetail(id: id)
+            await MainActor.run {
+                detail = result
+                loading = false
+                if let result = result { player.prewarm(tracks: result.tracks) }
+                if result == nil { error = L("This album could not be loaded.") }
+            }
+            return
+        }
+
+        // 国内歌单：复用已有的歌单抓取，曲目直接转 Track（不做 YouTube 匹配）
+        if browseId.hasPrefix("netease:playlist:") {
+            let id = String(browseId.dropFirst("netease:playlist:".count))
+            let remote = try? await PlaylistFetcher.fetch(platform: .netease, id: id)
+            let tracks = PlaylistMatcher.direct(songs: remote?.songs ?? [])
+            await MainActor.run {
+                detail = CollectionDetail(
+                    title: remote?.name ?? fallbackTitle,
+                    subtitle: String(format: L("%d songs"), tracks.count),
+                    artwork: remote?.cover,
+                    tracks: tracks
+                )
+                loading = false
+                if tracks.isEmpty { error = L("Nothing here yet") } else { player.prewarm(tracks: tracks) }
+            }
+            return
+        }
+
         do {
             let result = try await InnerTube.shared.collection(browseId: browseId)
             await MainActor.run {

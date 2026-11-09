@@ -72,6 +72,13 @@
 "Save to Library" = "收藏到资料库";
 "Loading…" = "正在加载…";
 "Recent Searches" = "最近搜索";
+"Playlists" = "歌单";
+"Albums" = "专辑";
+"YouTube" = "YouTube";
+"More results from YouTube" = "更多结果（YouTube）";
+"YouTube is not reachable on this network." = "当前网络连不上 YouTube。";
+"Nothing found on domestic sources. Open “More results” to try YouTube." = "国内源没找到，点「更多结果」试试 YouTube。";
+"This album could not be loaded." = "这张专辑没能加载出来。";
 "Browse by Genre" = "按风格浏览";
 "Mandarin" = "华语";
 "Western" = "欧美";
@@ -95,6 +102,7 @@
 "Favorites and history live on the Listen Now page; this page keeps your imported files." = "收藏和最近播放在「现在就听」里，这里放你导入的文件。";
 "Import a playlist link, or add audio files to Local Music." = "粘贴歌单链接导入，或把音频文件放进「本地音乐」。";
 "Temporarily unavailable" = "暂不可用";
+"This song is not available on domestic sources right now." = "这首歌暂时在国内音源上找不到可播的版本。";
 "Kugou charts are not reachable right now." = "酷狗榜单暂时连不上。";
 "Saved to Library" = "已收藏到资料库";
 "No lyrics for this song" = "这首歌暂时没有歌词";

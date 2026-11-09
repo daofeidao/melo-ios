@@ -10,8 +10,47 @@ struct Track: Identifiable, Hashable, Codable {
     /// 国内音源标记（netease / qq / kugou），与 sourceID 配合可直接取直链
     var source: String? = nil
     var sourceID: String? = nil
+    /// 网易云的 VIP / 付费曲目：搜出来能看见，但外链大概率拿不到直链
+    var isVip: Bool = false
 
     var id: String { videoId.isEmpty ? (source ?? "") + ":" + (sourceID ?? "") : videoId }
+
+    /// 手写解码：新增字段要能读老数据（收藏、最近播放都存在 UserDefaults 里），
+    /// 合成解码遇到缺字段会直接抛错，用户的收藏就整个没了。
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        videoId = try container.decodeIfPresent(String.self, forKey: .videoId) ?? ""
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        artist = try container.decodeIfPresent(String.self, forKey: .artist) ?? ""
+        album = try container.decodeIfPresent(String.self, forKey: .album)
+        duration = try container.decodeIfPresent(Int.self, forKey: .duration) ?? 0
+        artwork = try container.decodeIfPresent(String.self, forKey: .artwork)
+        source = try container.decodeIfPresent(String.self, forKey: .source)
+        sourceID = try container.decodeIfPresent(String.self, forKey: .sourceID)
+        isVip = try container.decodeIfPresent(Bool.self, forKey: .isVip) ?? false
+    }
+
+    init(
+        videoId: String,
+        title: String,
+        artist: String,
+        album: String? = nil,
+        duration: Int,
+        artwork: String? = nil,
+        source: String? = nil,
+        sourceID: String? = nil,
+        isVip: Bool = false
+    ) {
+        self.videoId = videoId
+        self.title = title
+        self.artist = artist
+        self.album = album
+        self.duration = duration
+        self.artwork = artwork
+        self.source = source
+        self.sourceID = sourceID
+        self.isVip = isVip
+    }
 
     var durationText: String {
         guard duration > 0 else { return "--:--" }
@@ -93,6 +132,9 @@ struct Shelf: Identifiable {
 }
 
 struct SearchResults {
+    /// 国内专辑 / 歌单，browseId 前缀分别是 netease:album: / netease:playlist:
+    var domesticCollections: [MediaCollection] = []
+
     var tracks: [Track] = []
     var collections: [MediaCollection] = []
     /// 国内音源结果，已逐条验证可拉流，点开必定能播

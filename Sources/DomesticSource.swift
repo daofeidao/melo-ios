@@ -20,21 +20,31 @@ enum DomesticSource {
     // MARK: - 搜索
 
     /// 两源并发合并：酷狗在前（可播率高），网易云在后（补充冷门与独立音乐）
-    static func search(query: String, limit: Int = 20) async -> [Track] {
+    /// - Parameter kugouFirst: 兜底匹配用。酷狗能播率高，先在酷狗找，
+    ///   找不到再问网易云 —— 比两源并发少一半请求（匹配场景不需要那么全）。
+    static func search(query: String, limit: Int = 20, kugouFirst: Bool = false) async -> [Track] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
         // 同上：不用 async let（会踩 asyncLet_finish_after_task_completion 的坑）
         let kugouJob = Task { await kugouSearch(query: trimmed, limit: limit) }
-        let neteaseJob = Task { await neteaseSearch(query: trimmed, limit: limit) }
+        let neteaseJob: Task<[Track], Never>? = kugouFirst
+            ? nil
+            : Task { await neteaseSearch(query: trimmed, limit: limit) }
 
         let kugou = await kugouJob.value
-        let netease = await neteaseJob.value
+        if kugouFirst, !kugou.isEmpty {
+            return dedup(kugou)
+        }
+        let netease = await neteaseJob?.value ?? []
 
+        return dedup(kugou + netease)
+    }
+
+    private static func dedup(_ tracks: [Track]) -> [Track] {
         var merged: [Track] = []
         var seen = Set<String>()
-
-        for track in kugou + netease {
+        for track in tracks {
             let key = normalize(track.title) + "|" + normalize(track.artist)
             guard !seen.contains(key) else { continue }
             seen.insert(key)
@@ -51,7 +61,7 @@ enum DomesticSource {
         else { return [] }
 
         var request = URLRequest(url: url)
-        request.timeoutInterval = 15
+        request.timeoutInterval = 6
         request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
         request.setValue("https://www.kugou.com/", forHTTPHeaderField: "Referer")
 
@@ -92,9 +102,8 @@ enum DomesticSource {
             return nil
         }
         var request = URLRequest(url: url)
-        // 12 秒：从境外机房到 m.kugou.com 实测经常要 6~10 秒，
-        // 之前压到 6 秒导致搜索结果里"可播"的曲子全部被判失败
-        request.timeoutInterval = 12
+        // 实测 playInfo 74~284ms，5 秒足够；失败要快速暴露
+        request.timeoutInterval = 5
         request.setValue(mobileUA, forHTTPHeaderField: "User-Agent")
 
         guard let (data, _) = try? await URLSession.shared.data(for: request),
@@ -113,7 +122,7 @@ enum DomesticSource {
         else { return [] }
 
         var request = URLRequest(url: url)
-        request.timeoutInterval = 15
+        request.timeoutInterval = 6
         request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
         request.setValue("https://music.163.com/", forHTTPHeaderField: "Referer")
         request.setValue(declaredIP, forHTTPHeaderField: "X-Real-IP")
@@ -138,6 +147,8 @@ enum DomesticSource {
             let albumNode = JS.dict(song["album"])
             let artwork = JS.string(albumNode?["picUrl"] ?? "")
             let seconds = (JS.int(song["duration"]) ?? 0) / 1000
+            // fee：0 免费、8 免费低音质、1 VIP、4 需购买
+            let fee = JS.int(song["fee"]) ?? 0
 
             return Track(
                 videoId: "",
@@ -147,7 +158,8 @@ enum DomesticSource {
                 duration: seconds,
                 artwork: artwork.flatMap { $0.isEmpty ? nil : $0 },
                 source: PlaylistPlatform.netease.rawValue,
-                sourceID: id
+                sourceID: id,
+                isVip: fee == 1 || fee == 4
             )
         }
     }
@@ -220,7 +232,7 @@ enum DomesticSource {
         let query = [title, artist].filter { !$0.isEmpty }.joined(separator: " ")
         guard !query.isEmpty else { return nil }
 
-        let candidates = await search(query: query, limit: 30)
+        let candidates = await search(query: query, limit: 30, kugouFirst: true)
         guard !candidates.isEmpty else { return nil }
 
         let wantedTitle = normalize(title)
@@ -272,6 +284,135 @@ enum DomesticSource {
 
         guard let picked = best, picked.score >= 100 else { return nil }
         return picked.track
+    }
+
+    // MARK: - 网易云专辑 / 歌单搜索
+
+    struct DomesticAlbum: Identifiable, Hashable {
+        let id: String
+        let name: String
+        let artist: String
+        let cover: String?
+        let trackCount: Int
+    }
+
+    struct DomesticPlaylist: Identifiable, Hashable {
+        let id: String
+        let name: String
+        let cover: String?
+        let trackCount: Int
+        let creator: String
+    }
+
+    static func neteaseAlbumSearch(query: String, limit: Int = 20) async -> [DomesticAlbum] {
+        guard let result = await neteaseSearchRoot(query: query, type: 10, limit: limit),
+              let albums = JS.array(result["albums"]) else { return [] }
+
+        return albums.compactMap { raw -> DomesticAlbum? in
+            guard let item = JS.dict(raw),
+                  let id = JS.int(item["id"]).map(String.init),
+                  let name = JS.string(item["name"]), !name.isEmpty else { return nil }
+
+            let artist = (JS.array(item["artists"]) ?? [])
+                .compactMap { JS.dict($0) }
+                .compactMap { JS.string($0["name"]) }
+                .joined(separator: ", ")
+
+            return DomesticAlbum(
+                id: id,
+                name: name,
+                artist: artist,
+                cover: normalizeArtwork(JS.string(item["picUrl"])),
+                trackCount: JS.int(item["size"]) ?? 0
+            )
+        }
+    }
+
+    static func neteasePlaylistSearch(query: String, limit: Int = 20) async -> [DomesticPlaylist] {
+        guard let result = await neteaseSearchRoot(query: query, type: 1000, limit: limit),
+              let playlists = JS.array(result["playlists"]) else { return [] }
+
+        return playlists.compactMap { raw -> DomesticPlaylist? in
+            guard let item = JS.dict(raw),
+                  let id = JS.int(item["id"]).map(String.init),
+                  let name = JS.string(item["name"]), !name.isEmpty else { return nil }
+
+            let creator = JS.dict(item["creator"]).flatMap { JS.string($0["nickname"]) } ?? ""
+            return DomesticPlaylist(
+                id: id,
+                name: name,
+                cover: normalizeArtwork(JS.string(item["coverImgUrl"])),
+                trackCount: JS.int(item["trackCount"]) ?? 0,
+                creator: creator
+            )
+        }
+    }
+
+    /// 专辑详情：曲目挂在 album.songs[] 里（不在顶层）
+    static func neteaseAlbumDetail(id: String) async -> CollectionDetail? {
+        guard let url = URL(string: "https://music.163.com/api/album/\(id)") else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 6
+        request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
+        request.setValue("https://music.163.com/", forHTTPHeaderField: "Referer")
+        request.setValue(declaredIP, forHTTPHeaderField: "X-Real-IP")
+
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let album = JS.dict(root["album"]) else { return nil }
+
+        let name = JS.string(album["name"]) ?? L("Unknown Album")
+        let artist = (JS.array(album["artists"]) ?? [])
+            .compactMap { JS.dict($0) }
+            .compactMap { JS.string($0["name"]) }
+            .joined(separator: ", ")
+
+        let songs = (JS.array(album["songs"]) ?? []).compactMap { raw -> Track? in
+            guard let song = JS.dict(raw),
+                  let sid = JS.int(song["id"]).map(String.init),
+                  let title = JS.string(song["name"]), !title.isEmpty else { return nil }
+
+            let fee = JS.int(song["fee"]) ?? 0
+            let seconds = (JS.int(song["duration"]) ?? JS.int(song["dt"]) ?? 0) / 1000
+            return Track(
+                videoId: "",
+                title: title,
+                artist: artist.isEmpty ? L("Unknown Artist") : artist,
+                album: name,
+                duration: seconds,
+                artwork: normalizeArtwork(JS.string(album["picUrl"])),
+                source: PlaylistPlatform.netease.rawValue,
+                sourceID: sid,
+                isVip: fee == 1 || fee == 4
+            )
+        }
+
+        guard !songs.isEmpty else { return nil }
+        let countText = String(format: L("%d songs"), songs.count)
+        return CollectionDetail(
+            title: name,
+            subtitle: artist.isEmpty ? countText : "\(artist) · \(countText)",
+            artwork: normalizeArtwork(JS.string(album["picUrl"])),
+            tracks: songs
+        )
+    }
+
+    private static func neteaseSearchRoot(query: String, type: Int, limit: Int) async -> [String: Any]? {
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .alphanumerics),
+              let url = URL(string: "https://music.163.com/api/search/get?s=\(encoded)&type=\(type)&limit=\(limit)")
+        else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 6
+        request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
+        request.setValue("https://music.163.com/", forHTTPHeaderField: "Referer")
+        request.setValue(declaredIP, forHTTPHeaderField: "X-Real-IP")
+
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let result = JS.dict(root["result"]) else { return nil }
+        return result
     }
 
     // MARK: - 工具
