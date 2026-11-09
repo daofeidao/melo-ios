@@ -7,6 +7,7 @@ on:
       - 'scripts/probe_player_clients.py'
       - 'scripts/probe_netease_search.py'
       - 'scripts/probe_decrypt.py'
+      - 'scripts/probe_coverage.py'
   workflow_dispatch:
 
 jobs:
@@ -25,6 +26,9 @@ jobs:
         run: |
           pip install --quiet cryptography
           python3 scripts/probe_decrypt.py
+
+      - name: Domestic source coverage
+        run: python3 scripts/probe_coverage.py
 
       - name: NetEase outer chain reachability
         run: |
