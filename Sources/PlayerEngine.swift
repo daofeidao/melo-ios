@@ -37,6 +37,8 @@ final class PlayerEngine: ObservableObject {
     @Published private(set) var errorText: String?
     @Published var repeatMode: RepeatMode = .off
     @Published var isShuffle = false
+    /// 点歌后是否直接展开全屏播放页（Apple Music 的行为）
+    @Published var opensFullPlayer = false
 
     private let player = AVPlayer()
     private var timeObserver: Any?
@@ -236,12 +238,15 @@ final class PlayerEngine: ObservableObject {
         queue = tracks
         index = min(max(0, startIndex), tracks.count - 1)
         loadCurrent(autoPlay: true)
+        // 用户点了歌就直接给播放页，不要让他再点一次迷你播放器
+        if !SmokeTest.suppressesAutoPlayer { opensFullPlayer = true }
     }
 
     func playSingle(_ track: Track) {
         if let existing = queue.firstIndex(of: track) {
             index = existing
             loadCurrent(autoPlay: true)
+            if !SmokeTest.suppressesAutoPlayer { opensFullPlayer = true }
         } else {
             play(tracks: [track], startAt: 0)
         }

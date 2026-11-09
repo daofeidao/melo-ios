@@ -69,7 +69,10 @@ enum DomesticSource {
 
             let artist = JS.string(item["SingerName"]) ?? ""
             let seconds = JS.int(item["Duration"]) ?? 0
-            let artwork = JS.string(item["Image"]).flatMap { $0.isEmpty ? nil : $0 }
+            // 酷狗的 Image 是模板串（含 {size} 占位），AlbumImage 才是专辑图。
+            // 以前直接拿 Image 当 URL，界面就一直是占位符。
+            let artwork = normalizeArtwork(JS.string(item["AlbumImage"]))
+                ?? normalizeArtwork(JS.string(item["Image"]))
 
             return Track(
                 videoId: "",
@@ -267,6 +270,20 @@ enum DomesticSource {
 
         guard let picked = best, picked.score >= 100 else { return nil }
         return picked.track
+    }
+
+    // MARK: - 工具
+
+    /// 酷狗返回的封面是模板：`http://imge.kugou.com/stdmusic/{size}/2025....jpg`。
+    /// 必须把 {size} 换成像素数，并升到 https，否则只会一直显示占位图。
+    static func normalizeArtwork(_ raw: String?) -> String? {
+        guard var text = raw, !text.isEmpty else { return nil }
+        text = text.replacingOccurrences(of: "{size}", with: "240")
+        if text.hasPrefix("http://") {
+            text = "https://" + text.dropFirst("http://".count)
+        }
+        guard text.hasPrefix("https://") else { return nil }
+        return text
     }
 
     /// 小写、去括注与书名号、只留数字/字母/CJK，让「晴天 (Live)」和「晴天」能对上

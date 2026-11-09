@@ -69,6 +69,10 @@
 "Light" = "浅色";
 "Dark" = "深色";
 "Appearance follows the system by default. Pick Light or Dark to override it for this app only." = "默认跟随系统。选择浅色或深色只影响本应用。";
+"Save to Library" = "收藏到资料库";
+"Saved to Library" = "已收藏到资料库";
+"No lyrics for this song" = "这首歌暂时没有歌词";
+"This playlist could not be loaded. Pull back and open it again." = "这个歌单没能加载出来，返回再进一次试试。";
 "Clear Recently Played" = "清空最近播放";
 "Clear recently played?" = "确定清空最近播放？";
 "Backup & Restore" = "备份与恢复";

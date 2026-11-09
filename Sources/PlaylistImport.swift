@@ -33,6 +33,8 @@ struct RemoteSong {
     var duration: Int
     var source: PlaylistPlatform
     var sourceID: String
+    /// 原平台封面（能拿到就用，拿不到界面上是占位图）
+    var artwork: String? = nil
 }
 
 struct RemotePlaylist {
@@ -259,9 +261,13 @@ enum PlaylistFetcher {
             .first { !$0.isEmpty }
         let ms = JS.int(raw["duration"]) ?? JS.int(raw["dt"]) ?? 0
         let songID = JS.int(raw["id"]).map(String.init) ?? ""
+        let cover = [JS.dict(raw["al"]), JS.dict(raw["album"])]
+            .compactMap { $0.flatMap { JS.string($0["picUrl"]) } }
+            .first { !$0.isEmpty }
         return RemoteSong(
             title: title, artist: artists, album: album,
-            duration: max(0, ms / 1000), source: .netease, sourceID: songID
+            duration: max(0, ms / 1000), source: .netease, sourceID: songID,
+            artwork: cover
         )
     }
 
@@ -326,15 +332,24 @@ enum PlaylistFetcher {
             .compactMap { JS.dict($0) }
             .compactMap { JS.string($0["name"]) }
             .joined(separator: ", ")
-        let album = JS.dict(raw["album"]).flatMap { JS.string($0["name"]) } ?? JS.string(raw["albumname"])
+        let albumNode = JS.dict(raw["album"])
+        let album = albumNode.flatMap { JS.string($0["name"]) } ?? JS.string(raw["albumname"])
         let songID = JS.string(raw["mid"]) ?? JS.string(raw["songmid"]) ?? ""
+        // QQ 的封面只能靠 albummid 拼
+        let albumMid = JS.string(raw["albummid"])
+            ?? albumNode.flatMap { JS.string($0["mid"]) }
+            ?? ""
+        let cover = albumMid.isEmpty
+            ? nil
+            : "https://y.gtimg.cn/music/photo_new/T002R300x300M000\(albumMid).jpg"
         return RemoteSong(
             title: title,
             artist: artist,
             album: album,
             duration: JS.int(raw["interval"]) ?? 0,
             source: .qq,
-            sourceID: songID
+            sourceID: songID,
+            artwork: cover
         )
     }
 
@@ -409,7 +424,8 @@ enum PlaylistFetcher {
             album: JS.string(raw["album_name"]),
             duration: max(0, ms / 1000),
             source: .kugou,
-            sourceID: JS.string(raw["hash"]) ?? ""
+            sourceID: JS.string(raw["hash"]) ?? "",
+            artwork: DomesticSource.normalizeArtwork(JS.string(raw["img"]))
         )
     }
 
@@ -500,7 +516,7 @@ enum PlaylistMatcher {
                 artist: song.artist.isEmpty ? L("Unknown Artist") : song.artist,
                 album: song.album,
                 duration: song.duration,
-                artwork: nil,
+                artwork: song.artwork,
                 source: song.source.rawValue,
                 sourceID: song.sourceID
             )
@@ -521,6 +537,8 @@ enum PlaylistMatcher {
         // 记住它在原平台的 ID，播放时优先走国内音源
         track.source = song.source.rawValue
         track.sourceID = song.sourceID
+        // YouTube 那边没封面时，退回原平台的封面
+        if track.artwork == nil { track.artwork = song.artwork }
         return track
     }
 }

@@ -55,6 +55,11 @@ enum SmokeTest {
         ProcessInfo.processInfo.arguments.contains("-smoke-backup")
     }
 
+    /// 冒烟截图时要拍"迷你播放器"，别让点歌自动展开全屏播放页
+    static var suppressesAutoPlayer: Bool {
+        ProcessInfo.processInfo.arguments.contains("-smoke-no-autoplayer")
+    }
+
     /// 直接播一首网易云歌曲，用来验证国内音源链路
     static var neteaseSongID: String? {
         let args = ProcessInfo.processInfo.arguments

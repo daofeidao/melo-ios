@@ -16,7 +16,7 @@ final class Library: ObservableObject {
 
     func addRecent(_ track: Track) {
         guard !track.title.isEmpty else { return }
-        var list = recent.filter { $0.videoId != track.videoId }
+        var list = recent.filter { $0.id != track.id }
         list.insert(track, at: 0)
         if list.count > 60 { list = Array(list.prefix(60)) }
         recent = list
@@ -24,7 +24,7 @@ final class Library: ObservableObject {
     }
 
     func toggleFavorite(_ track: Track) {
-        if let index = favorites.firstIndex(where: { $0.videoId == track.videoId }) {
+        if let index = favorites.firstIndex(where: { $0.id == track.id }) {
             favorites.remove(at: index)
         } else {
             favorites.insert(track, at: 0)
@@ -33,7 +33,7 @@ final class Library: ObservableObject {
     }
 
     func isFavorite(_ track: Track) -> Bool {
-        favorites.contains { $0.videoId == track.videoId }
+        favorites.contains { $0.id == track.id }
     }
 
     func clearRecent() {

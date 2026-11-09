@@ -9,6 +9,9 @@ struct PlayerView: View {
     @State private var artwork: UIImage?
     @State private var offset: CGFloat = 0
     @State private var showQueue = false
+    @State private var showLyrics = false
+    @State private var lyrics: [LyricLine] = []
+    @State private var lyricsLoading = false
 
     var body: some View {
         ZStack {
@@ -24,7 +27,14 @@ struct PlayerView: View {
 
                     Spacer(minLength: 12)
 
-                    artworkView(side: artSide)
+                    if showLyrics {
+                        lyricsView(side: artSide)
+                    } else {
+                        artworkView(side: artSide)
+                            .onTapGesture {
+                                withAnimation(.easeInOut(duration: 0.22)) { showLyrics = true }
+                            }
+                    }
 
                     Spacer(minLength: 16)
 
@@ -72,8 +82,9 @@ struct PlayerView: View {
             QueueView()
                 .environmentObject(player)
         }
-        .task(id: player.currentTrack?.videoId) {
+        .task(id: player.currentTrack?.id) {
             await loadArtwork()
+            await loadLyrics()
         }
         .onDisappear {
             offset = 0
@@ -129,6 +140,79 @@ struct PlayerView: View {
         .shadow(color: .black.opacity(0.4), radius: 22, y: 12)
         .scaleEffect(player.isPlaying ? 1 : 0.94)
         .animation(.spring(response: 0.42, dampingFraction: 0.8), value: player.isPlaying)
+    }
+
+    private var currentLine: Int {
+        guard !lyrics.isEmpty else { return 0 }
+        let time = player.elapsed + 0.2
+        var result = 0
+        for (index, line) in lyrics.enumerated() where line.time <= time {
+            result = index
+        }
+        return result
+    }
+
+    private func lyricsView(side: CGFloat) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 12) {
+                    if lyricsLoading {
+                        ProgressView()
+                            .padding(.top, 60)
+                    } else if lyrics.isEmpty {
+                        Text(L("No lyrics for this song"))
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.5))
+                            .multilineTextAlignment(.center)
+                            .padding(.top, 60)
+                            .padding(.horizontal, 16)
+                    } else {
+                        ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
+                            Text(line.text)
+                                .font(.system(size: 15, weight: index == currentLine ? .semibold : .regular))
+                                .foregroundColor(.white.opacity(index == currentLine ? 0.98 : 0.45))
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity)
+                                .id(index)
+                        }
+                    }
+                }
+                .padding(.vertical, 16)
+            }
+            .onChange(of: currentLine) { value in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(value, anchor: .center)
+                }
+            }
+        }
+        .frame(width: side, height: side)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white.opacity(0.06))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.22)) { showLyrics = false }
+        }
+    }
+
+    private func loadLyrics() async {
+        guard let track = player.currentTrack else {
+            await MainActor.run {
+                lyrics = []
+                lyricsLoading = false
+            }
+            return
+        }
+        await MainActor.run {
+            lyrics = []
+            lyricsLoading = true
+        }
+        let lines = await LyricsLoader.load(for: track)
+        await MainActor.run {
+            lyrics = lines
+            lyricsLoading = false
+        }
     }
 
     private func titleBlock(_ track: Track) -> some View {

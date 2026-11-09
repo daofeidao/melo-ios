@@ -94,7 +94,7 @@ jobs:
 
           echo "=== 冒烟播放：验证 直链解析 -> AVPlayer -> 播放页 ==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
-          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-play dQw4w9WgXcQ -smoke-player || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-play dQw4w9WgXcQ -smoke-player -smoke-no-autoplayer || true
           sleep 8
           xcrun simctl io "$DEVICE_ID" screenshot shot-03-miniplayer.png
           sleep 16

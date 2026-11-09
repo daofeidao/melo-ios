@@ -1,18 +1,12 @@
 import SwiftUI
 
-private struct ImportRequest: Identifiable {
-    let id = UUID()
-    let url: String
-}
-
-/// 排行榜：YouTube 榜单 + 各平台热门歌单（点卡片直接进导入流程）
+/// 排行榜：YouTube 榜单 + 各平台热门歌单（点卡片直接看歌曲列表）
 struct ChartsView: View {
     @State private var ytShelves: [Shelf] = []
     @State private var external: [String: [ExternalPlaylist]] = [:]
     @State private var loading = true
     @State private var error: String?
     @State private var hasLoaded = false
-    @State private var importTarget: ImportRequest?
 
     private let platforms: [PlaylistPlatform] = [.netease, .qq, .kugou]
 
@@ -55,9 +49,6 @@ struct ChartsView: View {
             .task {
                 if !hasLoaded { await load() }
             }
-            .sheet(item: $importTarget) { request in
-                ImportPlaylistView(presetURL: request.url)
-            }
         }
         .navigationViewStyle(StackNavigationViewStyle())
     }
@@ -70,9 +61,7 @@ struct ChartsView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 14) {
                     ForEach(items) { item in
-                        Button {
-                            importTarget = ImportRequest(url: item.importURL)
-                        } label: {
+                        NavigationLink(destination: ExternalPlaylistView(item: item)) {
                             card(item)
                         }
                         .buttonStyle(PlainButtonStyle())

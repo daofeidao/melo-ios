@@ -4,7 +4,6 @@ struct RootView: View {
     @EnvironmentObject private var player: PlayerEngine
 
     @State private var selection = 0
-    @State private var showPlayer = false
     @State private var showSettings = false
 
     var body: some View {
@@ -32,13 +31,13 @@ struct RootView: View {
             }
 
             if player.hasTrack {
-                MiniPlayerBar(showPlayer: $showPlayer)
+                MiniPlayerBar(showPlayer: $player.opensFullPlayer)
                     .padding(.horizontal, 8)
                     .padding(.bottom, Layout.tabBarHeight + 6)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .fullScreenCover(isPresented: $showPlayer) {
+        .fullScreenCover(isPresented: $player.opensFullPlayer) {
             PlayerView()
         }
         .sheet(isPresented: $showSettings) {
@@ -47,7 +46,11 @@ struct RootView: View {
             }
             .navigationViewStyle(StackNavigationViewStyle())
         }
-        .onAppear(perform: runSmokeTestIfNeeded)
+        .onAppear {
+            runSmokeTestIfNeeded()
+            // 进 App 就在后台把热门歌单的内容抓下来，点开排行榜卡片直接有列表
+            Task { await ChartLibrary.shared.prefetchHot() }
+        }
         .animation(.easeOut(duration: 0.22), value: player.hasTrack)
     }
 
@@ -72,7 +75,7 @@ struct RootView: View {
                     player.play(tracks: [track], startAt: 0)
                     if SmokeTest.presentsPlayer {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 12) {
-                            showPlayer = true
+                            player.opensFullPlayer = true
                         }
                     }
                 }
@@ -88,7 +91,7 @@ struct RootView: View {
                     player.play(tracks: [first], startAt: 0)
                     if SmokeTest.presentsPlayer {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 12) {
-                            showPlayer = true
+                            player.opensFullPlayer = true
                         }
                     }
                 }
@@ -101,7 +104,7 @@ struct RootView: View {
 
             if SmokeTest.presentsPlayer {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 14) {
-                    showPlayer = true
+                    player.opensFullPlayer = true
                 }
             }
         }

@@ -63,7 +63,7 @@ struct TrackRow: View {
     @EnvironmentObject private var library: Library
 
     private var isCurrent: Bool {
-        player.currentTrack?.videoId == track.videoId
+        player.currentTrack?.id == track.id
     }
 
     var body: some View {
