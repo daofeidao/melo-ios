@@ -177,21 +177,15 @@ struct SearchView: View {
         }
         // 两路并发：YouTube 拿元数据与专辑，国内音源拿"点了就能播"的曲目。
         // 任何一路失败都不该让另一路白跑 —— 用户至少能看到并播放一边的结果。
-        async let youtubeTask: SearchResults? = {
-            try? await InnerTube.shared.search(query: trimmed)
-        }()
-        async let domesticTask = DomesticSource.search(query: trimmed)
+        let youtubeJob = Task { try? await InnerTube.shared.search(query: trimmed) }
+        let domesticJob = Task { await DomesticSource.search(query: trimmed) }
 
-        let youtubeResults = await youtubeTask
-        let domesticRaw = await domesticTask
+        let youtubeResults = await youtubeJob.value
+        let domesticRaw = await domesticJob.value
         let playable = await DomesticSource.playableOnes(from: domesticRaw, limit: 10)
 
-        NSLog(
-            "SMOKE_SEARCH youtube=%d domesticRaw=%d playable=%d",
-            youtubeResults?.tracks.count ?? -1,
-            domesticRaw.count,
-            playable.count
-        )
+        // 用插值而不是 %d：NSLog 的变参对 Int 宽度敏感，%d 在 64 位下不可靠
+        NSLog("SMOKE_SEARCH youtube=\(youtubeResults?.tracks.count ?? -1) raw=\(domesticRaw.count) playable=\(playable.count)")
 
         await MainActor.run {
             var merged = youtubeResults ?? SearchResults()
