@@ -10,101 +10,93 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Probe InnerTube endpoints
+      - name: Probe structure
         run: |
           set -u
           KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
           UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
           CTX='{"client":{"clientName":"WEB_REMIX","clientVersion":"1.20241127.01.00","hl":"zh-CN","gl":"US"}}'
-
-          echo "################ 1) search ################"
-          curl -sS -m 45 -o search.json -w 'http=%{http_code} bytes=%{size_download}\n' \
-            -X POST "https://music.youtube.com/youtubei/v1/search?key=$KEY&prettyPrint=false" \
+          post () { curl -sS -m 45 -X POST "https://music.youtube.com/youtubei/v1/$1?key=$KEY&prettyPrint=false" \
             -H 'Content-Type: application/json' -H 'Origin: https://music.youtube.com' \
-            -H 'Referer: https://music.youtube.com/' -H "User-Agent: $UA" \
-            -d "{\"context\":$CTX,\"query\":\"周杰伦\"}"
+            -H 'Referer: https://music.youtube.com/' -H "User-Agent: $UA" -d "$2"; }
 
-          echo "--- song count / collection count ---"
-          echo "songs=$(jq -r '[.. | objects | select(.musicResponsiveListItemRenderer? != null)] | length' search.json)"
-          echo "tworow=$(jq -r '[.. | objects | select(.musicTwoRowItemRenderer? != null)] | length' search.json)"
+          post search "{\"context\":$CTX,\"query\":\"周杰伦\"}" > search.json
+          post browse "{\"context\":$CTX,\"browseId\":\"MPREb_nqKuADavt3c\"}" > album.json
+          post browse "{\"context\":$CTX,\"browseId\":\"FEmusic_home\"}" > home.json
 
-          echo "--- first song item compacted ---"
-          jq -c '[.. | objects | select(.musicResponsiveListItemRenderer? != null)][0] | {
-            hasPlaylistItemData: (.playlistItemData? != null),
-            videoId_pid: (.playlistItemData.videoId?),
-            videoId_ovl: (.overlay.musicItemThumbnailOverlayRenderer.content.musicPlayButtonRenderer.playNavigationEndpoint.watchEndpoint.videoId?),
-            cols: [.flexColumns[]?.musicResponsiveListItemFlexColumnRenderer.text | (if .runs then [.runs[].text] else [.simpleText] end)],
-            col1_pageTypes: [.flexColumns[1].musicResponsiveListItemFlexColumnRenderer.text.runs[]?.navigationEndpoint.browseEndpoint.browseEndpointContextSupportedConfigs.browseEndpointContextMusicConfig.pageType],
-            fixed: [.fixedColumns[]?.musicResponsiveListItemFixedColumnRenderer.text.runs[0].text],
-            thumbs: (.thumbnail.musicThumbnailRenderer.thumbnail.thumbnails | length),
-            thumb_last: .thumbnail.musicThumbnailRenderer.thumbnail.thumbnails[-1].url,
-            topKeys: keys
+          echo "@@@@@ A) search item: which videoId path exists @@@"
+          jq -r '[.. | objects | select(has("musicResponsiveListItemRenderer")) | .musicResponsiveListItemRenderer][0] | {
+            pid: .playlistItemData.videoId,
+            overlay: .overlay.musicItemThumbnailOverlayRenderer.content.musicPlayButtonRenderer.playNavigationEndpoint.watchEndpoint.videoId,
+            navWatch: .navigationEndpoint.watchEndpoint.videoId,
+            anyWatch: ([.. | objects | select(has("watchEndpoint")) | .watchEndpoint.videoId] | .[0]),
+            colCount: (.flexColumns | length),
+            fixedCount: (.fixedColumns | length)
           }' search.json
 
-          echo
-          echo "################ 2) home ################"
-          curl -sS -m 45 -o home.json -w 'http=%{http_code} bytes=%{size_download}\n' \
-            -X POST "https://music.youtube.com/youtubei/v1/browse?key=$KEY&prettyPrint=false" \
-            -H 'Content-Type: application/json' -H 'Origin: https://music.youtube.com' \
-            -H 'Referer: https://music.youtube.com/' -H "User-Agent: $UA" \
-            -d "{\"context\":$CTX,\"browseId\":\"FEmusic_home\"}"
-          echo "--- shelf titles ---"
-          jq -r '[.. | objects | select(.musicCarouselShelfBasicHeaderRenderer? != null) | .musicCarouselShelfBasicHeaderRenderer.title.runs[0].text] | .[0:15]' home.json
-          echo "--- first two-row item ---"
-          jq -c '[.. | objects | select(.musicTwoRowItemRenderer? != null)][0] | {
-            title: (.title.runs[0].text?),
-            subtitle: ([.subtitle.runs[]?.text] | join("")),
-            browseId: (.navigationEndpoint.browseEndpoint.browseId?),
-            videoId: (.navigationEndpoint.watchEndpoint.videoId?),
-            pageType: (.navigationEndpoint.browseEndpoint.browseEndpointContextSupportedConfigs.browseEndpointContextMusicConfig.pageType?),
-            thumb_last: .thumbnailRenderer.musicThumbnailRenderer.thumbnail.thumbnails[-1].url
+          echo "@@@@@ B) search item: column texts @@@"
+          jq -r '[.. | objects | select(has("musicResponsiveListItemRenderer")) | .musicResponsiveListItemRenderer][0]
+                 | .flexColumns[] | .musicResponsiveListItemFlexColumnRenderer.text
+                 | if .runs then [.runs[].text] | join("") else .simpleText end' search.json
+          echo "--- fixed ---"
+          jq -r '[.. | objects | select(has("musicResponsiveListItemRenderer")) | .musicResponsiveListItemRenderer][0]
+                 | .fixedColumns[]? | .musicResponsiveListItemFixedColumnRenderer.text
+                 | if .runs then [.runs[].text] | join("") else .simpleText end' search.json
+          echo "--- pageTypes in col1 ---"
+          jq -r '[.. | objects | select(has("musicResponsiveListItemRenderer")) | .musicResponsiveListItemRenderer][0]
+                 | [.flexColumns[] | .musicResponsiveListItemFlexColumnRenderer.text.runs[]?
+                    | {t: .text, pt: .navigationEndpoint.browseEndpoint.browseEndpointContextSupportedConfigs.browseEndpointContextMusicConfig.pageType}]' search.json
+
+          echo "@@@@@ C) thumbnails @@@"
+          jq -r '[.. | objects | select(has("musicResponsiveListItemRenderer")) | .musicResponsiveListItemRenderer][0]
+                 | .thumbnail.musicThumbnailRenderer.thumbnail.thumbnails | length' search.json
+          jq -r '[.. | objects | select(has("musicResponsiveListItemRenderer")) | .musicResponsiveListItemRenderer][0]
+                 | .thumbnail.musicThumbnailRenderer.thumbnail.thumbnails[-1].url' search.json
+
+          echo "@@@@@ D) album header @@@"
+          jq -c '[.. | objects | select(has("musicResponsiveHeaderRenderer")) | .musicResponsiveHeaderRenderer][0] | {
+            title: ([.title.runs[]?.text] | join("")),
+            sub: ([.subtitle.runs[]?.text] | join("")),
+            sub2: ([.secondSubtitle.runs[]?.text] | join("")),
+            thumb: .thumbnail.musicThumbnailRenderer.thumbnail.thumbnails[-1].url,
+            keys: keys
+          }' album.json
+
+          echo "@@@@@ E) album first track @@@"
+          jq -c '[.. | objects | select(has("musicResponsiveListItemRenderer")) | .musicResponsiveListItemRenderer][0] | {
+            pid: .playlistItemData.videoId,
+            anyWatch: ([.. | objects | select(has("watchEndpoint")) | .watchEndpoint.videoId] | .[0]),
+            cols: [.flexColumns[] | .musicResponsiveListItemFlexColumnRenderer.text | if .runs then ([.runs[].text] | join("")) else .simpleText end],
+            fixed: [.fixedColumns[]? | .musicResponsiveListItemFixedColumnRenderer.text | if .runs then ([.runs[].text] | join("")) else .simpleText end]
+          }' album.json
+          echo "track_count=$(jq -r '[.. | objects | select(has("musicResponsiveListItemRenderer"))] | length' album.json)"
+
+          echo "@@@@@ F) home two-row item @@@"
+          jq -c '[.. | objects | select(has("musicTwoRowItemRenderer")) | .musicTwoRowItemRenderer][0] | {
+            title: ([.title.runs[]?.text] | join("")),
+            sub: ([.subtitle.runs[]?.text] | join("")),
+            browseId: .navigationEndpoint.browseEndpoint.browseId,
+            watchId: .navigationEndpoint.watchEndpoint.videoId,
+            pageType: .navigationEndpoint.browseEndpoint.browseEndpointContextSupportedConfigs.browseEndpointContextMusicConfig.pageType,
+            thumb: .thumbnailRenderer.musicThumbnailRenderer.thumbnail.thumbnails[-1].url
           }' home.json
+          echo "carousels=$(jq -r '[.. | objects | select(has("musicCarouselShelfRenderer"))] | length' home.json)"
+          echo "twoRows=$(jq -r '[.. | objects | select(has("musicTwoRowItemRenderer"))] | length' home.json)"
+          echo "respItems=$(jq -r '[.. | objects | select(has("musicResponsiveListItemRenderer"))] | length' home.json)"
 
-          echo
-          echo "################ 3) charts ################"
-          curl -sS -m 45 -o charts.json -w 'http=%{http_code}\n' \
-            -X POST "https://music.youtube.com/youtubei/v1/browse?key=$KEY&prettyPrint=false" \
-            -H 'Content-Type: application/json' -H 'Origin: https://music.youtube.com' \
-            -H 'Referer: https://music.youtube.com/' -H "User-Agent: $UA" \
-            -d "{\"context\":$CTX,\"browseId\":\"FEmusic_charts\"}"
-          jq -r '[.. | objects | select(.musicCarouselShelfBasicHeaderRenderer? != null) | .musicCarouselShelfBasicHeaderRenderer.title.runs[0].text] | .[0:10]' charts.json
+          echo "@@@@@ G) end-to-end: real song playable via ANDROID_VR @@@"
+          VID=$(jq -r '[.. | objects | select(has("musicResponsiveListItemRenderer")) | .musicResponsiveListItemRenderer][0] | .playlistItemData.videoId // ([.. | objects | select(has("watchEndpoint")) | .watchEndpoint.videoId] | .[0])' album.json)
+          echo "song_videoId=$VID"
+          BODY="{\"context\":{\"client\":{\"clientName\":\"ANDROID_VR\",\"clientVersion\":\"1.60.19\",\"deviceMake\":\"Oculus\",\"deviceModel\":\"Quest 3\",\"androidSdkVersion\":32,\"osName\":\"Android\",\"osVersion\":\"12L\",\"hl\":\"en\",\"gl\":\"US\"}},\"videoId\":\"$VID\",\"contentCheckOk\":true,\"racyCheckOk\":true}"
+          curl -sS -m 45 -o song.json -w 'http=%{http_code}\n' \
+            -X POST "https://www.youtube.com/youtubei/v1/player?key=AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w&prettyPrint=false" \
+            -H 'Content-Type: application/json' \
+            -H 'User-Agent: com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip' \
+            -d "$BODY"
+          echo "status=$(jq -r '.playabilityStatus.status // "?"' song.json) title=$(jq -r '.videoDetails.title // ""' song.json) dur=$(jq -r '.videoDetails.lengthSeconds // ""' song.json)"
+          jq -r '[.streamingData.adaptiveFormats[]? | select(.mimeType|startswith("audio/mp4")) | "\(.itag) \(.bitrate) \(.url[0:60])"] | join("\n")' song.json
 
-          echo
-          echo "################ 4) playlist browse ################"
-          curl -sS -m 45 -o pl.json -w 'http=%{http_code}\n' \
-            -X POST "https://music.youtube.com/youtubei/v1/browse?key=$KEY&prettyPrint=false" \
-            -H 'Content-Type: application/json' -H 'Origin: https://music.youtube.com' \
-            -H 'Referer: https://music.youtube.com/' -H "User-Agent: $UA" \
-            -d "{\"context\":$CTX,\"browseId\":\"MPREb_nqKuADavt3c\"}"
-          echo "tracks=$(jq -r '[.. | objects | select(.musicResponsiveListItemRenderer? != null)] | length' pl.json)"
-          jq -c '[.. | objects | select(.musicResponsiveListItemRenderer? != null)][0] | {
-            videoId: .playlistItemData.videoId,
-            cols: [.flexColumns[]?.musicResponsiveListItemFlexColumnRenderer.text | (if .runs then [.runs[].text] else [.simpleText] end)],
-            fixed: [.fixedColumns[]?.musicResponsiveListItemFixedColumnRenderer.text.runs[0].text]
-          }' pl.json
-          echo "--- header ---"
-          jq -c '[.. | objects | select(.musicResponsiveHeaderRenderer? != null)][0] | {
-            title: (.title.runs[0].text?),
-            subtitle: ([.subtitle.runs[]?.text] | join("")),
-            secondSubtitle: ([.secondSubtitle.runs[]?.text] | join("")),
-            thumb: .thumbnail.musicThumbnailRenderer.thumbnail.thumbnails[-1].url
-          }' pl.json
-
-          echo
-          echo "################ 5) player fallbacks ################"
-          probe_player () {
-            local name="$1" ver="$2" extra="$3" ua="$4"
-            local body="{\"context\":{\"client\":{\"clientName\":\"$name\",\"clientVersion\":\"$ver\"$extra}},\"videoId\":\"dQw4w9WgXcQ\",\"contentCheckOk\":true,\"racyCheckOk\":true}"
-            local code
-            code=$(curl -sS -m 45 -o "p_$name.json" -w '%{http_code}' \
-              -X POST "https://www.youtube.com/youtubei/v1/player?key=AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w&prettyPrint=false" \
-              -H 'Content-Type: application/json' -H "User-Agent: $ua" -d "$body")
-            echo "== $name http=$code status=$(jq -r '.playabilityStatus.status // "?"' "p_$name.json") reason=$(jq -r '.playabilityStatus.reason // ""' "p_$name.json")"
-            echo "   audio=$(jq -r '[.streamingData.adaptiveFormats[]? | select(.mimeType|startswith("audio"))] | length' "p_$name.json") url=$(jq -r '[.streamingData.adaptiveFormats[]? | select(.url != null)] | length' "p_$name.json") cipher=$(jq -r '[.streamingData.adaptiveFormats[]? | select(.signatureCipher != null)] | length' "p_$name.json")"
-            jq -r '[.streamingData.adaptiveFormats[]? | select(.mimeType|startswith("audio")) | "\(.itag) \(.mimeType|split(";")[0]) \(.bitrate) url=\(.url != null)"] | join("\n")' "p_$name.json"
-          }
-          probe_player ANDROID_VR 1.60.19 ',"deviceMake":"Oculus","deviceModel":"Quest 3","androidSdkVersion":32,"osName":"Android","osVersion":"12L","hl":"en","gl":"US"' 'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip'
-          probe_player IOS 19.45.4 ',"deviceModel":"iPhone16,2","osName":"iPhone","osVersion":"18.1.0.0","hl":"en","gl":"US"' 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)'
-          probe_player ANDROID_MUSIC 7.27.52 ',"androidSdkVersion":34,"osName":"Android","osVersion":"14","hl":"en","gl":"US"' 'com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14; gzip)'
-          probe_player TVHTML5_SIMPLY_EMBEDDED_PLAYER 2.0 ',"hl":"en","gl":"US"' 'Mozilla/5.0 (PlayStation; PlayStation 4/12.00) AppleWebKit/605.1.15'
-          probe_player WEB 2.20241126.01.00 ',"hl":"en","gl":"US"' "$UA"
+          echo "@@@@@ H) HEAD the resolved audio url @@@"
+          AURL=$(jq -r '[.streamingData.adaptiveFormats[]? | select(.itag == 140)][0].url // ""' song.json)
+          echo "url_len=${#AURL}"
+          if [ -n "$AURL" ]; then curl -sS -m 30 -o /dev/null -w 'range_request http=%{http_code} type=%{content_type} size=%{size_download}\n' -r 0-1023 "$AURL"; fi
