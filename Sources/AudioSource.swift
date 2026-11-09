@@ -32,6 +32,13 @@ enum AudioSource {
             return domestic
         }
 
+        // 有国内来源但拿不到直链（VIP / 无版权 / QQ 要登录）时，
+        // 先按歌名在国内源里找同一首，不要先去撞 YouTube ——
+        // 没代理时那一轮只会白等十几秒，而且照样失败。
+        if track.source != nil, let fallback = await domesticFallback(for: track) {
+            return fallback
+        }
+
         // 已确认被拦时不再等 YouTube，直接按歌名找国内音源
         if youtubeLikelyBlocked, let fallback = await domesticFallback(for: track) {
             return fallback

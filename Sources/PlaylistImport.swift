@@ -510,6 +510,25 @@ enum PlaylistFetcher {
 
 enum PlaylistMatcher {
 
+    /// 直接转换，不做 YouTube 匹配。
+    /// 这些 Track 的 `videoId` 是空的，播放时靠 `source` + `sourceID` 走国内直链，
+    /// 全程不碰 YouTube，也就不需要代理。分类歌单 / 榜单走的就是这条路。
+    static func direct(songs: [RemoteSong]) -> [Track] {
+        songs.compactMap { song in
+            guard !song.sourceID.isEmpty, !song.title.isEmpty else { return nil }
+            return Track(
+                videoId: "",
+                title: song.title,
+                artist: song.artist.isEmpty ? L("Unknown Artist") : song.artist,
+                album: song.album,
+                duration: song.duration,
+                artwork: song.artwork,
+                source: song.source.rawValue,
+                sourceID: song.sourceID
+            )
+        }
+    }
+
     /// 逐首在 YouTube Music 里搜，取时长最接近的候选
     static func match(
         songs: [RemoteSong],
@@ -587,30 +606,5 @@ enum PlaylistMatcher {
         // YouTube 那边没封面时，退回原平台的封面
         if track.artwork == nil { track.artwork = song.artwork }
         return track
-    }
-}
-
-// MARK: - 直接转换（不经过 YouTube 匹配）
-
-/// 把平台返回的曲目直接转成可播放的 Track。
-///
-/// 这些 Track 的 `videoId` 是空的，播放时靠 `source` + `sourceID` 走国内直链，
-/// 全程不碰 YouTube，也就不需要代理。榜单 / 分类歌单走的就是这条路。
-enum PlaylistMatcher {
-
-    static func direct(songs: [RemoteSong]) -> [Track] {
-        songs.compactMap { song in
-            guard !song.sourceID.isEmpty, !song.title.isEmpty else { return nil }
-            return Track(
-                videoId: "",
-                title: song.title,
-                artist: song.artist.isEmpty ? L("Unknown Artist") : song.artist,
-                album: song.album,
-                duration: song.duration,
-                artwork: song.artwork,
-                source: song.source.rawValue,
-                sourceID: song.sourceID
-            )
-        }
     }
 }
