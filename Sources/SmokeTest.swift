@@ -45,6 +45,15 @@ enum SmokeTest {
         ProcessInfo.processInfo.arguments.contains("-smoke-playback-test")
     }
 
+    /// 直接播一首网易云歌曲，用来验证国内音源链路
+    static var neteaseSongID: String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let index = args.firstIndex(of: "-smoke-play-netease"), index + 1 < args.count else {
+            return nil
+        }
+        return args[index + 1]
+    }
+
     /// 搜一首真实歌曲并播放，用来验证不是只有白名单视频能播
     static var playSearchQuery: String? {
         let args = ProcessInfo.processInfo.arguments

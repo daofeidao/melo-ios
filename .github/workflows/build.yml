@@ -144,6 +144,12 @@ jobs:
           sleep 30
           xcrun simctl io "$DEVICE_ID" screenshot shot-11-real-song.png
 
+          echo "=== 国内音源播放（网易云直链）==="
+          xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-play-netease 1851652156 -smoke-player || true
+          sleep 30
+          xcrun simctl io "$DEVICE_ID" screenshot shot-12-domestic-song.png
+
           echo "=== 播放失败态（故意用无效视频）==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
           xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-play AAAAAAAAAAA -smoke-player || true
@@ -157,7 +163,7 @@ jobs:
         if: always()
         run: |
           mkdir -p shots
-          for f in shot-01-home-zh.png shot-02-settings-zh.png shot-03-miniplayer.png shot-04-player.png shot-05-english-dark.png shot-06-library-playlists.png shot-07-import-playlist.png shot-08-import-result.png shot-09-playback-diagnostics.png shot-10-playback-error.png shot-11-real-song.png; do
+          for f in shot-01-home-zh.png shot-02-settings-zh.png shot-03-miniplayer.png shot-04-player.png shot-05-english-dark.png shot-06-library-playlists.png shot-07-import-playlist.png shot-08-import-result.png shot-09-playback-diagnostics.png shot-10-playback-error.png shot-11-real-song.png shot-12-domestic-song.png; do
             if [ -f "$f" ]; then
               sips -Z 1400 "$f" --out "shots/$f" >/dev/null
             fi
@@ -231,6 +237,7 @@ jobs:
             shots/shot-09-playback-diagnostics.png
             shots/shot-10-playback-error.png
             shots/shot-11-real-song.png
+            shots/shot-12-domestic-song.png
           if-no-files-found: warn
           retention-days: 30
 
@@ -256,6 +263,7 @@ jobs:
             shots/shot-09-playback-diagnostics.png
             shots/shot-10-playback-error.png
             shots/shot-11-real-song.png
+            shots/shot-12-domestic-song.png
           draft: false
           prerelease: true
           generate_release_notes: false

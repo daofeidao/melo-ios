@@ -31,6 +31,8 @@ struct RemoteSong {
     var artist: String
     var album: String?
     var duration: Int
+    var source: PlaylistPlatform
+    var sourceID: String
 }
 
 struct RemotePlaylist {
@@ -203,7 +205,11 @@ enum PlaylistFetcher {
             .joined(separator: ", ")
         let album = JS.dict(raw["album"]).flatMap { JS.string($0["name"]) }
         let ms = JS.int(raw["duration"]) ?? JS.int(raw["dt"]) ?? 0
-        return RemoteSong(title: title, artist: artists, album: album, duration: max(0, ms / 1000))
+        let songID = JS.int(raw["id"]).map(String.init) ?? ""
+        return RemoteSong(
+            title: title, artist: artists, album: album,
+            duration: max(0, ms / 1000), source: .netease, sourceID: songID
+        )
     }
 
     // MARK: QQ音乐
@@ -268,11 +274,14 @@ enum PlaylistFetcher {
             .compactMap { JS.string($0["name"]) }
             .joined(separator: ", ")
         let album = JS.dict(raw["album"]).flatMap { JS.string($0["name"]) } ?? JS.string(raw["albumname"])
+        let songID = JS.string(raw["mid"]) ?? JS.string(raw["songmid"]) ?? ""
         return RemoteSong(
             title: title,
             artist: artist,
             album: album,
-            duration: JS.int(raw["interval"]) ?? 0
+            duration: JS.int(raw["interval"]) ?? 0,
+            source: .qq,
+            sourceID: songID
         )
     }
 
@@ -345,7 +354,9 @@ enum PlaylistFetcher {
             title: title,
             artist: artist,
             album: JS.string(raw["album_name"]),
-            duration: max(0, ms / 1000)
+            duration: max(0, ms / 1000),
+            source: .kugou,
+            sourceID: JS.string(raw["hash"]) ?? ""
         )
     }
 
@@ -425,19 +436,38 @@ enum PlaylistMatcher {
             .filter { !$0.isEmpty }
             .joined(separator: " ")
 
-        guard let candidates = try? await InnerTube.shared.searchSongs(query: query),
-              !candidates.isEmpty else {
-            return nil
+        let candidates = (try? await InnerTube.shared.searchSongs(query: query)) ?? []
+
+        // 搜不到（YouTube 被拦或本来就没有）时，只要原平台有 ID 就照样能播
+        if candidates.isEmpty {
+            guard !song.sourceID.isEmpty else { return nil }
+            return Track(
+                videoId: "",
+                title: song.title,
+                artist: song.artist.isEmpty ? L("Unknown Artist") : song.artist,
+                album: song.album,
+                duration: song.duration,
+                artwork: nil,
+                source: song.source.rawValue,
+                sourceID: song.sourceID
+            )
         }
 
-        if song.duration > 20 {
-            if let close = candidates.first(where: { abs($0.duration - song.duration) <= 6 }) {
-                return close
-            }
-            if let near = candidates.first(where: { abs($0.duration - song.duration) <= 30 }) {
-                return near
-            }
+        let picked: Track?
+        if song.duration > 20,
+           let close = candidates.first(where: { abs($0.duration - song.duration) <= 6 }) {
+            picked = close
+        } else if song.duration > 20,
+                  let near = candidates.first(where: { abs($0.duration - song.duration) <= 30 }) {
+            picked = near
+        } else {
+            picked = candidates.first
         }
-        return candidates.first
+
+        guard var track = picked else { return nil }
+        // 记住它在原平台的 ID，播放时优先走国内音源
+        track.source = song.source.rawValue
+        track.sourceID = song.sourceID
+        return track
     }
 }

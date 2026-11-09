@@ -7,8 +7,11 @@ struct Track: Identifiable, Hashable, Codable {
     var album: String?
     var duration: Int
     var artwork: String?
+    /// 国内音源标记（netease / qq / kugou），与 sourceID 配合可直接取直链
+    var source: String? = nil
+    var sourceID: String? = nil
 
-    var id: String { videoId }
+    var id: String { videoId.isEmpty ? (source ?? "") + ":" + (sourceID ?? "") : videoId }
 
     var durationText: String {
         guard duration > 0 else { return "--:--" }

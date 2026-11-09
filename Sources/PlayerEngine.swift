@@ -375,7 +375,7 @@ final class PlayerEngine: ObservableObject {
 
         Task { [weak self] in
             do {
-                let stream = try await StreamResolver.resolve(videoId: track.videoId, quality: quality)
+                let stream = try await AudioSource.resolve(track: track, quality: quality)
                 DispatchQueue.main.async {
                     guard let self = self, self.loadToken == token else { return }
                     self.streamCache[track.videoId] = (stream, Date())
