@@ -16,4 +16,4 @@ python scripts/gen_strings.py
 ```
 
 构建见 `.github/workflows/build.yml`，产物为未签名 IPA（TrollStore 直装）。
-CI 会跑模拟器冒烟测试并出四张截图：中文首页、迷你播放器、播放页、英文+深色。
+CI 会跑模拟器冒烟测试并出五张截图：中文首页、设置页、迷你播放器、播放页、英文+深色。

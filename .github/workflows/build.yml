@@ -86,13 +86,19 @@ jobs:
           sleep 14
           xcrun simctl io "$DEVICE_ID" screenshot shot-01-home-zh.png
 
+          echo "=== 设置页（验证外观切换控件）==="
+          xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-settings || true
+          sleep 14
+          xcrun simctl io "$DEVICE_ID" screenshot shot-02-settings-zh.png
+
           echo "=== 冒烟播放：验证 直链解析 -> AVPlayer -> 播放页 ==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
           xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-play dQw4w9WgXcQ -smoke-player || true
           sleep 8
-          xcrun simctl io "$DEVICE_ID" screenshot shot-02-miniplayer.png
+          xcrun simctl io "$DEVICE_ID" screenshot shot-03-miniplayer.png
           sleep 16
-          xcrun simctl io "$DEVICE_ID" screenshot shot-03-player.png
+          xcrun simctl io "$DEVICE_ID" screenshot shot-04-player.png
           echo "--- 播放相关日志 ---"
           xcrun simctl spawn "$DEVICE_ID" log show --last 60s --style compact \
             --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null | grep -iE 'error|fail|denied|AVPlayer' | tail -20 || echo "no error lines"
@@ -102,7 +108,7 @@ jobs:
           xcrun simctl ui "$DEVICE_ID" appearance dark || true
           xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(en)' -AppleLocale en_US || true
           sleep 14
-          xcrun simctl io "$DEVICE_ID" screenshot shot-04-english-dark.png
+          xcrun simctl io "$DEVICE_ID" screenshot shot-05-english-dark.png
 
           echo "--- process check ---"
           xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -i melo || echo "process not listed"
@@ -164,9 +170,10 @@ jobs:
           path: |
             Melo-v1.1.0.B*.ipa
             shot-01-home-zh.png
-            shot-02-miniplayer.png
-            shot-03-player.png
-            shot-04-english-dark.png
+            shot-02-settings-zh.png
+            shot-03-miniplayer.png
+            shot-04-player.png
+            shot-05-english-dark.png
           if-no-files-found: warn
           retention-days: 30
 
@@ -182,9 +189,10 @@ jobs:
           files: |
             ${{ env.IPA_NAME }}
             shot-01-home-zh.png
-            shot-02-miniplayer.png
-            shot-03-player.png
-            shot-04-english-dark.png
+            shot-02-settings-zh.png
+            shot-03-miniplayer.png
+            shot-04-player.png
+            shot-05-english-dark.png
           draft: false
           prerelease: true
           generate_release_notes: false

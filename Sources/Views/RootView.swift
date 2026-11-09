@@ -5,6 +5,7 @@ struct RootView: View {
 
     @State private var selection = 0
     @State private var showPlayer = false
+    @State private var showSettings = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -40,6 +41,12 @@ struct RootView: View {
         .fullScreenCover(isPresented: $showPlayer) {
             PlayerView()
         }
+        .sheet(isPresented: $showSettings) {
+            NavigationView {
+                SettingsView()
+            }
+            .navigationViewStyle(StackNavigationViewStyle())
+        }
         .onAppear(perform: runSmokeTestIfNeeded)
         .animation(.easeOut(duration: 0.22), value: player.hasTrack)
     }
@@ -51,6 +58,12 @@ struct RootView: View {
         if SmokeTest.presentsPlayer {
             DispatchQueue.main.asyncAfter(deadline: .now() + 14) {
                 showPlayer = true
+            }
+        }
+
+        if SmokeTest.showsSettings {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+                showSettings = true
             }
         }
     }

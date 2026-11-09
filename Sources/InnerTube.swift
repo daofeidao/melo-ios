@@ -81,12 +81,18 @@ final class InnerTube {
         return dict
     }
 
+    /// 内容语言跟随界面语言，否则英文界面下会出现中文分区标题
+    static var contentLanguage: String {
+        let preferred = Locale.preferredLanguages.first ?? "en"
+        return preferred.hasPrefix("zh") ? "zh-CN" : "en"
+    }
+
     func musicContext() -> [String: Any] {
         [
             "client": [
                 "clientName": "WEB_REMIX",
                 "clientVersion": "1.20241127.01.00",
-                "hl": "zh-CN",
+                "hl": InnerTube.contentLanguage,
                 "gl": "US"
             ]
         ]

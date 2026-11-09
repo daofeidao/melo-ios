@@ -17,6 +17,10 @@ enum SmokeTest {
         ProcessInfo.processInfo.arguments.contains("-smoke-player")
     }
 
+    static var showsSettings: Bool {
+        ProcessInfo.processInfo.arguments.contains("-smoke-settings")
+    }
+
     static func makeTrack(videoId: String) -> Track {
         Track(
             videoId: videoId,
