@@ -24,11 +24,12 @@ enum DomesticSource {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
-        async let kugouTask = kugouSearch(query: trimmed, limit: limit)
-        async let neteaseTask = neteaseSearch(query: trimmed, limit: limit)
+        // 同上：不用 async let（会踩 asyncLet_finish_after_task_completion 的坑）
+        let kugouJob = Task { await kugouSearch(query: trimmed, limit: limit) }
+        let neteaseJob = Task { await neteaseSearch(query: trimmed, limit: limit) }
 
-        let kugou = await kugouTask
-        let netease = await neteaseTask
+        let kugou = await kugouJob.value
+        let netease = await neteaseJob.value
 
         var merged: [Track] = []
         var seen = Set<String>()
@@ -88,7 +89,7 @@ enum DomesticSource {
             return nil
         }
         var request = URLRequest(url: url)
-        request.timeoutInterval = 12
+        request.timeoutInterval = 6
         request.setValue(mobileUA, forHTTPHeaderField: "User-Agent")
 
         guard let (data, _) = try? await URLSession.shared.data(for: request),
@@ -190,7 +191,7 @@ enum DomesticSource {
     private static func resolveURL(_ string: String) async -> URL? {
         guard let url = URL(string: string) else { return nil }
         var request = URLRequest(url: url)
-        request.timeoutInterval = 10
+        request.timeoutInterval = 4
         request.setValue("bytes=0-1023", forHTTPHeaderField: "Range")
         request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
         request.setValue("https://music.163.com/", forHTTPHeaderField: "Referer")

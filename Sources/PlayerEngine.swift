@@ -49,7 +49,7 @@ final class PlayerEngine: ObservableObject {
     private var retryBudget = 1
     private var itemStatusCancellable: AnyCancellable?
     private var loadToken = UUID()
-    private var streamCache: [String: (stream: AudioStream, date: Date)] = [:]
+    private var prefetchTask: Task<Void, Never>?
     private var artworkCache: [String: UIImage] = [:]
 
     var currentTrack: Track? {
@@ -81,7 +81,8 @@ final class PlayerEngine: ObservableObject {
     }
 
     private func observePlayer() {
-        player.automaticallyWaitsToMinimizeStalling = true
+        // 起播优先：不要等 AVPlayer 自己算"攒多久才够"，先把声音放出来再继续缓冲
+        player.automaticallyWaitsToMinimizeStalling = false
         player.actionAtItemEnd = .pause
 
         player.publisher(for: \.timeControlStatus)
@@ -191,8 +192,8 @@ final class PlayerEngine: ObservableObject {
     private func retryCurrentTrack() {
         guard retryBudget > 0, let track = currentTrack else { return }
         retryBudget -= 1
-        streamCache.removeValue(forKey: track.videoId)
-        load(autoPlay: true, resetBudget: false)
+        StreamCache.shared.remove(forKey: cacheKey(for: track))
+        load(autoPlay: true, resetBudget: false, keepError: true)
     }
 
     private func setupRemoteCommands() {
@@ -343,7 +344,13 @@ final class PlayerEngine: ObservableObject {
                 let message = item.error?.localizedDescription ?? L("Unknown error")
                 self.errorText = String(format: L("Playback failed: %@"), message)
                 self.isLoading = false
-                self.retryCurrentTrack()
+                // 先把错误留在界面上，再静默重解析一次；重试也失败就直接停住，
+                // 不要像以前那样"转圈一整轮再报错"
+                if self.retryBudget > 0 {
+                    self.retryCurrentTrack()
+                } else {
+                    self.isPlaying = false
+                }
             }
     }
 
@@ -353,23 +360,35 @@ final class PlayerEngine: ObservableObject {
         load(autoPlay: autoPlay, resetBudget: true)
     }
 
-    private func load(autoPlay: Bool, resetBudget: Bool) {
+    private func quality() -> StreamResolver.Quality {
+        let raw = UserDefaults.standard.string(forKey: "melo.quality") ?? StreamResolver.Quality.high.rawValue
+        return StreamResolver.Quality(rawValue: raw) ?? .high
+    }
+
+    /// 缓存键必须唯一到"这首歌"：只拿 videoId 的话，国内音源的歌 videoId 都是空串，
+    /// 两首不同的歌会命中同一条缓存，直接播错。
+    private func cacheKey(for track: Track) -> String {
+        track.id + "|" + quality().rawValue
+    }
+
+    private func load(autoPlay: Bool, resetBudget: Bool, keepError: Bool = false) {
         if resetBudget { retryBudget = 1 }
         guard let track = currentTrack else { return }
 
         let token = UUID()
         loadToken = token
         isLoading = true
-        errorText = nil
+        if !keepError { errorText = nil }
         elapsed = 0
         duration = Double(track.duration)
         updateNowPlaying()
 
-        let qualityRaw = UserDefaults.standard.string(forKey: "melo.quality") ?? StreamResolver.Quality.high.rawValue
-        let quality = StreamResolver.Quality(rawValue: qualityRaw) ?? .high
+        let quality = self.quality()
+        let key = cacheKey(for: track)
 
-        if let cached = streamCache[track.videoId], Date().timeIntervalSince(cached.date) < 3000 {
-            start(stream: cached.stream, autoPlay: autoPlay, token: token)
+        // 命中缓存（内存或上次落盘）就直接起播，0 网络等待
+        if let cached = StreamCache.shared.stream(forKey: key) {
+            start(stream: cached, autoPlay: autoPlay, token: token)
             return
         }
 
@@ -378,7 +397,7 @@ final class PlayerEngine: ObservableObject {
                 let stream = try await AudioSource.resolve(track: track, quality: quality)
                 DispatchQueue.main.async {
                     guard let self = self, self.loadToken == token else { return }
-                    self.streamCache[track.videoId] = (stream, Date())
+                    StreamCache.shared.store(stream, forKey: key)
                     self.start(stream: stream, autoPlay: autoPlay, token: token)
                 }
             } catch {
@@ -393,6 +412,36 @@ final class PlayerEngine: ObservableObject {
         }
     }
 
+    /// 当前曲目开播后立刻在后台解析下一首。
+    /// 成熟播放器都是这么做的：在听 A 的时候已经把 B 的直链握在手里。
+    private func prefetchUpcoming() {
+        prefetchTask?.cancel()
+        guard queue.count > 1 else { return }
+
+        let nextIndex: Int
+        if isShuffle {
+            nextIndex = (index + 1 + Int.random(in: 0..<max(1, queue.count - 1))) % queue.count
+        } else if index + 1 < queue.count {
+            nextIndex = index + 1
+        } else if repeatMode == .all {
+            nextIndex = 0
+        } else {
+            return
+        }
+        guard nextIndex != index, nextIndex >= 0, nextIndex < queue.count else { return }
+
+        let upcoming = queue[nextIndex]
+        let quality = self.quality()
+        let key = cacheKey(for: upcoming)
+        guard StreamCache.shared.stream(forKey: key) == nil else { return }
+
+        prefetchTask = Task {
+            guard let stream = try? await AudioSource.resolve(track: upcoming, quality: quality) else { return }
+            if Task.isCancelled { return }
+            StreamCache.shared.store(stream, forKey: key)
+        }
+    }
+
     private func start(stream: AudioStream, autoPlay: Bool, token: UUID) {
         guard loadToken == token, let track = currentTrack else { return }
 
@@ -401,7 +450,8 @@ final class PlayerEngine: ObservableObject {
             options: ["AVURLAssetHTTPHeaderFieldsKey": ["User-Agent": StreamResolver.clientUserAgent]]
         )
         let item = AVPlayerItem(asset: asset)
-        item.preferredForwardBufferDuration = 15
+        // 攒 15 秒才起播在弱网下就是"点了没反应"；4 秒足够扛住抖动，先出声再继续缓冲
+        item.preferredForwardBufferDuration = 4
         observeItem(item)
         player.replaceCurrentItem(with: item)
         isLoading = false
@@ -414,6 +464,7 @@ final class PlayerEngine: ObservableObject {
             player.play()
         }
         updateNowPlaying()
+        prefetchUpcoming()
     }
 
     private func handleTrackEnded() {

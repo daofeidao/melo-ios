@@ -103,7 +103,7 @@ struct CollectionDetail {
     var tracks: [Track]
 }
 
-struct AudioStream {
+struct AudioStream: Codable {
     let url: URL
     let itag: Int
     let bitrate: Int

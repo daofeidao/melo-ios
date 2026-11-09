@@ -73,26 +73,50 @@ enum StreamResolver {
     ]
 
     static func resolve(videoId: String, quality: Quality) async throws -> AudioStream {
-        var failures: [String] = []
-        var botChecked = false
-
-        for client in clients {
-            do {
-                return try await attempt(videoId: videoId, client: client, quality: quality)
-            } catch ApiError.botCheck {
-                botChecked = true
-            } catch {
-                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                failures.append(message)
+        // 这两个身份是同一族的两个版本，谁先回用谁就够了。
+        // 以前串行重试，失败场景要空等两轮；现在并发竞速，失败也是 1 倍耗时。
+        let outcome = await withTaskGroup(
+            of: Result<AudioStream, Error>.self
+        ) { group -> (stream: AudioStream?, botChecked: Bool, failures: [String]) in
+            for client in clients {
+                group.addTask {
+                    do {
+                        return .success(try await attempt(videoId: videoId, client: client, quality: quality))
+                    } catch {
+                        return .failure(error)
+                    }
+                }
             }
+
+            var stream: AudioStream?
+            var botChecked = false
+            var failures: [String] = []
+
+            for await result in group {
+                switch result {
+                case .success(let value):
+                    stream = value
+                    group.cancelAll()
+                case .failure(let error):
+                    if let typed = error as? ApiError, case .botCheck = typed {
+                        botChecked = true
+                    } else {
+                        failures.append((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+                    }
+                }
+                if stream != nil { break }
+            }
+            return (stream, botChecked, failures)
         }
 
+        if let stream = outcome.stream { return stream }
+
         // 所有客户端都被判机器人：换客户端无用，这是 IP 信誉问题
-        if botChecked, failures.isEmpty {
+        if outcome.botChecked, outcome.failures.isEmpty {
             throw ApiError.botCheck("")
         }
 
-        let detail = failures.first ?? L("Unknown reason")
+        let detail = outcome.failures.first ?? L("Unknown reason")
         throw ApiError.unavailable(String(format: L("Unable to resolve playback URL: %@"), detail))
     }
 

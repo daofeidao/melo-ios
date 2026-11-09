@@ -87,11 +87,12 @@ enum AudioSource {
     // MARK: - 各平台
 
 
-    /// 先拉 1KB 确认「真的很像音频」，再交给播放器 —— 否则 VIP 曲目会跳到一个 HTML 404 页
+    /// 先拉 1KB 确认「真的很像音频」，再交给播放器 —— 否则 VIP 曲目会跳到一个 HTML 404 页。
+    /// 超时压到 4 秒：源不可用时用户等不起十几秒，宁可快速判失败再回落。
     private static func probe(_ urlString: String) async -> AudioStream? {
         guard let url = URL(string: urlString) else { return nil }
         var request = URLRequest(url: url)
-        request.timeoutInterval = 12
+        request.timeoutInterval = 4
         request.setValue("bytes=0-1023", forHTTPHeaderField: "Range")
         request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
 

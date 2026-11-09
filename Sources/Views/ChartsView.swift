@@ -109,15 +109,16 @@ struct ChartsView: View {
             error = nil
         }
 
-        async let ytTask = InnerTube.shared.charts()
-        async let neteaseTask = HotPlaylists.fetch(.netease)
-        async let qqTask = HotPlaylists.fetch(.qq)
-        async let kugouTask = HotPlaylists.fetch(.kugou)
+        // 不用 async let：Swift 6 的 async-let 在父作用域提前退出时会 fatalError
+        let ytJob = Task { try await InnerTube.shared.charts() }
+        let neteaseJob = Task { try await HotPlaylists.fetch(.netease) }
+        let qqJob = Task { try await HotPlaylists.fetch(.qq) }
+        let kugouJob = Task { try await HotPlaylists.fetch(.kugou) }
 
-        let yt = (try? await ytTask) ?? []
-        let netease = (try? await neteaseTask) ?? []
-        let qq = (try? await qqTask) ?? []
-        let kugou = (try? await kugouTask) ?? []
+        let yt = (try? await ytJob.value) ?? []
+        let netease = (try? await neteaseJob.value) ?? []
+        let qq = (try? await qqJob.value) ?? []
+        let kugou = (try? await kugouJob.value) ?? []
 
         await MainActor.run {
             ytShelves = yt

@@ -232,16 +232,20 @@ final class InnerTube {
 
     /// 歌曲 / 专辑 / 歌单三类并发查询后合并
     func search(query: String) async throws -> SearchResults {
-        async let songsRoot = rawSearch(query: query, filter: InnerTube.songsFilter)
-        async let albumsRoot = rawSearch(query: query, filter: InnerTube.albumsFilter)
-        async let playlistsRoot = rawSearch(query: query, filter: InnerTube.playlistsFilter)
+        // 这里刻意不用 `async let`：三类查询里只要有一类先抛错，父作用域就会
+        // 提前退出，触发 Swift 6 运行时的 asyncLet_finish_after_task_completion
+        // fatalError（实测直接 SIGABRT，搜索页必崩）。改成 Task + await 就绕开了，
+        // 而且"某一路失败不影响其它两路"的语义也更明确。
+        let songsJob = Task { try await self.rawSearch(query: query, filter: InnerTube.songsFilter) }
+        let albumsJob = Task { try await self.rawSearch(query: query, filter: InnerTube.albumsFilter) }
+        let playlistsJob = Task { try await self.rawSearch(query: query, filter: InnerTube.playlistsFilter) }
 
         var roots: [[String: Any]] = []
         var lastError: Error?
 
-        do { roots.append(try await songsRoot) } catch { lastError = error }
-        do { roots.append(try await albumsRoot) } catch { lastError = error }
-        do { roots.append(try await playlistsRoot) } catch { lastError = error }
+        do { roots.append(try await songsJob.value) } catch { lastError = error }
+        do { roots.append(try await albumsJob.value) } catch { lastError = error }
+        do { roots.append(try await playlistsJob.value) } catch { lastError = error }
 
         guard !roots.isEmpty else {
             throw lastError ?? ApiError.parse(L("Search failed"))
