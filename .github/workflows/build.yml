@@ -141,6 +141,9 @@ jobs:
             未签名 IPA，iOS 15.0+，用 TrollStore 安装。
           files: |
             ${{ env.IPA_NAME }}
+            shot-01-listennow.png
+            shot-02-miniplayer.png
+            shot-03-player.png
           draft: false
           prerelease: true
           generate_release_notes: false
