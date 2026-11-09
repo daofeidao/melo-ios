@@ -12,80 +12,99 @@ jobs:
     steps:
       - name: Probe InnerTube endpoints
         run: |
-          set -uo pipefail
+          set -u
           KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
           UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+          CTX='{"client":{"clientName":"WEB_REMIX","clientVersion":"1.20241127.01.00","hl":"zh-CN","gl":"US"}}'
 
-          echo "################ 1) WEB_REMIX search ################"
+          echo "################ 1) search ################"
           curl -sS -m 45 -o search.json -w 'http=%{http_code} bytes=%{size_download}\n' \
             -X POST "https://music.youtube.com/youtubei/v1/search?key=$KEY&prettyPrint=false" \
-            -H 'Content-Type: application/json' \
-            -H 'Origin: https://music.youtube.com' \
-            -H 'Referer: https://music.youtube.com/' \
-            -H "User-Agent: $UA" \
-            -d '{"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"1.20241127.01.00","hl":"zh-CN","gl":"US"}},"query":"周杰伦","params":"EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D"}'
+            -H 'Content-Type: application/json' -H 'Origin: https://music.youtube.com' \
+            -H 'Referer: https://music.youtube.com/' -H "User-Agent: $UA" \
+            -d "{\"context\":$CTX,\"query\":\"周杰伦\"}"
 
-          echo "--- top keys ---"
-          jq -r 'keys' search.json 2>&1 | head -20
-          echo "--- song item count ---"
-          jq -r '[.. | objects | select(.musicResponsiveListItemRenderer? != null)] | length' search.json 2>&1
-          echo "--- first song item (schema) ---"
-          jq -r '[.. | objects | select(.musicResponsiveListItemRenderer? != null)][0]' search.json 2>&1 | head -140
+          echo "--- song count / collection count ---"
+          echo "songs=$(jq -r '[.. | objects | select(.musicResponsiveListItemRenderer? != null)] | length' search.json)"
+          echo "tworow=$(jq -r '[.. | objects | select(.musicTwoRowItemRenderer? != null)] | length' search.json)"
+
+          echo "--- first song item compacted ---"
+          jq -c '[.. | objects | select(.musicResponsiveListItemRenderer? != null)][0] | {
+            hasPlaylistItemData: (.playlistItemData? != null),
+            videoId_pid: (.playlistItemData.videoId?),
+            videoId_ovl: (.overlay.musicItemThumbnailOverlayRenderer.content.musicPlayButtonRenderer.playNavigationEndpoint.watchEndpoint.videoId?),
+            cols: [.flexColumns[]?.musicResponsiveListItemFlexColumnRenderer.text | (if .runs then [.runs[].text] else [.simpleText] end)],
+            col1_pageTypes: [.flexColumns[1].musicResponsiveListItemFlexColumnRenderer.text.runs[]?.navigationEndpoint.browseEndpoint.browseEndpointContextSupportedConfigs.browseEndpointContextMusicConfig.pageType],
+            fixed: [.fixedColumns[]?.musicResponsiveListItemFixedColumnRenderer.text.runs[0].text],
+            thumbs: (.thumbnail.musicThumbnailRenderer.thumbnail.thumbnails | length),
+            thumb_last: .thumbnail.musicThumbnailRenderer.thumbnail.thumbnails[-1].url,
+            topKeys: keys
+          }' search.json
 
           echo
-          echo "################ 2) WEB_REMIX home ################"
+          echo "################ 2) home ################"
           curl -sS -m 45 -o home.json -w 'http=%{http_code} bytes=%{size_download}\n' \
             -X POST "https://music.youtube.com/youtubei/v1/browse?key=$KEY&prettyPrint=false" \
-            -H 'Content-Type: application/json' \
-            -H 'Origin: https://music.youtube.com' \
-            -H 'Referer: https://music.youtube.com/' \
-            -H "User-Agent: $UA" \
-            -d '{"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"1.20241127.01.00","hl":"zh-CN","gl":"US"}},"browseId":"FEmusic_home"}'
-          echo "--- carousel/shelf headers ---"
-          jq -r '[.. | objects | select(.musicCarouselShelfBasicHeaderRenderer? != null) | .musicCarouselShelfBasicHeaderRenderer.title.runs[0].text] | .[0:12]' home.json 2>&1
-          echo "--- twoRowItem sample ---"
-          jq -r '[.. | objects | select(.musicTwoRowItemRenderer? != null)][0]' home.json 2>&1 | head -60
+            -H 'Content-Type: application/json' -H 'Origin: https://music.youtube.com' \
+            -H 'Referer: https://music.youtube.com/' -H "User-Agent: $UA" \
+            -d "{\"context\":$CTX,\"browseId\":\"FEmusic_home\"}"
+          echo "--- shelf titles ---"
+          jq -r '[.. | objects | select(.musicCarouselShelfBasicHeaderRenderer? != null) | .musicCarouselShelfBasicHeaderRenderer.title.runs[0].text] | .[0:15]' home.json
+          echo "--- first two-row item ---"
+          jq -c '[.. | objects | select(.musicTwoRowItemRenderer? != null)][0] | {
+            title: (.title.runs[0].text?),
+            subtitle: ([.subtitle.runs[]?.text] | join("")),
+            browseId: (.navigationEndpoint.browseEndpoint.browseId?),
+            videoId: (.navigationEndpoint.watchEndpoint.videoId?),
+            pageType: (.navigationEndpoint.browseEndpoint.browseEndpointContextSupportedConfigs.browseEndpointContextMusicConfig.pageType?),
+            thumb_last: .thumbnailRenderer.musicThumbnailRenderer.thumbnail.thumbnails[-1].url
+          }' home.json
 
           echo
-          echo "################ 3) browse playlist ################"
-          curl -sS -m 45 -o pl.json -w 'http=%{http_code} bytes=%{size_download}\n' \
+          echo "################ 3) charts ################"
+          curl -sS -m 45 -o charts.json -w 'http=%{http_code}\n' \
             -X POST "https://music.youtube.com/youtubei/v1/browse?key=$KEY&prettyPrint=false" \
-            -H 'Content-Type: application/json' \
-            -H 'Origin: https://music.youtube.com' \
-            -H 'Referer: https://music.youtube.com/' \
-            -H "User-Agent: $UA" \
-            -d '{"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"1.20241127.01.00","hl":"zh-CN","gl":"US"}},"browseId":"VLPLw-VjHDlF57w7M7-CvNjHfPdcL1YQ9c"}'
-          echo "--- playlist item count ---"
-          jq -r '[.. | objects | select(.musicResponsiveListItemRenderer? != null)] | length' pl.json 2>&1
+            -H 'Content-Type: application/json' -H 'Origin: https://music.youtube.com' \
+            -H 'Referer: https://music.youtube.com/' -H "User-Agent: $UA" \
+            -d "{\"context\":$CTX,\"browseId\":\"FEmusic_charts\"}"
+          jq -r '[.. | objects | select(.musicCarouselShelfBasicHeaderRenderer? != null) | .musicCarouselShelfBasicHeaderRenderer.title.runs[0].text] | .[0:10]' charts.json
 
           echo
-          echo "################ 4) player: client fallbacks ################"
+          echo "################ 4) playlist browse ################"
+          curl -sS -m 45 -o pl.json -w 'http=%{http_code}\n' \
+            -X POST "https://music.youtube.com/youtubei/v1/browse?key=$KEY&prettyPrint=false" \
+            -H 'Content-Type: application/json' -H 'Origin: https://music.youtube.com' \
+            -H 'Referer: https://music.youtube.com/' -H "User-Agent: $UA" \
+            -d "{\"context\":$CTX,\"browseId\":\"MPREb_nqKuADavt3c\"}"
+          echo "tracks=$(jq -r '[.. | objects | select(.musicResponsiveListItemRenderer? != null)] | length' pl.json)"
+          jq -c '[.. | objects | select(.musicResponsiveListItemRenderer? != null)][0] | {
+            videoId: .playlistItemData.videoId,
+            cols: [.flexColumns[]?.musicResponsiveListItemFlexColumnRenderer.text | (if .runs then [.runs[].text] else [.simpleText] end)],
+            fixed: [.fixedColumns[]?.musicResponsiveListItemFixedColumnRenderer.text.runs[0].text]
+          }' pl.json
+          echo "--- header ---"
+          jq -c '[.. | objects | select(.musicResponsiveHeaderRenderer? != null)][0] | {
+            title: (.title.runs[0].text?),
+            subtitle: ([.subtitle.runs[]?.text] | join("")),
+            secondSubtitle: ([.secondSubtitle.runs[]?.text] | join("")),
+            thumb: .thumbnail.musicThumbnailRenderer.thumbnail.thumbnails[-1].url
+          }' pl.json
+
+          echo
+          echo "################ 5) player fallbacks ################"
           probe_player () {
-            local name="$1"; local ver="$2"; local extra="$3"; local ua="$4"
+            local name="$1" ver="$2" extra="$3" ua="$4"
             local body="{\"context\":{\"client\":{\"clientName\":\"$name\",\"clientVersion\":\"$ver\"$extra}},\"videoId\":\"dQw4w9WgXcQ\",\"contentCheckOk\":true,\"racyCheckOk\":true}"
             local code
             code=$(curl -sS -m 45 -o "p_$name.json" -w '%{http_code}' \
               -X POST "https://www.youtube.com/youtubei/v1/player?key=AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w&prettyPrint=false" \
               -H 'Content-Type: application/json' -H "User-Agent: $ua" -d "$body")
-            local st; st=$(jq -r '.playabilityStatus.status // "?"' "p_$name.json" 2>/dev/null)
-            local rn; rn=$(jq -r '.playabilityStatus.reason // ""' "p_$name.json" 2>/dev/null)
-            local direct; direct=$(jq -r '[.. | objects | select(.adaptiveFormats? != null)] | length' "p_$name.json" 2>/dev/null)
-            local urls; urls=$(jq -r '[.streamingData.adaptiveFormats[]? | select(.url? != null)] | length' "p_$name.json" 2>/dev/null)
-            local ciphered; ciphered=$(jq -r '[.streamingData.adaptiveFormats[]? | select(.signatureCipher? != null)] | length' "p_$name.json" 2>/dev/null)
-            echo "== $name ver=$ver http=$code status=$st reason=$rn direct=$urls ciphered=$ciphered"
-            jq -r '[.streamingData.adaptiveFormats[]? | {itag, mime:(.mimeType|split(";")[0]), bitrate, hasURL:(.url!=null)}] | map(select(.mime|startswith("audio")))' "p_$name.json" 2>/dev/null | head -30
+            echo "== $name http=$code status=$(jq -r '.playabilityStatus.status // "?"' "p_$name.json") reason=$(jq -r '.playabilityStatus.reason // ""' "p_$name.json")"
+            echo "   audio=$(jq -r '[.streamingData.adaptiveFormats[]? | select(.mimeType|startswith("audio"))] | length' "p_$name.json") url=$(jq -r '[.streamingData.adaptiveFormats[]? | select(.url != null)] | length' "p_$name.json") cipher=$(jq -r '[.streamingData.adaptiveFormats[]? | select(.signatureCipher != null)] | length' "p_$name.json")"
+            jq -r '[.streamingData.adaptiveFormats[]? | select(.mimeType|startswith("audio")) | "\(.itag) \(.mimeType|split(";")[0]) \(.bitrate) url=\(.url != null)"] | join("\n")' "p_$name.json"
           }
-
           probe_player ANDROID_VR 1.60.19 ',"deviceMake":"Oculus","deviceModel":"Quest 3","androidSdkVersion":32,"osName":"Android","osVersion":"12L","hl":"en","gl":"US"' 'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip'
           probe_player IOS 19.45.4 ',"deviceModel":"iPhone16,2","osName":"iPhone","osVersion":"18.1.0.0","hl":"en","gl":"US"' 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)'
           probe_player ANDROID_MUSIC 7.27.52 ',"androidSdkVersion":34,"osName":"Android","osVersion":"14","hl":"en","gl":"US"' 'com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14; gzip)'
           probe_player TVHTML5_SIMPLY_EMBEDDED_PLAYER 2.0 ',"hl":"en","gl":"US"' 'Mozilla/5.0 (PlayStation; PlayStation 4/12.00) AppleWebKit/605.1.15'
           probe_player WEB 2.20241126.01.00 ',"hl":"en","gl":"US"' "$UA"
-
-          echo
-          echo "################ 5) search suggestions / next ################"
-          curl -sS -m 30 -o next.json -w 'next http=%{http_code}\n' \
-            -X POST "https://music.youtube.com/youtubei/v1/next?key=$KEY&prettyPrint=false" \
-            -H 'Content-Type: application/json' -H 'Origin: https://music.youtube.com' -H "User-Agent: $UA" \
-            -d '{"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"1.20241127.01.00","hl":"zh-CN","gl":"US"}},"videoId":"dQw4w9WgXcQ"}'
-          jq -r '[.. | objects | select(.playlistPanelVideoRenderer? != null)] | length' next.json 2>&1
