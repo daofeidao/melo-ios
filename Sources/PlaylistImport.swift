@@ -240,15 +240,23 @@ enum PlaylistFetcher {
         return result
     }
 
-    /// 字段名两套都要认：v6 详情用 ar/al/dt，song/detail 用 artists/album/duration
+    /// 字段名两套都要认：v6 详情用 ar/al/dt，song/detail 用 artists/album/duration。
+    /// 注意空数组不是 nil，不能用 `??` 回退 —— 否则 v6 下艺人名会整段丢掉。
     private static func netEaseSong(_ raw: [String: Any]) -> RemoteSong? {
         guard let title = JS.string(raw["name"]), !title.isEmpty else { return nil }
-        let artistNodes = JS.array(raw["artists"]) ?? JS.array(raw["ar"]) ?? []
+
+        let legacyArtists = JS.array(raw["artists"]) ?? []
+        let modernArtists = JS.array(raw["ar"]) ?? []
+        let artistNodes = legacyArtists.isEmpty ? modernArtists : legacyArtists
+
         let artists = artistNodes
             .compactMap { JS.dict($0) }
             .compactMap { JS.string($0["name"]) }
             .joined(separator: ", ")
-        let album = (JS.dict(raw["album"]) ?? JS.dict(raw["al"])).flatMap { JS.string($0["name"]) }
+
+        let album = [JS.dict(raw["album"]), JS.dict(raw["al"])]
+            .compactMap { $0.flatMap { JS.string($0["name"]) } }
+            .first { !$0.isEmpty }
         let ms = JS.int(raw["duration"]) ?? JS.int(raw["dt"]) ?? 0
         let songID = JS.int(raw["id"]).map(String.init) ?? ""
         return RemoteSong(

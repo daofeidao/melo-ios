@@ -137,6 +137,9 @@ jobs:
           xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 3 -smoke-import -smoke-import-url 'https://music.163.com/playlist?id=3778678' -smoke-count-only || true
           sleep 22
           xcrun simctl io "$DEVICE_ID" screenshot shot-13-netease-count.png
+          echo "--- 抓取样本（核对艺人名是否为空）---"
+          xcrun simctl spawn "$DEVICE_ID" log show --last 60s --style compact \
+            --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null | grep 'SMOKE_FETCH' | tail -5 || echo "no sample"
 
           echo "=== 播放诊断 ==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true

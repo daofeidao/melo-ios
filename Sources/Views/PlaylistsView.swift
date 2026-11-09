@@ -308,6 +308,9 @@ struct ImportPlaylistView: View {
 
                 // 冒烟：只验证抓到了多少首，跳过耗时的逐首匹配
                 if SmokeTest.countsOnly {
+                    for song in remote.songs.prefix(3) {
+                        NSLog("SMOKE_FETCH title=%@ artist=%@ dur=%d", song.title, song.artist, song.duration)
+                    }
                     await MainActor.run {
                         resultText = String(format: L("Fetched %d songs"), remote.songs.count)
                         status = nil
