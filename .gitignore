@@ -7,3 +7,5 @@ Payload/
 *.xcodeproj/xcuserdata/
 .DS_Store
 Melo.xcodeproj/
+send_ipa.py
+scripts/_secrets/
