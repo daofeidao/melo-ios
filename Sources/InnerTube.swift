@@ -5,6 +5,7 @@ enum ApiError: LocalizedError {
     case http(Int)
     case parse(String)
     case unavailable(String)
+    case botCheck(String)
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +17,11 @@ enum ApiError: LocalizedError {
             return message
         case .unavailable(let message):
             return message
+        case .botCheck(let reason):
+            return String(
+                format: L("YouTube flagged this IP as a bot. All %d clients were blocked. Switch to a non-datacenter proxy node and retry."),
+                StreamResolver.clients.count
+            ) + "（\(reason)）"
         }
     }
 }

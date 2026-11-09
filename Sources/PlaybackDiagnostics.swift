@@ -12,14 +12,35 @@ struct DiagnosticLine: Identifiable {
 /// 三步分别对应三种不同的故障源，用户能直接看出卡在哪。
 enum PlaybackDiagnostics {
 
-    static let testVideoId = "dQw4w9WgXcQ"
+    /// 白名单热门视频：用来验证「解析→CDN→解码」链路本身
+    static let pipelineVideoId = "dQw4w9WgXcQ"
+
+    /// 普通版权曲目：会被反爬命中，用来判断当前 IP 是否被判定为机器人
+    static let reputationVideoId = "9q7JOQfcJQM"
 
     static func run() async -> [DiagnosticLine] {
         var lines: [DiagnosticLine] = []
 
+        // 步骤 0：拿一首普通版权曲目试解析，被拦说明是 IP 问题而不是 App 问题
+        do {
+            _ = try await StreamResolver.resolve(videoId: reputationVideoId, quality: .normal)
+            lines.append(DiagnosticLine(
+                title: L("Step 0 · IP reputation"),
+                detail: L("Not flagged as a bot"),
+                ok: true
+            ))
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            lines.append(DiagnosticLine(
+                title: L("Step 0 · IP reputation"),
+                detail: message,
+                ok: false
+            ))
+        }
+
         let resolved: AudioStream
         do {
-            resolved = try await StreamResolver.resolve(videoId: testVideoId, quality: .normal)
+            resolved = try await StreamResolver.resolve(videoId: pipelineVideoId, quality: .normal)
             lines.append(DiagnosticLine(
                 title: L("Step 1 · Resolve audio URL"),
                 detail: "itag \(resolved.itag) · \(max(1, resolved.bitrate / 1000)) kbps",

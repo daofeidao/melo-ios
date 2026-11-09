@@ -38,7 +38,7 @@ enum StreamResolver {
 
     /// 实测：ANDROID_VR 是当前唯一能稳定返回未加密直链的客户端；
     /// IOS 返回 400、ANDROID_MUSIC 要求登录、TVHTML5 已停用、WEB 判定不可播。
-    private static let clients: [Client] = [
+    static let clients: [Client] = [
         Client(
             name: "ANDROID_VR",
             version: "1.60.19",
@@ -71,14 +71,22 @@ enum StreamResolver {
 
     static func resolve(videoId: String, quality: Quality) async throws -> AudioStream {
         var failures: [String] = []
+        var botChecked = false
 
         for client in clients {
             do {
                 return try await attempt(videoId: videoId, client: client, quality: quality)
+            } catch ApiError.botCheck {
+                botChecked = true
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 failures.append(message)
             }
+        }
+
+        // 所有客户端都被判机器人：换客户端无用，这是 IP 信誉问题
+        if botChecked, failures.isEmpty {
+            throw ApiError.botCheck("")
         }
 
         let detail = failures.first ?? L("Unknown reason")
@@ -104,7 +112,7 @@ enum StreamResolver {
            state != "OK" {
             let reason = JS.string(status["reason"]) ?? state
             if state == "LOGIN_REQUIRED" {
-                throw ApiError.unavailable(String(format: L("YouTube requires human verification for this network. Try switching your proxy node and retry. (%@)"), reason))
+                throw ApiError.botCheck(reason)
             }
             throw ApiError.unavailable(reason)
         }
