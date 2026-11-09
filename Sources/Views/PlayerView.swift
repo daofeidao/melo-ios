@@ -14,7 +14,7 @@ struct PlayerView: View {
         ZStack {
             background
             GeometryReader { proxy in
-                let artSide = min(proxy.size.width - 56, proxy.size.height * 0.40, 420)
+                let artSide = min(proxy.size.width - 56, proxy.size.height * 0.44, 430)
 
                 VStack(spacing: 0) {
                     Capsule()
@@ -34,9 +34,7 @@ struct PlayerView: View {
                         progressBlock
                         Spacer().frame(height: 22)
                         controlsBlock
-                        Spacer(minLength: 16)
-                        volumeBlock
-                        Spacer(minLength: 12)
+                        Spacer(minLength: 26)
                         bottomBar
                     } else {
                         Text("没有正在播放的歌曲")
@@ -234,20 +232,6 @@ struct PlayerView: View {
             }
             .buttonStyle(PlainButtonStyle())
         }
-    }
-
-    private var volumeBlock: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "speaker.fill")
-                .font(.system(size: 11))
-                .foregroundColor(.white.opacity(0.45))
-            SystemVolumeSlider()
-                .frame(height: 30)
-            Image(systemName: "speaker.wave.3.fill")
-                .font(.system(size: 11))
-                .foregroundColor(.white.opacity(0.45))
-        }
-        .padding(.horizontal, 26)
     }
 
     private var bottomBar: some View {

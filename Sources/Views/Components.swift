@@ -253,35 +253,6 @@ struct Scrubber: View {
 
 // MARK: - 系统音量条
 
-private final class StyledVolumeView: MPVolumeView {
-    // MPVolumeView 内部的滑块是延迟创建的，在 updateUIView 里染色会被覆盖，
-    // 必须在每次布局后再刷一遍，否则深色播放页上整条轨道不可见。
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        for subview in subviews {
-            guard let slider = subview as? UISlider else { continue }
-            slider.minimumTrackTintColor = .white
-            slider.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.30)
-            slider.thumbTintColor = .white
-        }
-    }
-}
-
-struct SystemVolumeSlider: UIViewRepresentable {
-    func makeUIView(context: Context) -> MPVolumeView {
-        let view = StyledVolumeView()
-        view.showsRouteButton = false
-        view.tintColor = .white
-        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        return view
-    }
-
-    func updateUIView(_ uiView: MPVolumeView, context: Context) {
-        uiView.setNeedsLayout()
-    }
-}
-
 // MARK: - 空状态
 
 struct EmptyHint: View {
