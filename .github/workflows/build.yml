@@ -1,9 +1,16 @@
 name: Build IPA
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      full_smoke:
+        description: "跑全套冒烟测试并出截图（约 +8 分钟）"
+        type: boolean
+        default: false
+      publish:
+        description: "发布 GitHub Release"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -11,6 +18,10 @@ permissions:
 env:
   HOMEBREW_NO_AUTO_UPDATE: 1
   HOMEBREW_NO_INSTALL_CLEANUP: 1
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -26,8 +37,16 @@ jobs:
           xcode-select -p
           swift --version
 
+      - name: Cache Homebrew downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: brew-${{ runner.os }}-xcodegen-ldid
+
       - name: Install build tools
-        run: brew install xcodegen ldid
+        run: |
+          command -v xcodegen >/dev/null || brew install xcodegen
+          command -v ldid >/dev/null || brew install ldid
 
       - name: Verify localization keys
         run: |
@@ -50,6 +69,7 @@ jobs:
         run: xcodegen generate
 
       - name: Build for simulator
+        if: inputs.full_smoke == true
         run: |
           set -o pipefail
           xcodebuild \
@@ -63,6 +83,7 @@ jobs:
             build -quiet
 
       - name: Simulator smoke test
+        if: inputs.full_smoke == true
         run: |
           set -x
           DEVICE_ID=$(xcrun simctl list devices available | grep -E '^[[:space:]]+iPhone' | head -1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
@@ -196,7 +217,7 @@ jobs:
           xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -i melo || echo "process not listed"
 
       - name: Downscale screenshots
-        if: always()
+        if: always() && inputs.full_smoke == true
         run: |
           mkdir -p shots
           for f in shot-01-home-zh.png shot-02-settings-zh.png shot-03-miniplayer.png shot-04-player.png shot-05-english-dark.png shot-06-library-playlists.png shot-07-import-playlist.png shot-08-import-result.png shot-09-playback-diagnostics.png shot-10-playback-error.png shot-11-real-song.png shot-12-domestic-song.png shot-13-netease-count.png shot-14-search-fallback.png shot-15-search-domestic.png; do
@@ -283,8 +304,22 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+      - name: Collect release assets
+        if: success() && inputs.publish == true
+        run: |
+          {
+            echo "RELEASE_FILES<<EOF"
+            echo "${IPA_NAME}"
+            if [ "${{ inputs.full_smoke }}" = "true" ] && [ -d shots ]; then
+              for f in shots/*.png; do
+                if [ -f "$f" ]; then echo "$f"; fi
+              done
+            fi
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
       - name: Publish release
-        if: success()
+        if: success() && inputs.publish == true
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
@@ -293,22 +328,7 @@ jobs:
             未签名 IPA，iOS 15.0+，用 TrollStore 安装。
             界面语言跟随系统（简体中文 / English），设置内可切换 跟随系统 / 浅色 / 深色。
           files: |
-            ${{ env.IPA_NAME }}
-            shots/shot-01-home-zh.png
-            shots/shot-02-settings-zh.png
-            shots/shot-03-miniplayer.png
-            shots/shot-04-player.png
-            shots/shot-05-english-dark.png
-            shots/shot-06-library-playlists.png
-            shots/shot-07-import-playlist.png
-            shots/shot-08-import-result.png
-            shots/shot-09-playback-diagnostics.png
-            shots/shot-10-playback-error.png
-            shots/shot-11-real-song.png
-            shots/shot-12-domestic-song.png
-            shots/shot-13-netease-count.png
-            shots/shot-14-search-fallback.png
-            shots/shot-15-search-domestic.png
+            ${{ env.RELEASE_FILES }}
           draft: false
           prerelease: true
           generate_release_notes: false
