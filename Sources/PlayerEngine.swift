@@ -50,6 +50,7 @@ final class PlayerEngine: ObservableObject {
     private var itemStatusCancellable: AnyCancellable?
     private var loadToken = UUID()
     private var prefetchTask: Task<Void, Never>?
+    private var prefetchedIndex: Int?
     private var artworkCache: [String: UIImage] = [:]
 
     var currentTrack: Track? {
@@ -283,9 +284,14 @@ final class PlayerEngine: ObservableObject {
         guard !queue.isEmpty else { return }
 
         if isShuffle, queue.count > 1 {
-            var candidate = Int.random(in: 0..<queue.count)
-            if candidate == index { candidate = (candidate + 1) % queue.count }
-            index = candidate
+            // 随机模式下优先用预取过的那一首，否则预取永远命中不了
+            if let prefetched = prefetchedIndex, prefetched != index, prefetched >= 0, prefetched < queue.count {
+                index = prefetched
+            } else {
+                var candidate = Int.random(in: 0..<queue.count)
+                if candidate == index { candidate = (candidate + 1) % queue.count }
+                index = candidate
+            }
         } else if index + 1 < queue.count {
             index += 1
         } else if repeatMode == .all {
@@ -350,6 +356,7 @@ final class PlayerEngine: ObservableObject {
                     self.retryCurrentTrack()
                 } else {
                     self.isPlaying = false
+                    self.player.pause()
                 }
             }
     }
@@ -382,6 +389,14 @@ final class PlayerEngine: ObservableObject {
         elapsed = 0
         duration = Double(track.duration)
         updateNowPlaying()
+
+        // 关键：先把旧音频停掉再解析。
+        // 以前要等新直链解析完才 replaceCurrentItem，这 1~3 秒里界面已经换了新歌，
+        // 耳朵里还是上一首；解析失败更是永远停在上一首（还只改了个 isPlaying 变量，
+        // AVPlayer 根本不知道）。宁可静音，也不能放错歌。
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        prefetchedIndex = nil
 
         let quality = self.quality()
         let key = cacheKey(for: track)
@@ -429,6 +444,7 @@ final class PlayerEngine: ObservableObject {
             return
         }
         guard nextIndex != index, nextIndex >= 0, nextIndex < queue.count else { return }
+        prefetchedIndex = nextIndex
 
         let upcoming = queue[nextIndex]
         let quality = self.quality()

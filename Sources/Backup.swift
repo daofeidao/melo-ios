@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import UniformTypeIdentifiers
 
 /// 备份文件结构。字段全部是可选的解码后备（老备份也能读进来），
