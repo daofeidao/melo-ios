@@ -40,6 +40,18 @@ struct RootView: View {
         .fullScreenCover(isPresented: $showPlayer) {
             PlayerView()
         }
+        .onAppear(perform: runSmokeTestIfNeeded)
         .animation(.easeOut(duration: 0.22), value: player.hasTrack)
+    }
+
+    private func runSmokeTestIfNeeded() {
+        guard let videoId = SmokeTest.autoPlayVideoId else { return }
+        player.play(tracks: [SmokeTest.makeTrack(videoId: videoId)], startAt: 0)
+
+        if SmokeTest.presentsPlayer {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+                showPlayer = true
+            }
+        }
     }
 }
