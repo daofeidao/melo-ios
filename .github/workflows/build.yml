@@ -167,12 +167,40 @@ jobs:
 
           echo "=== 搜索页双源结果（YouTube + 国内音源）==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
-          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-search '孤勇者' || true
-          sleep 26
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-search '孤勇者' || echo "launch failed rc=$?"
+          sleep 28
           xcrun simctl io "$DEVICE_ID" screenshot shot-15-search-domestic.png
+          echo "--- 进程是否存活 ---"
+          if xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -qi melo; then echo "alive"; else echo "NOT RUNNING (crashed)"; fi
           echo "--- 搜索双源计数 ---"
           xcrun simctl spawn "$DEVICE_ID" log show --last 60s --style compact \
             --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null | grep 'SMOKE_SEARCH' | tail -3 || echo "no sample"
+          echo "--- 崩溃报告 ---"
+          ls -t ~/Library/Logs/DiagnosticReports 2>/dev/null | head -5
+          CRASH=$(ls -t ~/Library/Logs/DiagnosticReports/*Melo* 2>/dev/null | head -1)
+          if [ -n "$CRASH" ]; then
+            echo "== $CRASH =="
+            grep -E "exception|termination|Triggered by|signal|faultingThread|reason" "$CRASH" | head -12
+            python3 - "$CRASH" <<'PY' || true
+          import json, sys
+          path = sys.argv[1]
+          text = open(path, encoding="utf-8", errors="replace").read()
+          first, _, rest = text.partition("\n")
+          try:
+              body = json.loads(rest)
+          except Exception:
+              print("(非 JSON 崩溃报告)")
+              raise SystemExit
+          exc = body.get("exception") or {}
+          print("exception:", exc.get("type"), exc.get("signal"), exc.get("subtype"))
+          print("termination:", (body.get("termination") or {}).get("indicator"))
+          for frame in (body.get("faultingThread") or {}).get("frames", [])[:12]:
+              image = body["usedImages"][frame["imageIndex"]]["name"] if body.get("usedImages") else "?"
+              print("   ", image, frame.get("symbol") or hex(frame.get("imageOffset", 0)))
+          PY
+          else
+            echo "no crash report"
+          fi
 
           echo "=== 播放失败态（故意用无效视频）==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
