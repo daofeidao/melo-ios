@@ -72,15 +72,15 @@ final class ChartLibrary: ObservableObject {
         return result
     }
 
-    /// 后台预热：网易云 + QQ 各取前几个热门歌单，点开就有列表
+    /// 后台预热：网易云 + QQ 各取前几个热门歌单，点开就有列表。
+    /// 缓存已经热了就跳过 —— 每次冷启动都重抓 12 个歌单没有意义，
+    /// 白白拖慢首屏还多耗流量。
     func prefetchHot() async {
         lock.lock()
-        if didPrefetch {
-            lock.unlock()
-            return
-        }
+        let alreadyWarm = didPrefetch || tracks.count >= 8
         didPrefetch = true
         lock.unlock()
+        guard !alreadyWarm else { return }
 
         for platform in [PlaylistPlatform.netease, .qq] {
             if Task.isCancelled { return }
