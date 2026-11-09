@@ -8,6 +8,7 @@ on:
       - 'scripts/probe_netease_search.py'
       - 'scripts/probe_decrypt.py'
       - 'scripts/probe_coverage.py'
+      - 'scripts/probe_kugou.py'
   workflow_dispatch:
 
 jobs:
@@ -29,6 +30,9 @@ jobs:
 
       - name: Domestic source coverage
         run: python3 scripts/probe_coverage.py
+
+      - name: Kugou search endpoints
+        run: python3 scripts/probe_kugou.py
 
       - name: NetEase outer chain reachability
         run: |
