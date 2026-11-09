@@ -40,13 +40,20 @@ final class InnerTube {
 
     // MARK: - Transport
 
-    func post(
+    // MARK: - 传输
+
+    /// 主域名在不少代理规则里没被接管（只写了 youtube.com/www.youtube.com），
+    /// 于是连接被直连黑洞、一路等到超时。这里同时打主备两个域名，谁先回用谁。
+    static let musicHosts = ["music.youtube.com", "www.youtube.com"]
+
+    private func rawPost(
         host: String,
         endpoint: String,
         key: String,
         body: [String: Any],
-        userAgent: String
-    ) async throws -> [String: Any] {
+        userAgent: String,
+        visitorData: String?
+    ) async throws -> ([String: Any], Data) {
         guard var components = URLComponents(string: "https://\(host)/youtubei/v1/\(endpoint)") else {
             throw ApiError.badURL
         }
@@ -58,13 +65,16 @@ final class InnerTube {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 12
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("*/*", forHTTPHeaderField: "Accept-Encoding")
         request.setValue("https://music.youtube.com", forHTTPHeaderField: "Origin")
         request.setValue("https://music.youtube.com/", forHTTPHeaderField: "Referer")
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
+        if let visitorData = visitorData, !visitorData.isEmpty {
+            request.setValue(visitorData, forHTTPHeaderField: "X-Goog-Visitor-Id")
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
         let (data, response) = try await session.data(for: request)
@@ -78,13 +88,108 @@ final class InnerTube {
               let dict = root as? [String: Any] else {
             throw ApiError.parse(L("Unable to parse response"))
         }
-        return dict
+        return (dict, data)
     }
 
-    /// 内容语言跟随界面语言，否则英文界面下会出现中文分区标题
-    static var contentLanguage: String {
-        let preferred = Locale.preferredLanguages.first ?? "en"
-        return preferred.hasPrefix("zh") ? "zh-CN" : "en"
+    /// 单域名请求（播放接口用，www.youtube.com 一般本来就在代理规则里）
+    func post(
+        host: String,
+        endpoint: String,
+        key: String,
+        body: [String: Any],
+        userAgent: String
+    ) async throws -> [String: Any] {
+        try await rawPost(
+            host: host, endpoint: endpoint, key: key,
+            body: body, userAgent: userAgent, visitorData: nil
+        ).0
+    }
+
+    /// 音乐接口统一入口：主备域名竞速，成功响应落盘
+    func postMusic(endpoint: String, body: [String: Any], cacheKey: String? = nil) async throws -> [String: Any] {
+        let hosts = InnerTube.musicHosts
+        let primary = hosts[0]
+        let fallback = hosts.count > 1 ? hosts[1] : hosts[0]
+
+        let result = try await withThrowingTaskGroup(of: ([String: Any], Data).self) { group -> ([String: Any], Data) in
+            group.addTask {
+                try await self.rawPost(
+                    host: primary, endpoint: endpoint, key: self.musicKey,
+                    body: body, userAgent: self.webUserAgent, visitorData: nil
+                )
+            }
+            group.addTask {
+                // 3.5 秒还没回来就同时打备用域名，不必等主域名超时
+                try? await Task.sleep(nanoseconds: 3_500_000_000)
+                try Task.checkCancellation()
+                return try await self.rawPost(
+                    host: fallback, endpoint: endpoint, key: self.musicKey,
+                    body: body, userAgent: self.webUserAgent, visitorData: nil
+                )
+            }
+
+            var lastError: Error?
+            while true {
+                do {
+                    guard let value = try await group.next() else { break }
+                    group.cancelAll()
+                    return value
+                } catch {
+                    lastError = error
+                    continue
+                }
+            }
+            throw lastError ?? ApiError.unavailable(L("Unable to parse response"))
+        }
+
+        if let cacheKey = cacheKey {
+            saveCache(result.1, key: cacheKey)
+        }
+        return result.0
+    }
+
+    // MARK: - 响应缓存
+
+    private var cacheDirectory: URL {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        return base.appendingPathComponent("responses", isDirectory: true)
+    }
+
+    private func cacheURL(for key: String) -> URL {
+        cacheDirectory.appendingPathComponent("\(key).json")
+    }
+
+    private func saveCache(_ data: Data, key: String) {
+        let url = cacheURL(for: key)
+        try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
+    }
+
+    private func loadCache(_ key: String) -> Data? {
+        try? Data(contentsOf: cacheURL(for: key))
+    }
+
+    /// 首页缓存：把几个入口的缓存合并成一份
+    func cachedHomeShelves() -> [Shelf]? {
+        var merged: [Shelf] = []
+        var seenTitles = Set<String>()
+        for feed in ["FEmusic_home", "FEmusic_explore", "FEmusic_charts"] {
+            guard let shelves = cachedShelves(key: "browse_\(feed)") else { continue }
+            for shelf in shelves where !shelf.title.isEmpty && !seenTitles.contains(shelf.title) {
+                seenTitles.insert(shelf.title)
+                merged.append(shelf)
+            }
+        }
+        return merged.isEmpty ? nil : merged
+    }
+
+    /// 冷启动先用上次成功的结果铺满页面，再后台刷新
+    func cachedShelves(key: String) -> [Shelf]? {
+        guard let data = loadCache(key),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let root = object as? [String: Any] else { return nil }
+        let shelves = InnerTube.shelves(from: root)
+        return shelves.isEmpty ? nil : shelves
     }
 
     func musicContext() -> [String: Any] {
@@ -107,10 +212,7 @@ final class InnerTube {
 
     private func rawSearch(query: String, filter: String) async throws -> [String: Any] {
         let body: [String: Any] = ["context": musicContext(), "query": query, "params": filter]
-        return try await post(
-            host: "music.youtube.com", endpoint: "search", key: musicKey,
-            body: body, userAgent: webUserAgent
-        )
+        return try await postMusic(endpoint: "search", body: body)
     }
 
     /// 只查歌曲，供歌单批量匹配使用（单请求，比三路并发轻）
@@ -155,8 +257,40 @@ final class InnerTube {
     }
 
     func home() async throws -> [Shelf] {
-        let root = try await browse(browseId: "FEmusic_home")
-        return InnerTube.shelves(from: root)
+        // 未登录的 FEmusic_home 只给 2 个分区，单独用会显得"没内容"。
+        // 这里并发把探索/榜单一起取回来合并，既更饱满也能互相兜底。
+        let feeds = ["FEmusic_home", "FEmusic_explore", "FEmusic_charts"]
+
+        var gathered: [Int: [Shelf]] = [:]
+        await withTaskGroup(of: (Int, [Shelf]).self) { group in
+            for (index, feed) in feeds.enumerated() {
+                group.addTask { [weak self] in
+                    guard let self = self,
+                          let root = try? await self.browse(browseId: feed) else {
+                        return (index, [])
+                    }
+                    return (index, InnerTube.shelves(from: root))
+                }
+            }
+            for await (index, shelves) in group {
+                gathered[index] = shelves
+            }
+        }
+
+        var merged: [Shelf] = []
+        var seenTitles = Set<String>()
+        for index in feeds.indices {
+            for shelf in gathered[index] ?? [] {
+                guard !shelf.title.isEmpty, !seenTitles.contains(shelf.title) else { continue }
+                seenTitles.insert(shelf.title)
+                merged.append(shelf)
+            }
+        }
+
+        guard !merged.isEmpty else {
+            throw ApiError.unavailable(L("No content was returned. Check that your proxy also covers music.youtube.com, then retry."))
+        }
+        return merged
     }
 
     func charts() async throws -> [Shelf] {
@@ -166,10 +300,7 @@ final class InnerTube {
 
     func browse(browseId: String) async throws -> [String: Any] {
         let body: [String: Any] = ["context": musicContext(), "browseId": browseId]
-        return try await post(
-            host: "music.youtube.com", endpoint: "browse", key: musicKey,
-            body: body, userAgent: webUserAgent
-        )
+        return try await postMusic(endpoint: "browse", body: body, cacheKey: "browse_\(browseId)")
     }
 
     func collection(browseId: String) async throws -> CollectionDetail {
@@ -189,6 +320,40 @@ final class InnerTube {
             host: "www.youtube.com", endpoint: "player", key: playerKey,
             body: body, userAgent: userAgent
         )
+    }
+
+    // MARK: - 连接诊断
+
+    struct HostProbe {
+        let host: String
+        let milliseconds: Int?
+        let failure: String?
+    }
+
+    /// 只看能不能连通，不拉数据，用来判断代理是否覆盖了 music.youtube.com
+    func diagnose() async -> [HostProbe] {
+        var results: [HostProbe] = []
+        for host in InnerTube.musicHosts {
+            guard let url = URL(string: "https://\(host)/") else { continue }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 8
+            request.setValue(webUserAgent, forHTTPHeaderField: "User-Agent")
+
+            let started = Date()
+            do {
+                let (_, response) = try await session.data(for: request)
+                let ms = Int(Date().timeIntervalSince(started) * 1000)
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                results.append(HostProbe(
+                    host: host,
+                    milliseconds: code == 200 ? ms : nil,
+                    failure: code == 200 ? nil : "HTTP \(code)"
+                ))
+            } catch {
+                results.append(HostProbe(host: host, milliseconds: nil, failure: error.localizedDescription))
+            }
+        }
+        return results
     }
 
     // MARK: - Parsing

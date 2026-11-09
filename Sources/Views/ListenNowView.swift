@@ -48,7 +48,11 @@ struct ListenNowView: View {
             .navigationBarTitleDisplayMode(.large)
             .refreshable { await load() }
             .task {
-                if shelves.isEmpty { await load() }
+                // 冷启动先用上次成功的结果铺满，再后台刷新
+                if shelves.isEmpty, let cached = InnerTube.shared.cachedHomeShelves() {
+                    shelves = cached
+                }
+                await load()
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
@@ -57,17 +61,21 @@ struct ListenNowView: View {
     private func load() async {
         await MainActor.run {
             loading = true
-            error = nil
+            if shelves.isEmpty { error = nil }
         }
         do {
             let result = try await InnerTube.shared.home()
             await MainActor.run {
                 shelves = result
                 loading = false
+                error = nil
             }
         } catch {
             await MainActor.run {
-                self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                // 已经有缓存内容时不打扰用户，只在真正空白时展示错误
+                if shelves.isEmpty {
+                    self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                }
                 loading = false
             }
         }

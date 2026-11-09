@@ -35,6 +35,10 @@
 "Albums & Playlists" = "Albums & Playlists";
 "Your library is empty" = "Your library is empty";
 "Long-press a song to favorite it. Played songs are saved here automatically." = "Long-press a song to favorite it. Played songs are saved here automatically.";
+"Network" = "Network";
+"Connection Test" = "Connection Test";
+"Both hosts serve the same API. If only one responds, adjust your proxy rules." = "Both hosts serve the same API. If only one responds, adjust your proxy rules.";
+"No content was returned. Check that your proxy also covers music.youtube.com, then retry." = "No content was returned. Check that your proxy also covers music.youtube.com, then retry.";
 "Playback" = "Playback";
 "Audio Quality" = "Audio Quality";
 "High" = "High";

@@ -35,6 +35,10 @@
 "Albums & Playlists" = "专辑与歌单";
 "Your library is empty" = "资料库是空的";
 "Long-press a song to favorite it. Played songs are saved here automatically." = "长按歌曲可以收藏，播放过的歌会自动记录在这里。";
+"Network" = "网络";
+"Connection Test" = "连接测试";
+"Both hosts serve the same API. If only one responds, adjust your proxy rules." = "两个域名提供同一套接口。如果只有一个能通，说明代理规则没覆盖另一个。";
+"No content was returned. Check that your proxy also covers music.youtube.com, then retry." = "接口没有返回内容。请确认代理规则也接管了 music.youtube.com，然后重试。";
 "Playback" = "播放";
 "Audio Quality" = "音质";
 "High" = "高品质";

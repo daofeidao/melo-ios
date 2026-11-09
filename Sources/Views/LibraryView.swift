@@ -116,6 +116,8 @@ struct SettingsView: View {
     @AppStorage("melo.appearance") private var appearance: String = AppearanceMode.system.rawValue
 
     @State private var showClearConfirm = false
+    @State private var probing = false
+    @State private var probes: [InnerTube.HostProbe] = []
 
     var body: some View {
         List {
@@ -143,6 +145,40 @@ struct SettingsView: View {
                 Text(L("Appearance"))
             } footer: {
                 Text(L("Appearance follows the system by default. Pick Light or Dark to override it for this app only."))
+            }
+
+            Section {
+                Button {
+                    Task { await runDiagnose() }
+                } label: {
+                    HStack {
+                        Text(L("Connection Test"))
+                        Spacer()
+                        if probing {
+                            ProgressView()
+                        }
+                    }
+                }
+                ForEach(probes, id: \.host) { probe in
+                    HStack {
+                        Text(probe.host)
+                            .font(.system(size: 13))
+                            .foregroundColor(Theme.secondaryLabel)
+                        Spacer()
+                        if let ms = probe.milliseconds {
+                            Text("\(ms) ms").font(.system(size: 13)).foregroundColor(.green)
+                        } else {
+                            Text(probe.failure ?? "—")
+                                .font(.system(size: 12))
+                                .foregroundColor(.red)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            } header: {
+                Text(L("Network"))
+            } footer: {
+                Text(L("Both hosts serve the same API. If only one responds, adjust your proxy rules."))
             }
 
             Section {
@@ -187,6 +223,18 @@ struct SettingsView: View {
                 library.clearRecent()
             }
             Button(L("Cancel"), role: .cancel) {}
+        }
+    }
+
+    private func runDiagnose() async {
+        await MainActor.run {
+            probing = true
+            probes = []
+        }
+        let result = await InnerTube.shared.diagnose()
+        await MainActor.run {
+            probes = result
+            probing = false
         }
     }
 }

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct FeedView: View {
     let title: String
+    var cacheKey: String? = nil
     let loader: () async throws -> [Shelf]
 
     @State private var shelves: [Shelf] = []
@@ -40,6 +41,10 @@ struct FeedView: View {
             .navigationBarTitleDisplayMode(.large)
             .refreshable { await load() }
             .task {
+                if !hasLoaded, shelves.isEmpty, let key = cacheKey,
+                   let cached = InnerTube.shared.cachedShelves(key: key) {
+                    shelves = cached
+                }
                 if !hasLoaded { await load() }
             }
         }
@@ -60,7 +65,9 @@ struct FeedView: View {
             }
         } catch {
             await MainActor.run {
-                self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                if shelves.isEmpty {
+                    self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                }
                 loading = false
                 hasLoaded = true
             }
@@ -70,7 +77,7 @@ struct FeedView: View {
 
 struct BrowseView: View {
     var body: some View {
-        FeedView(title: L("Browse")) {
+        FeedView(title: L("Browse"), cacheKey: "browse_FEmusic_home") {
             try await InnerTube.shared.home()
         }
     }
@@ -78,7 +85,7 @@ struct BrowseView: View {
 
 struct ChartsView: View {
     var body: some View {
-        FeedView(title: L("Charts")) {
+        FeedView(title: L("Charts"), cacheKey: "browse_FEmusic_charts") {
             try await InnerTube.shared.charts()
         }
     }
