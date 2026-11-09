@@ -6,6 +6,7 @@ on:
       - '.github/workflows/probe-player-clients.yml'
       - 'scripts/probe_player_clients.py'
       - 'scripts/probe_netease_search.py'
+      - 'scripts/probe_decrypt.py'
   workflow_dispatch:
 
 jobs:
@@ -19,6 +20,11 @@ jobs:
 
       - name: NetEase search response shape
         run: python3 scripts/probe_netease_search.py
+
+      - name: Can the encrypted body be decrypted offline
+        run: |
+          pip install --quiet cryptography
+          python3 scripts/probe_decrypt.py
 
       - name: NetEase outer chain reachability
         run: |
