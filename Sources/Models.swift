@@ -49,7 +49,10 @@ enum ShelfItem: Identifiable, Hashable {
 
     var id: String {
         switch self {
-        case .track(let t): return "t:" + t.videoId
+        // 不能用 videoId：国内音源和本地音乐的 videoId 都是空串，
+        // 所有卡片会共用同一个 id，SwiftUI 的 ForEach 只渲染第一条 —— 表现就是
+        // 「我的收藏只显示一部分，还经常整片消失」。
+        case .track(let t): return "t:" + t.id
         case .collection(let c): return "c:" + c.browseId
         }
     }

@@ -9,3 +9,4 @@ Payload/
 Melo.xcodeproj/
 send_ipa.py
 scripts/_secrets/
+.git-commit-msg.txt

@@ -20,6 +20,14 @@ enum AudioSource {
     }
 
     static func resolve(track: Track, quality: StreamResolver.Quality) async throws -> AudioStream {
+        // 本地导入的音频：直接给 file URL，不联网、不解析
+        if track.source == LocalMusicStore.sourceTag {
+            guard let url = LocalMusicStore.fileURL(for: track) else {
+                throw ApiError.unavailable(L("This local file is no longer on the device."))
+            }
+            return AudioStream(url: url, itag: -1, bitrate: 0, mime: "audio/mpeg")
+        }
+
         if let domestic = await domesticStream(for: track) {
             return domestic
         }

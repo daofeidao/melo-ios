@@ -70,6 +70,14 @@
 "Dark" = "Dark";
 "Appearance follows the system by default. Pick Light or Dark to override it for this app only." = "Appearance follows the system by default. Pick Light or Dark to override it for this app only.";
 "Save to Library" = "Save to Library";
+"My Music" = "My Music";
+"Local Music" = "Local Music";
+"No local music" = "No local music";
+"Tap + to import audio files from Files. They stay on this device." = "Tap + to import audio files from Files. They stay on this device.";
+"Import Audio Files" = "Import Audio Files";
+"This local file is no longer on the device." = "This local file is no longer on the device.";
+"Favorites and history live on the Listen Now page; this page keeps your imported files." = "Favorites and history live on the Listen Now page; this page keeps your imported files.";
+"Import a playlist link, or add audio files to Local Music." = "Import a playlist link, or add audio files to Local Music.";
 "Temporarily unavailable" = "Temporarily unavailable";
 "Kugou charts are not reachable right now." = "Kugou charts are not reachable right now.";
 "Saved to Library" = "Saved to Library";

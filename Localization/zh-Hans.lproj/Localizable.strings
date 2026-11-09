@@ -70,6 +70,14 @@
 "Dark" = "深色";
 "Appearance follows the system by default. Pick Light or Dark to override it for this app only." = "默认跟随系统。选择浅色或深色只影响本应用。";
 "Save to Library" = "收藏到资料库";
+"My Music" = "我的音乐";
+"Local Music" = "本地音乐";
+"No local music" = "还没有本地音乐";
+"Tap + to import audio files from Files. They stay on this device." = "点右上角 + 从「文件」导入音频，文件只保存在本机。";
+"Import Audio Files" = "导入音频文件";
+"This local file is no longer on the device." = "这个本地文件已经不在了。";
+"Favorites and history live on the Listen Now page; this page keeps your imported files." = "收藏和最近播放在「现在就听」里，这里放你导入的文件。";
+"Import a playlist link, or add audio files to Local Music." = "粘贴歌单链接导入，或把音频文件放进「本地音乐」。";
 "Temporarily unavailable" = "暂不可用";
 "Kugou charts are not reachable right now." = "酷狗榜单暂时连不上。";
 "Saved to Library" = "已收藏到资料库";

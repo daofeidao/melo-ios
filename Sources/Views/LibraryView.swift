@@ -5,6 +5,7 @@ struct LibraryView: View {
     @EnvironmentObject private var library: Library
     @EnvironmentObject private var player: PlayerEngine
     @EnvironmentObject private var store: PlaylistStore
+    @ObservedObject private var localMusic = LocalMusicStore.shared
 
     @State private var showImport = false
     @State private var showSettingsSheet = false
@@ -34,35 +35,28 @@ struct LibraryView: View {
                     Text(L("My Playlists"))
                 }
 
-                if !library.favorites.isEmpty {
-                    Section {
-                        ForEach(Array(library.favorites.enumerated()), id: \.offset) { index, track in
-                            TrackRow(track: track) {
-                                player.play(tracks: library.favorites, startAt: index)
-                            }
+                Section {
+                    NavigationLink(destination: LocalMusicView()) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "folder.fill")
+                                .foregroundColor(Theme.accent)
+                            Text(L("Local Music"))
+                            Spacer()
+                            Text("\(localMusic.songs.count)")
+                                .foregroundColor(Theme.secondaryLabel)
                         }
-                    } header: {
-                        Text(L("My Favorites"))
                     }
+                } header: {
+                    Text(L("My Music"))
+                } footer: {
+                    Text(L("Favorites and history live on the Listen Now page; this page keeps your imported files."))
                 }
 
-                if !library.recent.isEmpty {
-                    Section {
-                        ForEach(Array(library.recent.enumerated()), id: \.offset) { index, track in
-                            TrackRow(track: track) {
-                                player.play(tracks: library.recent, startAt: index)
-                            }
-                        }
-                    } header: {
-                        Text(L("Recently Played"))
-                    }
-                }
-
-                if library.favorites.isEmpty, library.recent.isEmpty, store.playlists.isEmpty {
+                if store.playlists.isEmpty {
                     EmptyHint(
                         symbol: "heart",
                         title: L("Your library is empty"),
-                        message: L("Long-press a song to favorite it. Played songs are saved here automatically.")
+                        message: L("Import a playlist link, or add audio files to Local Music.")
                     )
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
