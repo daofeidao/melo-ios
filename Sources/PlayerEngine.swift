@@ -455,6 +455,8 @@ final class PlayerEngine: ObservableObject {
         observeItem(item)
         player.replaceCurrentItem(with: item)
         isLoading = false
+        // 重试成功后要把上一轮的错误文案清掉，否则会一边出声一边挂着红字
+        errorText = nil
 
         Library.shared.addRecent(track)
         loadArtworkIfNeeded()
