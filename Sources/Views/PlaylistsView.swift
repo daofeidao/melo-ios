@@ -271,6 +271,13 @@ struct ImportPlaylistView: View {
         .onDisappear {
             task?.cancel()
         }
+        .onAppear {
+            guard let preset = SmokeTest.importURL, text.isEmpty, !working else { return }
+            text = preset
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                start()
+            }
+        }
     }
 
     private func start() {

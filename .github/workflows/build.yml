@@ -117,11 +117,20 @@ jobs:
           sleep 10
           xcrun simctl io "$DEVICE_ID" screenshot shot-06-library-playlists.png
 
-          echo "=== 导入歌单页 ==="
+          echo "=== 导入歌单页（空表单）==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
           xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 3 -smoke-import || true
           sleep 12
           xcrun simctl io "$DEVICE_ID" screenshot shot-07-import-playlist.png
+
+          echo "=== 真实导入：QQ音乐 27 首歌单，抓取→匹配→落库 ==="
+          xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 3 -smoke-import -smoke-import-url 'https://y.qq.com/n/ryqq/playlist/7013848675' || true
+          sleep 55
+          xcrun simctl io "$DEVICE_ID" screenshot shot-08-import-result.png
+          echo "--- 导入相关日志 ---"
+          xcrun simctl spawn "$DEVICE_ID" log show --last 90s --style compact \
+            --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null | grep -iE 'error|fail|timeout' | tail -15 || echo "no error lines"
 
           echo "--- process check ---"
           xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -i melo || echo "process not listed"
@@ -130,7 +139,7 @@ jobs:
         if: always()
         run: |
           mkdir -p shots
-          for f in shot-01-home-zh.png shot-02-settings-zh.png shot-03-miniplayer.png shot-04-player.png shot-05-english-dark.png shot-06-library-playlists.png shot-07-import-playlist.png; do
+          for f in shot-01-home-zh.png shot-02-settings-zh.png shot-03-miniplayer.png shot-04-player.png shot-05-english-dark.png shot-06-library-playlists.png shot-07-import-playlist.png shot-08-import-result.png; do
             if [ -f "$f" ]; then
               sips -Z 1400 "$f" --out "shots/$f" >/dev/null
             fi
@@ -200,6 +209,7 @@ jobs:
             shots/shot-05-english-dark.png
             shots/shot-06-library-playlists.png
             shots/shot-07-import-playlist.png
+            shots/shot-08-import-result.png
           if-no-files-found: warn
           retention-days: 30
 
@@ -221,6 +231,7 @@ jobs:
             shots/shot-05-english-dark.png
             shots/shot-06-library-playlists.png
             shots/shot-07-import-playlist.png
+            shots/shot-08-import-result.png
           draft: false
           prerelease: true
           generate_release_notes: false

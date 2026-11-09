@@ -37,6 +37,15 @@ enum SmokeTest {
         ProcessInfo.processInfo.arguments.contains("-smoke-import")
     }
 
+    /// 预填的歌单链接，用于在 CI 里跑通「抓取 → 匹配 → 落库」整条链路
+    static var importURL: String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let index = args.firstIndex(of: "-smoke-import-url"), index + 1 < args.count else {
+            return nil
+        }
+        return args[index + 1]
+    }
+
     static func makeTrack(videoId: String) -> Track {
         Track(
             videoId: videoId,
