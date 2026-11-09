@@ -165,6 +165,12 @@ jobs:
           sleep 32
           xcrun simctl io "$DEVICE_ID" screenshot shot-14-search-fallback.png
 
+          echo "=== 搜索页双源结果（YouTube + 国内音源）==="
+          xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-search '孤勇者' || true
+          sleep 26
+          xcrun simctl io "$DEVICE_ID" screenshot shot-15-search-domestic.png
+
           echo "=== 播放失败态（故意用无效视频）==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
           xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-play AAAAAAAAAAA -smoke-player || true
@@ -178,7 +184,7 @@ jobs:
         if: always()
         run: |
           mkdir -p shots
-          for f in shot-01-home-zh.png shot-02-settings-zh.png shot-03-miniplayer.png shot-04-player.png shot-05-english-dark.png shot-06-library-playlists.png shot-07-import-playlist.png shot-08-import-result.png shot-09-playback-diagnostics.png shot-10-playback-error.png shot-11-real-song.png shot-12-domestic-song.png shot-13-netease-count.png shot-14-search-fallback.png; do
+          for f in shot-01-home-zh.png shot-02-settings-zh.png shot-03-miniplayer.png shot-04-player.png shot-05-english-dark.png shot-06-library-playlists.png shot-07-import-playlist.png shot-08-import-result.png shot-09-playback-diagnostics.png shot-10-playback-error.png shot-11-real-song.png shot-12-domestic-song.png shot-13-netease-count.png shot-14-search-fallback.png shot-15-search-domestic.png; do
             if [ -f "$f" ]; then
               sips -Z 1400 "$f" --out "shots/$f" >/dev/null
             fi
@@ -223,7 +229,7 @@ jobs:
         id: pkg
         run: |
           APP="$APP_PATH"
-          IPA_NAME="Melo-v1.7.0.B${GITHUB_RUN_NUMBER}.ipa"
+          IPA_NAME="Melo-v1.8.0.B${GITHUB_RUN_NUMBER}.ipa"
           echo "IPA_NAME=${IPA_NAME}" >> "$GITHUB_ENV"
           mkdir -p Payload
           cp -R "$APP" Payload/
@@ -240,7 +246,7 @@ jobs:
         with:
           name: melo-build
           path: |
-            Melo-v1.7.0.B*.ipa
+            Melo-v1.8.0.B*.ipa
             shots/shot-01-home-zh.png
             shots/shot-02-settings-zh.png
             shots/shot-03-miniplayer.png
@@ -255,6 +261,7 @@ jobs:
             shots/shot-12-domestic-song.png
             shots/shot-13-netease-count.png
             shots/shot-14-search-fallback.png
+            shots/shot-15-search-domestic.png
           if-no-files-found: warn
           retention-days: 30
 
@@ -283,6 +290,7 @@ jobs:
             shots/shot-12-domestic-song.png
             shots/shot-13-netease-count.png
             shots/shot-14-search-fallback.png
+            shots/shot-15-search-domestic.png
           draft: false
           prerelease: true
           generate_release_notes: false

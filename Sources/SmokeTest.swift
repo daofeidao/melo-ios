@@ -68,6 +68,15 @@ enum SmokeTest {
         return args[index + 1]
     }
 
+    /// 直接执行一次搜索，用来验证「YouTube + 国内音源」双源结果
+    static var searchQuery: String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let index = args.firstIndex(of: "-smoke-search"), index + 1 < args.count else {
+            return nil
+        }
+        return args[index + 1]
+    }
+
     /// 预填的歌单链接，用于在 CI 里跑通「抓取 → 匹配 → 落库」整条链路
     static var importURL: String? {
         let args = ProcessInfo.processInfo.arguments

@@ -56,6 +56,9 @@ struct RootView: View {
         if let tab = SmokeTest.initialTab {
             selection = tab
         }
+        if SmokeTest.searchQuery != nil, SmokeTest.initialTab == nil {
+            selection = 4
+        }
         if SmokeTest.seedsPlaylist {
             PlaylistStore.shared.seedForSmokeTest()
         }

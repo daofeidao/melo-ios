@@ -40,6 +40,9 @@
 "Both hosts serve the same API. If only one responds, adjust your proxy rules." = "Both hosts serve the same API. If only one responds, adjust your proxy rules.";
 "No content was returned. Check that your proxy also covers music.youtube.com, then retry." = "No content was returned. Check that your proxy also covers music.youtube.com, then retry.";
 "%@ plays" = "%@ plays";
+"Domestic Sources · playable now" = "Domestic Sources · playable now";
+"Search songs and artists. Results come from YouTube Music, plus domestic sources that play without a VPN." = "Search songs and artists. Results come from YouTube Music, plus domestic sources that play without a VPN.";
+"YouTube blocked this network, and no playable song was found on domestic sources either." = "YouTube blocked this network, and no playable song was found on domestic sources either.";
 "Playback Test" = "Playback Test";
 "Playback failed" = "Playback failed";
 "Playback failed: %@" = "Playback failed: %@";

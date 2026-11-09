@@ -92,6 +92,8 @@ struct Shelf: Identifiable {
 struct SearchResults {
     var tracks: [Track] = []
     var collections: [MediaCollection] = []
+    /// 国内音源结果，已逐条验证可拉流，点开必定能播
+    var domestic: [Track] = []
 }
 
 struct CollectionDetail {

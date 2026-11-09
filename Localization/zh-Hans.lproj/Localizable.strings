@@ -40,6 +40,9 @@
 "Both hosts serve the same API. If only one responds, adjust your proxy rules." = "两个域名提供同一套接口。如果只有一个能通，说明代理规则没覆盖另一个。";
 "No content was returned. Check that your proxy also covers music.youtube.com, then retry." = "接口没有返回内容。请确认代理规则也接管了 music.youtube.com，然后重试。";
 "%@ plays" = "%@ 次播放";
+"Domestic Sources · playable now" = "国内音源 · 可直接播放";
+"Search songs and artists. Results come from YouTube Music, plus domestic sources that play without a VPN." = "可搜索歌曲与艺人。结果来自 YouTube Music，另附无需翻墙即可播放的国内音源。";
+"YouTube blocked this network, and no playable song was found on domestic sources either." = "YouTube 拦截了当前网络，国内音源也没找到可播放的版本。";
 "Playback Test" = "播放诊断";
 "Playback failed" = "播放失败";
 "Playback failed: %@" = "播放失败：%@";

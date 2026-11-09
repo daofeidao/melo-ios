@@ -24,7 +24,7 @@ struct SearchView: View {
                         Task { await performSearch(query) }
                     }
                     Spacer()
-                } else if hasSearched, results.tracks.isEmpty, results.collections.isEmpty {
+                } else if hasSearched, results.tracks.isEmpty, results.collections.isEmpty, results.domestic.isEmpty {
                     EmptyHint(
                         symbol: "magnifyingglass",
                         title: L("No results"),
@@ -35,7 +35,7 @@ struct SearchView: View {
                     EmptyHint(
                         symbol: "music.note",
                         title: L("Search music"),
-                        message: L("Search songs and artists from YouTube Music.")
+                        message: L("Search songs and artists. Results come from YouTube Music, plus domestic sources that play without a VPN.")
                     )
                     Spacer()
                 } else {
@@ -44,6 +44,10 @@ struct SearchView: View {
             }
             .navigationTitle(L("Search"))
             .navigationBarTitleDisplayMode(.large)
+            .onAppear {
+                guard let preset = SmokeTest.searchQuery, query.isEmpty else { return }
+                query = preset
+            }
         }
         .navigationViewStyle(StackNavigationViewStyle())
     }
@@ -92,6 +96,23 @@ struct SearchView: View {
     private var resultList: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
+                if !results.domestic.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        SectionHeader(title: L("Domestic Sources · playable now"))
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(results.domestic.enumerated()), id: \.offset) { index, track in
+                                TrackRow(track: track) {
+                                    player.play(tracks: results.domestic, startAt: index)
+                                }
+                                .padding(.horizontal, 16)
+                                if index < results.domestic.count - 1 {
+                                    Divider().padding(.leading, 76)
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if !results.collections.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
                         SectionHeader(title: L("Albums & Playlists"))
@@ -154,18 +175,28 @@ struct SearchView: View {
             loading = true
             error = nil
         }
-        do {
-            let response = try await InnerTube.shared.search(query: trimmed)
-            await MainActor.run {
-                results = response
-                loading = false
-                hasSearched = true
-            }
-        } catch {
-            await MainActor.run {
-                self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                loading = false
-                hasSearched = true
+        // 两路并发：YouTube 拿元数据与专辑，国内音源拿"点了就能播"的曲目。
+        // 任何一路失败都不该让另一路白跑 —— 用户至少能看到并播放一边的结果。
+        async let youtubeTask: SearchResults? = {
+            try? await InnerTube.shared.search(query: trimmed)
+        }()
+        async let domesticTask = DomesticSource.search(query: trimmed)
+
+        let youtubeResults = await youtubeTask
+        let domesticRaw = await domesticTask
+        let playable = await DomesticSource.playableOnes(from: domesticRaw, limit: 10)
+
+        await MainActor.run {
+            var merged = youtubeResults ?? SearchResults()
+            merged.domestic = playable
+            results = merged
+            loading = false
+            hasSearched = true
+
+            if youtubeResults == nil, playable.isEmpty {
+                error = L("YouTube blocked this network, and no playable song was found on domestic sources either.")
+            } else {
+                error = nil
             }
         }
     }
