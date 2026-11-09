@@ -67,28 +67,11 @@ struct LibraryView: View {
                     .listRowSeparator(.hidden)
                 }
 
-                Section {
-                    NavigationLink(destination: SettingsView()) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "gearshape.fill")
-                                .foregroundColor(Theme.accent)
-                            Text(L("Settings"))
-                            Spacer()
-                        }
-                    }
-                }
             }
             .listStyle(InsetGroupedListStyle())
             .navigationTitle(L("Library"))
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        showImport = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     NavigationLink(destination: SettingsView()) {
                         Image(systemName: "gearshape")
