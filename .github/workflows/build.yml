@@ -41,23 +41,19 @@ jobs:
       - name: Simulator smoke test
         run: |
           set -x
-          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for runtime, devices in data['devices'].items():
-    for d in devices:
-        if 'iPhone' in d['name']:
-            print(d['udid'])
-            raise SystemExit
-")
+          DEVICE_ID=$(xcrun simctl list devices available | grep -E '^[[:space:]]+iPhone' | head -1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
           echo "device=$DEVICE_ID"
+          if [ -z "$DEVICE_ID" ]; then
+            echo "no iPhone simulator found"
+            exit 1
+          fi
           xcrun simctl boot "$DEVICE_ID" || true
           xcrun simctl bootstatus "$DEVICE_ID" -b
           APP="build-sim/Build/Products/Debug-iphonesimulator/Melo.app"
           ls -la "$APP"
           xcrun simctl install "$DEVICE_ID" "$APP"
           xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo || true
-          sleep 12
+          sleep 14
           xcrun simctl io "$DEVICE_ID" screenshot shot-01-listennow.png
           xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -i melo || echo "process not listed"
 
@@ -80,12 +76,13 @@ for runtime, devices in data['devices'].items():
           plutil -p "$APP/Info.plist" | grep -E 'MinimumOSVersion|CFBundleIdentifier|CFBundleDisplayName|UIBackgroundModes' || true
           echo "--- arch ---"
           lipo -archs "$APP/Melo"
-          rm -rf Payload && mkdir -p Payload
+          rm -rf Payload
+          mkdir -p Payload
           cp -R "$APP" Payload/
           zip -qry "Melo-1.0.0-unsigned.ipa" Payload
           ls -lh "Melo-1.0.0-unsigned.ipa"
           echo "--- ipa contents ---"
-          unzip -l "Melo-1.0.0-unsigned.ipa" | head -20
+          unzip -l "Melo-1.0.0-unsigned.ipa" | head -25
 
       - name: Upload artifacts
         if: always()
