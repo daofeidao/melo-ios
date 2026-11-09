@@ -30,7 +30,7 @@ struct SearchView: View {
                         Task { await performSearch(query) }
                     }
                     Spacer()
-                } else if hasSearched, results.tracks.isEmpty, results.collections.isEmpty, results.domestic.isEmpty {
+                } else if hasSearched, results.tracks.isEmpty, results.collections.isEmpty, results.domestic.isEmpty, results.domesticCollections.isEmpty {
                     EmptyHint(
                         symbol: "magnifyingglass",
                         title: L("No results"),
@@ -206,6 +206,24 @@ struct SearchView: View {
         }
     }
 
+    private func schedule(_ value: String) {
+        pending?.cancel()
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            results = SearchResults()
+            hasSearched = false
+            loading = false
+            error = nil
+            return
+        }
+
+        pending = Task {
+            try? await Task.sleep(nanoseconds: 420_000_000)
+            if Task.isCancelled { return }
+            await performSearch(trimmed)
+        }
+    }
+
     // MARK: - 空态：按风格浏览
 
     private var browseState: some View {
@@ -299,7 +317,7 @@ struct SearchView: View {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        // 防抖只管"发不发请求"，不管"旧请求停不停" —— URLSession 不会因为
+        // 防抖只决定"发不发请求"，不负责"停掉旧请求" —— URLSession 不会因为
         // Task 取消而中断，所以用代际号丢弃过期结果，否则连打几个字会越搜越慢。
         searchGeneration += 1
         let generation = searchGeneration
@@ -315,7 +333,7 @@ struct SearchView: View {
         let started = Date()
 
         // 三路并发，全部国内源。YouTube 不在这里：没有代理时它固定白等 12 秒，
-        // 而国内三路实测 0.2~1 秒就能全回来。
+        // 而国内三路实测 0.2~1 秒就全回来了。
         let songsJob = Task { await DomesticSource.search(query: trimmed) }
         let albumsJob = Task { await DomesticSource.neteaseAlbumSearch(query: trimmed) }
         let playlistsJob = Task { await DomesticSource.neteasePlaylistSearch(query: trimmed) }
@@ -329,7 +347,7 @@ struct SearchView: View {
         let ms = Int(Date().timeIntervalSince(started) * 1000)
         NSLog("SMOKE_SEARCH domestic=\(songs.count) albums=\(albums.count) playlists=\(playlists.count) ms=\(ms)")
 
-        // 可播的排前面，VIP 排后面；同组内保持接口原顺序
+        // 可播排前面、VIP 排后面；同组内保持接口原顺序
         let ordered = songs.filter { !$0.isVip } + songs.filter { $0.isVip }
 
         var merged = SearchResults()
@@ -387,135 +405,6 @@ struct SearchView: View {
                 youtubeNote = nil
             } else {
                 youtubeNote = L("YouTube is not reachable on this network.")
-            }
-        }
-    }
-
-    // MARK: - 空态：按风格浏览
-
-    private var browseState: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                if !recentSearches.isEmpty {
-                    VStack(alignment: .leading, spacing: 2) {
-                        SectionHeader(title: L("Recent Searches"))
-                        ForEach(recentSearches, id: \.self) { term in
-                            Button {
-                                query = term
-                            } label: {
-                                HStack(spacing: 10) {
-                                    Image(systemName: "clock.arrow.circlepath")
-                                        .font(.system(size: 13))
-                                        .foregroundColor(Theme.secondaryLabel)
-                                    Text(term)
-                                        .font(.system(size: 15))
-                                        .foregroundColor(.primary)
-                                        .lineLimit(1)
-                                    Spacer(minLength: 8)
-                                    Image(systemName: "arrow.up.left")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(Theme.tertiaryLabel)
-                                }
-                                .padding(.vertical, 7)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    SectionHeader(title: L("Browse by Genre"))
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 104), spacing: 10)],
-                        spacing: 10
-                    ) {
-                        ForEach(Array(HotPlaylists.genres.enumerated()), id: \.element.id) { index, genre in
-                            NavigationLink(destination: GenrePlaylistsView(genre: genre)) {
-                                genreCard(genre, index: index)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                        }
-                    }
-                }
-                .padding(.horizontal, 16)
-            }
-            .padding(.top, 6)
-            .padding(.bottom, Layout.contentBottomInset)
-        }
-    }
-
-    private func genreCard(_ genre: PlaylistGenre, index: Int) -> some View {
-        let colors: [Color] = [
-            Color(hex: 0xE0455E), Color(hex: 0x2E7BE0), Color(hex: 0xE08A2E),
-            Color(hex: 0x2EA98A), Color(hex: 0x7B5BD6), Color(hex: 0xC24E8F)
-        ]
-        return Text(genre.title)
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundColor(.white)
-            .lineLimit(1)
-            .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
-            .padding(.horizontal, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(colors[index % colors.count].opacity(0.9))
-            )
-    }
-
-    // MARK: - 最近搜索
-
-    private var recentSearchesKey: String { "melo.recentSearches" }
-
-    private func loadRecentSearches() {
-        recentSearches = UserDefaults.standard.stringArray(forKey: recentSearchesKey) ?? []
-    }
-
-    private func rememberSearch(_ term: String) {
-        guard !term.isEmpty else { return }
-        var list = recentSearches.filter { $0.caseInsensitiveCompare(term) != .orderedSame }
-        list.insert(term, at: 0)
-        if list.count > 8 { list = Array(list.prefix(8)) }
-        recentSearches = list
-        UserDefaults.standard.set(list, forKey: recentSearchesKey)
-    }
-
-    private func performSearch(_ raw: String) async {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        await MainActor.run {
-            loading = true
-            error = nil
-        }
-        // 两路并发：YouTube 拿元数据与专辑，国内音源拿"点了就能播"的曲目。
-        // 任何一路失败都不该让另一路白跑 —— 用户至少能看到并播放一边的结果。
-        let youtubeJob = Task { try? await InnerTube.shared.search(query: trimmed) }
-        let domesticJob = Task { await DomesticSource.search(query: trimmed) }
-
-        let youtubeResults = await youtubeJob.value
-        let domesticRaw = await domesticJob.value
-        let playable = await DomesticSource.playableOnes(from: domesticRaw, limit: 10)
-
-        // 用插值而不是 %d：NSLog 的变参对 Int 宽度敏感，%d 在 64 位下不可靠
-        NSLog("SMOKE_SEARCH youtube=\(youtubeResults?.tracks.count ?? -1) raw=\(domesticRaw.count) playable=\(playable.count)")
-
-        await MainActor.run {
-            var merged = youtubeResults ?? SearchResults()
-            merged.domestic = playable
-            results = merged
-            loading = false
-            hasSearched = true
-            // @State 只能在主线程改
-            rememberSearch(trimmed)
-            // 结果一出来就先把前几首解析好，点下去就是缓存命中
-            let preroll = playable.isEmpty ? merged.tracks : playable
-            player.prewarm(tracks: preroll, limit: 5)
-
-            if youtubeResults == nil, playable.isEmpty {
-                error = L("YouTube blocked this network, and no playable song was found on domestic sources either.")
-            } else {
-                error = nil
             }
         }
     }
