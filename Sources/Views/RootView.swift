@@ -68,6 +68,9 @@ struct RootView: View {
         if SmokeTest.seedsPlaylist {
             PlaylistStore.shared.seedForSmokeTest()
         }
+        if SmokeTest.seedsFavorites {
+            Library.shared.seedFavoritesForSmokeTest()
+        }
         if SmokeTest.runsBackupTest {
             runBackupRoundTrip()
         }

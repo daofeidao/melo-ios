@@ -60,6 +60,11 @@ enum SmokeTest {
         ProcessInfo.processInfo.arguments.contains("-smoke-no-autoplayer")
     }
 
+    /// 预置一批收藏，用来验证「现在就听」的收藏卡片不会因为 id 冲突只剩一条
+    static var seedsFavorites: Bool {
+        ProcessInfo.processInfo.arguments.contains("-smoke-seed-favorites")
+    }
+
     /// 直接播一首网易云歌曲，用来验证国内音源链路
     static var neteaseSongID: String? {
         let args = ProcessInfo.processInfo.arguments

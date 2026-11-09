@@ -103,7 +103,7 @@ jobs:
           xcrun simctl ui "$DEVICE_ID" appearance light || true
 
           echo "=== 中文（强制 zh-Hans）==="
-          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-seed-favorites || true
           sleep 14
           xcrun simctl io "$DEVICE_ID" screenshot shot-01-home-zh.png
 
