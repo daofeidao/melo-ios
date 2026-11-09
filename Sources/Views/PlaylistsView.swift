@@ -153,6 +153,9 @@ struct PlaylistDetailView: View {
 // MARK: - 导入
 
 struct ImportPlaylistView: View {
+    /// 从排行榜点进来时预置的链接，进页面直接开始导入
+    var presetURL: String? = nil
+
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: PlaylistStore
 
@@ -272,11 +275,15 @@ struct ImportPlaylistView: View {
             task?.cancel()
         }
         .onAppear {
-            guard let preset = SmokeTest.importURL, text.isEmpty, !working else { return }
-            text = preset
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                start()
+            guard text.isEmpty, !working else { return }
+            if let preset = presetURL {
+                text = preset
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { start() }
+                return
             }
+            guard let preset = SmokeTest.importURL else { return }
+            text = preset
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { start() }
         }
     }
 

@@ -82,11 +82,3 @@ struct BrowseView: View {
         }
     }
 }
-
-struct ChartsView: View {
-    var body: some View {
-        FeedView(title: L("Charts"), cacheKey: "browse_FEmusic_charts") {
-            try await InnerTube.shared.charts()
-        }
-    }
-}

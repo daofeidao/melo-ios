@@ -39,6 +39,7 @@
 "Connection Test" = "连接测试";
 "Both hosts serve the same API. If only one responds, adjust your proxy rules." = "两个域名提供同一套接口。如果只有一个能通，说明代理规则没覆盖另一个。";
 "No content was returned. Check that your proxy also covers music.youtube.com, then retry." = "接口没有返回内容。请确认代理规则也接管了 music.youtube.com，然后重试。";
+"%@ plays" = "%@ 次播放";
 "Playback Test" = "播放诊断";
 "Playback failed" = "播放失败";
 "Playback failed: %@" = "播放失败：%@";

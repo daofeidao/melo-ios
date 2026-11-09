@@ -1,0 +1,120 @@
+import Foundation
+
+struct ExternalPlaylist: Identifiable, Hashable {
+    let platform: PlaylistPlatform
+    let playlistID: String
+    let name: String
+    let subtitle: String
+    let cover: String?
+
+    var id: String { "\(platform.rawValue):\(playlistID)" }
+
+    /// 交给导入流程时用的规范链接
+    var importURL: String {
+        switch platform {
+        case .netease: return "https://music.163.com/playlist?id=\(playlistID)"
+        case .qq: return "https://y.qq.com/n/ryqq/playlist/\(playlistID)"
+        case .kugou: return "https://www.kugou.com/yy/special/single/\(playlistID).html"
+        }
+    }
+}
+
+/// 各平台「推荐 / 热门歌单」的发现接口。
+/// 酷狗与汽水目前没有可用的公开入口（酷狗返回 Access Deny，汽水无此接口），
+/// 所以只返回空数组，界面会自动隐藏对应分区。
+enum HotPlaylists {
+
+    static func fetch(_ platform: PlaylistPlatform) async throws -> [ExternalPlaylist] {
+        switch platform {
+        case .netease:
+            return try await netEase()
+        case .qq:
+            return try await qq()
+        case .kugou:
+            return []
+        }
+    }
+
+    // MARK: - 网易云
+
+    private static func netEase() async throws -> [ExternalPlaylist] {
+        let url = "https://music.163.com/api/playlist/list?cat=%E5%85%A8%E9%83%A8&order=hot&offset=0&limit=18&total=true"
+        guard let root = try await getJSON(url, headers: [
+            "Referer": "https://music.163.com/",
+            "User-Agent": browserUA
+        ]) else {
+            throw ApiError.unavailable(L("No content was returned. Check that your proxy also covers music.youtube.com, then retry."))
+        }
+
+        let list = (JS.array(root["playlists"]) ?? []).compactMap { JS.dict($0) }
+        return list.compactMap { item in
+            guard let id = JS.int(item["id"]).map(String.init),
+                  let name = JS.string(item["name"]), !name.isEmpty else { return nil }
+            return ExternalPlaylist(
+                platform: .netease,
+                playlistID: id,
+                name: name,
+                subtitle: playsText(JS.int(item["playCount"]) ?? 0),
+                cover: https(JS.string(item["coverImgUrl"]))
+            )
+        }
+    }
+
+    // MARK: - QQ音乐
+
+    private static func qq() async throws -> [ExternalPlaylist] {
+        let url = "https://c.y.qq.com/splcloud/fcgi-bin/fcg_get_diss_by_tag.fcg?picmid=1&rnd=0.1&g_tk=5381&loginUin=0&hostUin=0&format=json&inCharset=utf8&outCharset=utf-8&notice=0&platform=yqq.json&needNewCode=0&categoryId=10000000&sortId=5&sin=0&ein=17"
+        guard let root = try await getJSON(url, headers: [
+            "Referer": "https://y.qq.com/",
+            "User-Agent": browserUA
+        ]) else {
+            throw ApiError.unavailable(L("No content was returned. Check that your proxy also covers music.youtube.com, then retry."))
+        }
+
+        let list = (JS.array(JS.dict(root["data"])?["list"]) ?? []).compactMap { JS.dict($0) }
+        return list.compactMap { item in
+            guard let id = JS.string(item["dissid"]),
+                  let name = JS.string(item["dissname"]), !name.isEmpty else { return nil }
+            return ExternalPlaylist(
+                platform: .qq,
+                playlistID: id,
+                name: name,
+                subtitle: playsText(JS.int(item["listennum"]) ?? 0),
+                cover: https(JS.string(item["imgurl"]))
+            )
+        }
+    }
+
+    // MARK: - 工具
+
+    private static let browserUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
+    private static func playsText(_ count: Int) -> String {
+        guard count > 0 else { return "" }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        let number = formatter.string(from: NSNumber(value: count)) ?? String(count)
+        return String(format: L("%@ plays"), number)
+    }
+
+    /// 封面统一走 https，避免 ATS 例外被收紧后加载失败
+    private static func https(_ url: String?) -> String? {
+        guard let url = url else { return nil }
+        if url.hasPrefix("http://") {
+            return "https://" + url.dropFirst("http://".count)
+        }
+        return url
+    }
+
+    private static func getJSON(_ urlString: String, headers: [String: String]) async throws -> [String: Any]? {
+        guard let url = URL(string: urlString) else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        headers.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            return nil
+        }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+}

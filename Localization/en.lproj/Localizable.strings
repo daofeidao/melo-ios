@@ -39,6 +39,7 @@
 "Connection Test" = "Connection Test";
 "Both hosts serve the same API. If only one responds, adjust your proxy rules." = "Both hosts serve the same API. If only one responds, adjust your proxy rules.";
 "No content was returned. Check that your proxy also covers music.youtube.com, then retry." = "No content was returned. Check that your proxy also covers music.youtube.com, then retry.";
+"%@ plays" = "%@ plays";
 "Playback Test" = "Playback Test";
 "Playback failed" = "Playback failed";
 "Playback failed: %@" = "Playback failed: %@";
