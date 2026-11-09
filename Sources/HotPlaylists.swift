@@ -63,6 +63,55 @@ enum HotPlaylists {
         }
     }
 
+    private static func netEase(cat: String) async throws -> [ExternalPlaylist] {
+        let encoded = cat.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? cat
+        let url = "https://music.163.com/api/playlist/list?cat=\(encoded)&order=hot&offset=0&limit=30&total=true"
+        guard let root = try await getJSON(url, headers: [
+            "Referer": "https://music.163.com/",
+            "User-Agent": browserUA
+        ]) else {
+            throw ApiError.unavailable(L("No content was returned. Check that your proxy also covers music.youtube.com, then retry."))
+        }
+
+        let list = (JS.array(root["playlists"]) ?? []).compactMap { JS.dict($0) }
+        return list.compactMap { item in
+            guard let id = JS.int(item["id"]).map(String.init),
+                  let name = JS.string(item["name"]), !name.isEmpty else { return nil }
+            return ExternalPlaylist(
+                platform: .netease,
+                playlistID: id,
+                name: name,
+                subtitle: playsText(JS.int(item["playCount"]) ?? 0),
+                cover: https(JS.string(item["coverImgUrl"]))
+            )
+        }
+    }
+
+    // MARK: - QQ音乐
+
+    private static func qq() async throws -> [ExternalPlaylist] {
+        let url = "https://c.y.qq.com/splcloud/fcgi-bin/fcg_get_diss_by_tag.fcg?picmid=1&rnd=0.1&g_tk=5381&loginUin=0&hostUin=0&format=json&inCharset=utf8&outCharset=utf-8&notice=0&platform=yqq.json&needNewCode=0&categoryId=10000000&sortId=5&sin=0&ein=17"
+        guard let root = try await getJSON(url, headers: [
+            "Referer": "https://y.qq.com/",
+            "User-Agent": browserUA
+        ]) else {
+            throw ApiError.unavailable(L("No content was returned. Check that your proxy also covers music.youtube.com, then retry."))
+        }
+
+        let list = (JS.array(JS.dict(root["data"])?["list"]) ?? []).compactMap { JS.dict($0) }
+        return list.compactMap { item in
+            guard let id = JS.string(item["dissid"]),
+                  let name = JS.string(item["dissname"]), !name.isEmpty else { return nil }
+            return ExternalPlaylist(
+                platform: .qq,
+                playlistID: id,
+                name: name,
+                subtitle: playsText(JS.int(item["listennum"]) ?? 0),
+                cover: https(JS.string(item["imgurl"]))
+            )
+        }
+    }
+
     // MARK: - 酷狗榜单
 
     /// 移动端榜单接口。`m.kugou.com` 是唯一同时满足「免签名」「有现成 hash」的入口：
