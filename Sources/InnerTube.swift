@@ -192,6 +192,12 @@ final class InnerTube {
         return shelves.isEmpty ? nil : shelves
     }
 
+    /// 内容语言跟随界面语言，否则英文界面下会出现中文分区标题
+    static var contentLanguage: String {
+        let preferred = Locale.preferredLanguages.first ?? "en"
+        return preferred.hasPrefix("zh") ? "zh-CN" : "en"
+    }
+
     func musicContext() -> [String: Any] {
         [
             "client": [
