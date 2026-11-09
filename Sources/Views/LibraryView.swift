@@ -6,6 +6,7 @@ struct LibraryView: View {
     @EnvironmentObject private var store: PlaylistStore
 
     @State private var showImport = false
+    @State private var showSettingsSheet = false
 
     var body: some View {
         NavigationView {
@@ -97,10 +98,21 @@ struct LibraryView: View {
             .sheet(isPresented: $showImport) {
                 ImportPlaylistView()
             }
+            .sheet(isPresented: $showSettingsSheet) {
+                NavigationView {
+                    SettingsView()
+                }
+                .navigationViewStyle(StackNavigationViewStyle())
+            }
             .onAppear {
                 if SmokeTest.opensImport {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                         showImport = true
+                    }
+                }
+                if SmokeTest.opensSettingsPage {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        showSettingsSheet = true
                     }
                 }
             }
@@ -118,6 +130,8 @@ struct SettingsView: View {
     @State private var showClearConfirm = false
     @State private var probing = false
     @State private var probes: [InnerTube.HostProbe] = []
+    @State private var playbackTesting = false
+    @State private var playbackLines: [DiagnosticLine] = []
 
     var body: some View {
         List {
@@ -175,10 +189,38 @@ struct SettingsView: View {
                         }
                     }
                 }
+                Button {
+                    Task { await runPlaybackTest() }
+                } label: {
+                    HStack {
+                        Text(L("Playback Test"))
+                        Spacer()
+                        if playbackTesting {
+                            ProgressView()
+                        }
+                    }
+                }
+                ForEach(playbackLines) { line in
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Image(systemName: line.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(line.ok ? .green : .red)
+                            Text(line.title)
+                                .font(.system(size: 13))
+                        }
+                        Text(line.detail)
+                            .font(.system(size: 11))
+                            .foregroundColor(Theme.secondaryLabel)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.vertical, 2)
+                }
             } header: {
                 Text(L("Network"))
             } footer: {
                 Text(L("Both hosts serve the same API. If only one responds, adjust your proxy rules."))
+                Text(L("If step 1 fails, this IP is likely flagged as a bot; if step 2 fails, your proxy probably does not forward googlevideo.com."))
             }
 
             Section {
@@ -214,6 +256,10 @@ struct SettingsView: View {
         .listStyle(InsetGroupedListStyle())
         .navigationTitle(L("Settings"))
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            guard SmokeTest.runsPlaybackTest, playbackLines.isEmpty, !playbackTesting else { return }
+            Task { await runPlaybackTest() }
+        }
         .confirmationDialog(
             L("Clear recently played?"),
             isPresented: $showClearConfirm,
@@ -223,6 +269,18 @@ struct SettingsView: View {
                 library.clearRecent()
             }
             Button(L("Cancel"), role: .cancel) {}
+        }
+    }
+
+    private func runPlaybackTest() async {
+        await MainActor.run {
+            playbackTesting = true
+            playbackLines = []
+        }
+        let lines = await PlaybackDiagnostics.run()
+        await MainActor.run {
+            playbackLines = lines
+            playbackTesting = false
         }
     }
 

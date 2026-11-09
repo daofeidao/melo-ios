@@ -39,6 +39,16 @@
 "Connection Test" = "Connection Test";
 "Both hosts serve the same API. If only one responds, adjust your proxy rules." = "Both hosts serve the same API. If only one responds, adjust your proxy rules.";
 "No content was returned. Check that your proxy also covers music.youtube.com, then retry." = "No content was returned. Check that your proxy also covers music.youtube.com, then retry.";
+"Playback Test" = "Playback Test";
+"Playback failed" = "Playback failed";
+"Playback failed: %@" = "Playback failed: %@";
+"Step 1 · Resolve audio URL" = "Step 1 · Resolve audio URL";
+"Step 2 · Audio CDN" = "Step 2 · Audio CDN";
+"Step 3 · AVPlayer" = "Step 3 · AVPlayer";
+"Ready to play" = "Ready to play";
+"Timed out waiting for audio" = "Timed out waiting for audio";
+"Unknown error" = "Unknown error";
+"If step 1 fails, this IP is likely flagged as a bot; if step 2 fails, your proxy probably does not forward googlevideo.com." = "If step 1 fails, this IP is likely flagged as a bot; if step 2 fails, your proxy probably does not forward googlevideo.com.";
 "Playback" = "Playback";
 "Audio Quality" = "Audio Quality";
 "High" = "High";

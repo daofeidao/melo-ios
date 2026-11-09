@@ -31,6 +31,10 @@ struct PlayerView: View {
                     if let track = player.currentTrack {
                         titleBlock(track)
                         Spacer().frame(height: 26)
+                        if player.errorText != nil {
+                            errorCard
+                                .padding(.bottom, 14)
+                        }
                         progressBlock
                         Spacer().frame(height: 22)
                         controlsBlock
@@ -234,15 +238,46 @@ struct PlayerView: View {
         }
     }
 
-    private var bottomBar: some View {
-        VStack(spacing: 8) {
+    private var errorCard: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 7) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 13))
+                    .foregroundColor(.orange)
+                Text(L("Playback failed"))
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white)
+            }
             if let error = player.errorText {
                 Text(error)
                     .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.75))
+                    .foregroundColor(.white.opacity(0.72))
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 30)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            Button {
+                player.retryCurrent()
+            } label: {
+                Text(L("Retry"))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 7)
+                    .background(Capsule().fill(Color.white.opacity(0.18)))
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.black.opacity(0.38))
+        )
+        .padding(.horizontal, 24)
+    }
+
+    private var bottomBar: some View {
+        VStack(spacing: 8) {
             HStack {
                 Image(systemName: "text.quote")
                     .font(.system(size: 17))

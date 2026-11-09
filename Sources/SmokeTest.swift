@@ -37,6 +37,14 @@ enum SmokeTest {
         ProcessInfo.processInfo.arguments.contains("-smoke-import")
     }
 
+    static var opensSettingsPage: Bool {
+        ProcessInfo.processInfo.arguments.contains("-smoke-settings-page")
+    }
+
+    static var runsPlaybackTest: Bool {
+        ProcessInfo.processInfo.arguments.contains("-smoke-playback-test")
+    }
+
     /// 预填的歌单链接，用于在 CI 里跑通「抓取 → 匹配 → 落库」整条链路
     static var importURL: String? {
         let args = ProcessInfo.processInfo.arguments

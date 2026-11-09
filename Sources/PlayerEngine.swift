@@ -47,6 +47,7 @@ final class PlayerEngine: ObservableObject {
     private var failureObserver: NSObjectProtocol?
     private var mediaResetObserver: NSObjectProtocol?
     private var retryBudget = 1
+    private var itemStatusCancellable: AnyCancellable?
     private var loadToken = UUID()
     private var streamCache: [String: (stream: AudioStream, date: Date)] = [:]
     private var artworkCache: [String: UIImage] = [:]
@@ -327,6 +328,25 @@ final class PlayerEngine: ObservableObject {
         errorText = nil
     }
 
+    /// 用户点「重试」时重置重试预算，允许再解析一次
+    func retryCurrent() {
+        retryBudget = 1
+        errorText = nil
+        loadCurrent(autoPlay: true)
+    }
+
+    private func observeItem(_ item: AVPlayerItem) {
+        itemStatusCancellable = item.publisher(for: \.status)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                guard let self = self, status == .failed else { return }
+                let message = item.error?.localizedDescription ?? L("Unknown error")
+                self.errorText = String(format: L("Playback failed: %@"), message)
+                self.isLoading = false
+                self.retryCurrentTrack()
+            }
+    }
+
     // MARK: - Loading
 
     func loadCurrent(autoPlay: Bool) {
@@ -376,8 +396,13 @@ final class PlayerEngine: ObservableObject {
     private func start(stream: AudioStream, autoPlay: Bool, token: UUID) {
         guard loadToken == token, let track = currentTrack else { return }
 
-        let item = AVPlayerItem(url: stream.url)
+        let asset = AVURLAsset(
+            url: stream.url,
+            options: ["AVURLAssetHTTPHeaderFieldsKey": ["User-Agent": StreamResolver.clientUserAgent]]
+        )
+        let item = AVPlayerItem(asset: asset)
         item.preferredForwardBufferDuration = 15
+        observeItem(item)
         player.replaceCurrentItem(with: item)
         isLoading = false
 
