@@ -134,19 +134,19 @@ jobs:
           echo "=== 资料库歌单列表 ==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
           xcrun simctl ui "$DEVICE_ID" appearance light || true
-          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 3 -smoke-seed-playlist || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 2 -smoke-seed-playlist || true
           sleep 10
           xcrun simctl io "$DEVICE_ID" screenshot shot-06-library-playlists.png
 
           echo "=== 导入歌单页（空表单）==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
-          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 3 -smoke-import || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 2 -smoke-import || true
           sleep 12
           xcrun simctl io "$DEVICE_ID" screenshot shot-07-import-playlist.png
 
           echo "=== 真实导入：QQ音乐 27 首歌单，抓取→匹配→落库 ==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
-          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 3 -smoke-import -smoke-import-url 'https://y.qq.com/n/ryqq/playlist/7013848675' || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 2 -smoke-import -smoke-import-url 'https://y.qq.com/n/ryqq/playlist/7013848675' || true
           sleep 55
           xcrun simctl io "$DEVICE_ID" screenshot shot-08-import-result.png
           echo "--- 导入相关日志 ---"
@@ -155,7 +155,7 @@ jobs:
 
           echo "=== 网易云大歌单全量抓取（热歌榜 200 首）==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
-          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 3 -smoke-import -smoke-import-url 'https://music.163.com/playlist?id=3778678' -smoke-count-only || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 2 -smoke-import -smoke-import-url 'https://music.163.com/playlist?id=3778678' -smoke-count-only || true
           sleep 22
           xcrun simctl io "$DEVICE_ID" screenshot shot-13-netease-count.png
           echo "--- 抓取样本（核对艺人名是否为空）---"
@@ -164,7 +164,7 @@ jobs:
 
           echo "=== 播放诊断 ==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
-          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 3 -smoke-settings-page -smoke-playback-test -smoke-backup || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 2 -smoke-settings-page -smoke-playback-test -smoke-backup || true
           sleep 30
           xcrun simctl io "$DEVICE_ID" screenshot shot-09-playback-diagnostics.png
           echo "--- 备份往返 ---"
@@ -207,6 +207,21 @@ jobs:
             echo "===== $(basename "$CRASH") ====="
             python3 scripts/parse_crash.py "$CRASH" || true
           done
+          echo "=== 搜索空态（按风格浏览）==="
+          xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 3 || true
+          sleep 12
+          xcrun simctl io "$DEVICE_ID" screenshot shot-16-search-genres.png
+
+          echo "=== 风格分类直接播（不依赖代理）==="
+          xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-play-genre '摇滚' || true
+          sleep 26
+          xcrun simctl io "$DEVICE_ID" screenshot shot-17-genre-play.png
+          echo "--- 分类日志 ---"
+          xcrun simctl spawn "$DEVICE_ID" log show --last 40s --style compact \
+            --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null | grep 'SMOKE_GENRE' | tail -3 || echo "no genre sample"
+
           echo "=== 播放失败态（故意用无效视频）==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
           xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-play AAAAAAAAAAA -smoke-player || true
@@ -220,7 +235,7 @@ jobs:
         if: always() && inputs.full_smoke == true
         run: |
           mkdir -p shots
-          for f in shot-01-home-zh.png shot-02-settings-zh.png shot-03-miniplayer.png shot-04-player.png shot-05-english-dark.png shot-06-library-playlists.png shot-07-import-playlist.png shot-08-import-result.png shot-09-playback-diagnostics.png shot-10-playback-error.png shot-11-real-song.png shot-12-domestic-song.png shot-13-netease-count.png shot-14-search-fallback.png shot-15-search-domestic.png; do
+          for f in shot-*.png; do
             if [ -f "$f" ]; then
               sips -Z 1400 "$f" --out "shots/$f" >/dev/null
             fi
@@ -286,21 +301,7 @@ jobs:
           name: melo-build
           path: |
             Melo-v*.ipa
-            shots/shot-01-home-zh.png
-            shots/shot-02-settings-zh.png
-            shots/shot-03-miniplayer.png
-            shots/shot-04-player.png
-            shots/shot-05-english-dark.png
-            shots/shot-06-library-playlists.png
-            shots/shot-07-import-playlist.png
-            shots/shot-08-import-result.png
-            shots/shot-09-playback-diagnostics.png
-            shots/shot-10-playback-error.png
-            shots/shot-11-real-song.png
-            shots/shot-12-domestic-song.png
-            shots/shot-13-netease-count.png
-            shots/shot-14-search-fallback.png
-            shots/shot-15-search-domestic.png
+            shots/*.png
           if-no-files-found: warn
           retention-days: 30
 

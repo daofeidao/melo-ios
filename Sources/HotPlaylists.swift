@@ -21,15 +21,41 @@ struct ExternalPlaylist: Identifiable, Hashable {
     }
 }
 
+/// 风格分类。`cat` 是网易云接口用的中文分类名，`titleKey` 是给界面做本地化的英文 key。
+struct PlaylistGenre: Identifiable, Hashable {
+    let cat: String
+    let titleKey: String
+
+    var id: String { cat }
+    var title: String { L(titleKey) }
+}
+
 /// 各平台「推荐 / 热门歌单」的发现接口。
 /// 酷狗与汽水目前没有可用的公开入口（酷狗返回 Access Deny，汽水无此接口），
 /// 所以只返回空数组，界面会自动隐藏对应分区。
 enum HotPlaylists {
 
-    static func fetch(_ platform: PlaylistPlatform) async throws -> [ExternalPlaylist] {
+    /// 只用在国内源上能直接播的分类（酷狗没有公开的分类歌单接口，QQ 拿不到直链）
+    static let genres: [PlaylistGenre] = [
+        PlaylistGenre(cat: "华语", titleKey: "Mandarin"),
+        PlaylistGenre(cat: "欧美", titleKey: "Western"),
+        PlaylistGenre(cat: "流行", titleKey: "Pop"),
+        PlaylistGenre(cat: "摇滚", titleKey: "Rock"),
+        PlaylistGenre(cat: "民谣", titleKey: "Folk"),
+        PlaylistGenre(cat: "电子", titleKey: "Electronic"),
+        PlaylistGenre(cat: "轻音乐", titleKey: "Easy Listening"),
+        PlaylistGenre(cat: "说唱", titleKey: "Hip-Hop"),
+        PlaylistGenre(cat: "爵士", titleKey: "Jazz"),
+        PlaylistGenre(cat: "古典", titleKey: "Classical"),
+        PlaylistGenre(cat: "粤语", titleKey: "Cantonese"),
+        PlaylistGenre(cat: "日语", titleKey: "Japanese"),
+        PlaylistGenre(cat: "韩语", titleKey: "Korean")
+    ]
+
+    static func fetch(_ platform: PlaylistPlatform, cat: String = "全部") async throws -> [ExternalPlaylist] {
         switch platform {
         case .netease:
-            return try await netEase()
+            return try await netEase(cat: cat)
         case .qq:
             return try await qq()
         case .kugou:
@@ -75,8 +101,9 @@ enum HotPlaylists {
 
     // MARK: - 网易云
 
-    private static func netEase() async throws -> [ExternalPlaylist] {
-        let url = "https://music.163.com/api/playlist/list?cat=%E5%85%A8%E9%83%A8&order=hot&offset=0&limit=18&total=true"
+    private static func netEase(cat: String) async throws -> [ExternalPlaylist] {
+        let encoded = cat.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? cat
+        let url = "https://music.163.com/api/playlist/list?cat=\(encoded)&order=hot&offset=0&limit=30&total=true"
         guard let root = try await getJSON(url, headers: [
             "Referer": "https://music.163.com/",
             "User-Agent": browserUA

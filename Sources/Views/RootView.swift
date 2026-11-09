@@ -13,21 +13,17 @@ struct RootView: View {
                     .tabItem { Label(L("Listen Now"), systemImage: "play.circle.fill") }
                     .tag(0)
 
-                BrowseView()
-                    .tabItem { Label(L("Browse"), systemImage: "square.grid.2x2.fill") }
-                    .tag(1)
-
                 ChartsView()
                     .tabItem { Label(L("Charts"), systemImage: "dot.radiowaves.left.and.right") }
-                    .tag(2)
+                    .tag(1)
 
                 LibraryView()
                     .tabItem { Label(L("Library"), systemImage: "music.note.list") }
-                    .tag(3)
+                    .tag(2)
 
                 SearchView()
                     .tabItem { Label(L("Search"), systemImage: "magnifyingglass") }
-                    .tag(4)
+                    .tag(3)
             }
 
             if player.hasTrack {
@@ -63,7 +59,7 @@ struct RootView: View {
             selection = tab
         }
         if SmokeTest.searchQuery != nil, SmokeTest.initialTab == nil {
-            selection = 4
+            selection = 3
         }
         if SmokeTest.seedsPlaylist {
             PlaylistStore.shared.seedForSmokeTest()
@@ -74,6 +70,25 @@ struct RootView: View {
         if SmokeTest.runsBackupTest {
             runBackupRoundTrip()
         }
+        if let cat = SmokeTest.playGenre {
+            selection = 3
+            Task {
+                guard let list = try? await HotPlaylists.fetch(.netease, cat: cat), let first = list.first else {
+                    NSLog("SMOKE_GENRE cat=\(cat) playlists=0")
+                    return
+                }
+                let remote = try? await PlaylistFetcher.fetch(platform: first.platform, id: first.playlistID)
+                let tracks = PlaylistMatcher.direct(songs: remote?.songs ?? [])
+                NSLog("SMOKE_GENRE cat=\(cat) playlists=\(list.count) tracks=\(tracks.count)")
+                guard let track = tracks.first else { return }
+                NSLog("SMOKE_GENRE first=\(track.title) source=\(track.source ?? "-") id=\(track.sourceID ?? "-")")
+                await MainActor.run {
+                    player.play(tracks: tracks, startAt: 0)
+                }
+            }
+            return
+        }
+
         if let songID = SmokeTest.neteaseSongID {
             Task {
                 guard let track = await AudioSource.netEaseTrack(id: songID) else { return }

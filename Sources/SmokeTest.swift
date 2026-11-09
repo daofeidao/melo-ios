@@ -60,6 +60,15 @@ enum SmokeTest {
         ProcessInfo.processInfo.arguments.contains("-smoke-no-autoplayer")
     }
 
+    /// 直接播某个风格分类下的第一个歌单，用来验证「分类 → 歌单 → 出声」不依赖代理
+    static var playGenre: String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let index = args.firstIndex(of: "-smoke-play-genre"), index + 1 < args.count else {
+            return nil
+        }
+        return args[index + 1]
+    }
+
     /// 预置一批收藏，用来验证「现在就听」的收藏卡片不会因为 id 冲突只剩一条
     static var seedsFavorites: Bool {
         ProcessInfo.processInfo.arguments.contains("-smoke-seed-favorites")

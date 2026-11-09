@@ -7,6 +7,7 @@ struct SearchView: View {
     @State private var hasSearched = false
     @State private var error: String?
     @State private var pending: Task<Void, Never>?
+    @State private var recentSearches: [String] = []
 
     @EnvironmentObject private var player: PlayerEngine
 
@@ -32,12 +33,7 @@ struct SearchView: View {
                     )
                     Spacer()
                 } else if !hasSearched {
-                    EmptyHint(
-                        symbol: "music.note",
-                        title: L("Search music"),
-                        message: L("Search songs and artists. Results come from YouTube Music, plus domestic sources that play without a VPN.")
-                    )
-                    Spacer()
+                    browseState
                 } else {
                     resultList
                 }
@@ -45,6 +41,7 @@ struct SearchView: View {
             .navigationTitle(L("Search"))
             .navigationBarTitleDisplayMode(.large)
             .onAppear {
+                loadRecentSearches()
                 guard let preset = SmokeTest.searchQuery, query.isEmpty else { return }
                 query = preset
             }
@@ -167,6 +164,95 @@ struct SearchView: View {
         }
     }
 
+    // MARK: - 空态：按风格浏览
+
+    private var browseState: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                if !recentSearches.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        SectionHeader(title: L("Recent Searches"))
+                        ForEach(recentSearches, id: \.self) { term in
+                            Button {
+                                query = term
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "clock.arrow.circlepath")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(Theme.secondaryLabel)
+                                    Text(term)
+                                        .font(.system(size: 15))
+                                        .foregroundColor(.primary)
+                                        .lineLimit(1)
+                                    Spacer(minLength: 8)
+                                    Image(systemName: "arrow.up.left")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(Theme.tertiaryLabel)
+                                }
+                                .padding(.vertical, 7)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionHeader(title: L("Browse by Genre"))
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 104), spacing: 10)],
+                        spacing: 10
+                    ) {
+                        ForEach(Array(HotPlaylists.genres.enumerated()), id: \.element.id) { index, genre in
+                            NavigationLink(destination: GenrePlaylistsView(genre: genre)) {
+                                genreCard(genre, index: index)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+            .padding(.top, 6)
+            .padding(.bottom, Layout.contentBottomInset)
+        }
+    }
+
+    private func genreCard(_ genre: PlaylistGenre, index: Int) -> some View {
+        let colors: [Color] = [
+            Color(hex: 0xE0455E), Color(hex: 0x2E7BE0), Color(hex: 0xE08A2E),
+            Color(hex: 0x2EA98A), Color(hex: 0x7B5BD6), Color(hex: 0xC24E8F)
+        ]
+        return Text(genre.title)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundColor(.white)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+            .padding(.horizontal, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(colors[index % colors.count].opacity(0.9))
+            )
+    }
+
+    // MARK: - 最近搜索
+
+    private var recentSearchesKey: String { "melo.recentSearches" }
+
+    private func loadRecentSearches() {
+        recentSearches = UserDefaults.standard.stringArray(forKey: recentSearchesKey) ?? []
+    }
+
+    private func rememberSearch(_ term: String) {
+        guard !term.isEmpty else { return }
+        var list = recentSearches.filter { $0.caseInsensitiveCompare(term) != .orderedSame }
+        list.insert(term, at: 0)
+        if list.count > 8 { list = Array(list.prefix(8)) }
+        recentSearches = list
+        UserDefaults.standard.set(list, forKey: recentSearchesKey)
+    }
+
     private func performSearch(_ raw: String) async {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -193,6 +279,8 @@ struct SearchView: View {
             results = merged
             loading = false
             hasSearched = true
+            // @State 只能在主线程改
+            rememberSearch(trimmed)
 
             if youtubeResults == nil, playable.isEmpty {
                 error = L("YouTube blocked this network, and no playable song was found on domestic sources either.")

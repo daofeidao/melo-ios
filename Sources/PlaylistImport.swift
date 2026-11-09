@@ -589,3 +589,28 @@ enum PlaylistMatcher {
         return track
     }
 }
+
+// MARK: - 直接转换（不经过 YouTube 匹配）
+
+/// 把平台返回的曲目直接转成可播放的 Track。
+///
+/// 这些 Track 的 `videoId` 是空的，播放时靠 `source` + `sourceID` 走国内直链，
+/// 全程不碰 YouTube，也就不需要代理。榜单 / 分类歌单走的就是这条路。
+enum PlaylistMatcher {
+
+    static func direct(songs: [RemoteSong]) -> [Track] {
+        songs.compactMap { song in
+            guard !song.sourceID.isEmpty, !song.title.isEmpty else { return nil }
+            return Track(
+                videoId: "",
+                title: song.title,
+                artist: song.artist.isEmpty ? L("Unknown Artist") : song.artist,
+                album: song.album,
+                duration: song.duration,
+                artwork: song.artwork,
+                source: song.source.rawValue,
+                sourceID: song.sourceID
+            )
+        }
+    }
+}
