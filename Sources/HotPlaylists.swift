@@ -1,6 +1,6 @@
 import Foundation
 
-struct ExternalPlaylist: Identifiable, Hashable {
+struct ExternalPlaylist: Identifiable, Hashable, Codable {
     let platform: PlaylistPlatform
     let playlistID: String
     let name: String
@@ -77,13 +77,21 @@ enum HotPlaylists {
             "http://m.kugou.com/rank/list?json=true"
         ]
 
+        if let cached = loadKugouCache() {
+            NSLog("SMOKE_KUGOU cache items=\(cached.count)")
+            return cached
+        }
+
         var lastError: Error = ApiError.unavailable(L("Kugou charts are not reachable right now."))
 
         for endpoint in endpoints {
             do {
                 let list = try await kugouRankList(endpoint)
                 NSLog("SMOKE_KUGOU url=\(endpoint) items=\(list.count)")
-                if !list.isEmpty { return list }
+                if !list.isEmpty {
+                    saveKugouCache(list)
+                    return list
+                }
             } catch {
                 lastError = error
                 NSLog("SMOKE_KUGOU url=\(endpoint) failed: \(error.localizedDescription)")
@@ -93,11 +101,36 @@ enum HotPlaylists {
         throw lastError
     }
 
+    // MARK: - 榜单列表缓存
+
+    /// 这个接口一次回 150KB+，慢网下十几秒都读不完。列表 12 小时内不会变，
+    /// 缓存下来既省流量也避免"每次进排行榜都空白"。
+    private static var kugouCacheURL: URL {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        return base.appendingPathComponent("kugou-ranks.json")
+    }
+
+    private static func loadKugouCache() -> [ExternalPlaylist]? {
+        let url = kugouCacheURL
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let saved = attrs[.modificationDate] as? Date,
+              Date().timeIntervalSince(saved) < 12 * 3600,
+              let data = try? Data(contentsOf: url),
+              let list = try? JSONDecoder().decode([ExternalPlaylist].self, from: data),
+              !list.isEmpty else { return nil }
+        return list
+    }
+
+    private static func saveKugouCache(_ list: [ExternalPlaylist]) {
+        guard let data = try? JSONEncoder().encode(list) else { return }
+        try? data.write(to: kugouCacheURL, options: .atomic)
+    }
+
     private static func kugouRankList(_ endpoint: String) async throws -> [ExternalPlaylist] {
         guard let root = try await getJSON(endpoint, headers: [
             "Referer": "https://m.kugou.com/",
             "User-Agent": mobileUA
-        ]) else {
+        ], timeout: 25) else {
             throw ApiError.unavailable(L("Kugou charts are not reachable right now."))
         }
 
@@ -152,10 +185,14 @@ enum HotPlaylists {
         return url
     }
 
-    private static func getJSON(_ urlString: String, headers: [String: String]) async throws -> [String: Any]? {
+    private static func getJSON(
+        _ urlString: String,
+        headers: [String: String],
+        timeout: TimeInterval = 15
+    ) async throws -> [String: Any]? {
         guard let url = URL(string: urlString) else { return nil }
         var request = URLRequest(url: url)
-        request.timeoutInterval = 15
+        request.timeoutInterval = timeout
         headers.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
