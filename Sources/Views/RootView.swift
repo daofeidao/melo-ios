@@ -52,12 +52,14 @@ struct RootView: View {
     }
 
     private func runSmokeTestIfNeeded() {
-        guard let videoId = SmokeTest.autoPlayVideoId else { return }
-        player.play(tracks: [SmokeTest.makeTrack(videoId: videoId)], startAt: 0)
+        // 各项冒烟动作互相独立，不能用 guard 提前返回
+        if let videoId = SmokeTest.autoPlayVideoId {
+            player.play(tracks: [SmokeTest.makeTrack(videoId: videoId)], startAt: 0)
 
-        if SmokeTest.presentsPlayer {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 14) {
-                showPlayer = true
+            if SmokeTest.presentsPlayer {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 14) {
+                    showPlayer = true
+                }
             }
         }
 

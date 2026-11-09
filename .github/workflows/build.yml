@@ -113,6 +113,17 @@ jobs:
           echo "--- process check ---"
           xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -i melo || echo "process not listed"
 
+      - name: Downscale screenshots
+        if: always()
+        run: |
+          mkdir -p shots
+          for f in shot-01-home-zh.png shot-02-settings-zh.png shot-03-miniplayer.png shot-04-player.png shot-05-english-dark.png; do
+            if [ -f "$f" ]; then
+              sips -Z 1400 "$f" --out "shots/$f" >/dev/null
+            fi
+          done
+          ls -lh shots || true
+
       - name: Build for device
         run: |
           set -o pipefail
@@ -169,11 +180,11 @@ jobs:
           name: melo-build
           path: |
             Melo-v1.1.0.B*.ipa
-            shot-01-home-zh.png
-            shot-02-settings-zh.png
-            shot-03-miniplayer.png
-            shot-04-player.png
-            shot-05-english-dark.png
+            shots/shot-01-home-zh.png
+            shots/shot-02-settings-zh.png
+            shots/shot-03-miniplayer.png
+            shots/shot-04-player.png
+            shots/shot-05-english-dark.png
           if-no-files-found: warn
           retention-days: 30
 
@@ -188,11 +199,11 @@ jobs:
             界面语言跟随系统（简体中文 / English），设置内可切换 跟随系统 / 浅色 / 深色。
           files: |
             ${{ env.IPA_NAME }}
-            shot-01-home-zh.png
-            shot-02-settings-zh.png
-            shot-03-miniplayer.png
-            shot-04-player.png
-            shot-05-english-dark.png
+            shots/shot-01-home-zh.png
+            shots/shot-02-settings-zh.png
+            shots/shot-03-miniplayer.png
+            shots/shot-04-player.png
+            shots/shot-05-english-dark.png
           draft: false
           prerelease: true
           generate_release_notes: false
