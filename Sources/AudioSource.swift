@@ -92,7 +92,7 @@ enum AudioSource {
     private static func probe(_ urlString: String) async -> AudioStream? {
         guard let url = URL(string: urlString) else { return nil }
         var request = URLRequest(url: url)
-        request.timeoutInterval = 4
+        request.timeoutInterval = 6
         request.setValue("bytes=0-1023", forHTTPHeaderField: "Range")
         request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
 

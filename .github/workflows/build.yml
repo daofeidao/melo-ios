@@ -149,6 +149,9 @@ jobs:
           echo "--- 备份往返 ---"
           xcrun simctl spawn "$DEVICE_ID" log show --last 40s --style compact \
             --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null | grep 'SMOKE_BACKUP' | tail -2 || echo "no backup sample"
+          echo "--- 排行榜预热 ---"
+          xcrun simctl spawn "$DEVICE_ID" log show --last 40s --style compact \
+            --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null | grep 'SMOKE_CHART' | tail -4 || echo "no chart sample"
 
           echo "=== 真实曲目播放（搜索周杰伦，取第一首）==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true

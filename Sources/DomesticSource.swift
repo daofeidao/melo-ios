@@ -92,7 +92,9 @@ enum DomesticSource {
             return nil
         }
         var request = URLRequest(url: url)
-        request.timeoutInterval = 6
+        // 12 秒：从境外机房到 m.kugou.com 实测经常要 6~10 秒，
+        // 之前压到 6 秒导致搜索结果里"可播"的曲子全部被判失败
+        request.timeoutInterval = 12
         request.setValue(mobileUA, forHTTPHeaderField: "User-Agent")
 
         guard let (data, _) = try? await URLSession.shared.data(for: request),
