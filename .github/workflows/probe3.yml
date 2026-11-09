@@ -1,0 +1,79 @@
+name: probe-api3
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  probe3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Playback matrix + search params
+        run: |
+          set -u
+          PK="AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w"
+          MK="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
+          WEBUA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
+          probe () {
+            label="$1"; out="$2"; ua="$3"; body="$4"; cname="${5:-}"; cver="${6:-}"
+            args=(-sS -m 40 -o "$out" -w '%{http_code}' -X POST
+                  "https://www.youtube.com/youtubei/v1/player?key=$PK&prettyPrint=false"
+                  -H 'Content-Type: application/json' -H "User-Agent: $ua")
+            if [ -n "$cname" ]; then
+              args+=(-H "X-Youtube-Client-Name: $cname" -H "X-Youtube-Client-Version: $cver")
+            fi
+            code=$(curl "${args[@]}" -d "$body")
+            st=$(jq -r '.playabilityStatus.status // "?"' "$out" 2>/dev/null)
+            rn=$(jq -r '.playabilityStatus.reason // ""' "$out" 2>/dev/null)
+            aac=$(jq -r '[.streamingData.adaptiveFormats[]? | select(.mimeType|startswith("audio/mp4")) | select(.url != null)] | length' "$out" 2>/dev/null)
+            anyurl=$(jq -r '[.streamingData.adaptiveFormats[]? | select(.url != null)] | length' "$out" 2>/dev/null)
+            echo "  [$label] http=$code status=$st aac=$aac any=$anyurl reason=$rn"
+          }
+
+          VRUA='com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip'
+
+          for VID in 9q7JOQfcJQM dQw4w9WgXcQ kJQP7kiw5Fk; do
+            echo "=== video $VID ==="
+            BODY="{\"context\":{\"client\":{\"clientName\":\"ANDROID_VR\",\"clientVersion\":\"1.60.19\",\"deviceMake\":\"Oculus\",\"deviceModel\":\"Quest 3\",\"androidSdkVersion\":32,\"osName\":\"Android\",\"osVersion\":\"12L\",\"hl\":\"en\",\"gl\":\"US\"}},\"videoId\":\"$VID\",\"contentCheckOk\":true,\"racyCheckOk\":true}"
+            probe "VR-us" "vr_${VID}.json" "$VRUA" "$BODY"
+
+            for GL in TW HK JP; do
+              B="{\"context\":{\"client\":{\"clientName\":\"ANDROID_VR\",\"clientVersion\":\"1.60.19\",\"deviceMake\":\"Oculus\",\"deviceModel\":\"Quest 3\",\"androidSdkVersion\":32,\"osName\":\"Android\",\"osVersion\":\"12L\",\"hl\":\"zh-CN\",\"gl\":\"$GL\"}},\"videoId\":\"$VID\",\"contentCheckOk\":true,\"racyCheckOk\":true}"
+              probe "VR-$GL" "vr_${VID}_${GL}.json" "$VRUA" "$B"
+            done
+          done
+
+          echo
+          echo "=== other clients on music track 9q7JOQfcJQM ==="
+          VID=9q7JOQfcJQM
+
+          B="{\"context\":{\"client\":{\"clientName\":\"ANDROID\",\"clientVersion\":\"19.44.38\",\"androidSdkVersion\":30,\"osName\":\"Android\",\"osVersion\":\"11\",\"hl\":\"en\",\"gl\":\"US\"}},\"videoId\":\"$VID\",\"contentCheckOk\":true,\"racyCheckOk\":true}"
+          probe "ANDROID" and.json 'com.google.android.youtube/19.44.38 (Linux; U; Android 11) gzip' "$B"
+
+          B="{\"context\":{\"client\":{\"clientName\":\"IOS\",\"clientVersion\":\"19.45.4\",\"deviceMake\":\"Apple\",\"deviceModel\":\"iPhone16,2\",\"osName\":\"iPhone\",\"osVersion\":\"18.1.0.0\",\"hl\":\"en\",\"gl\":\"US\"}},\"videoId\":\"$VID\",\"contentCheckOk\":true,\"racyCheckOk\":true}"
+          probe "IOS" ios.json 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)' "$B" "5" "19.45.4"
+
+          B="{\"context\":{\"client\":{\"clientName\":\"WEB_EMBEDDED_PLAYER\",\"clientVersion\":\"1.20241126.01.00\",\"hl\":\"en\",\"gl\":\"US\"},\"thirdParty\":{\"embedUrl\":\"https://www.youtube.com/\"}},\"videoId\":\"$VID\",\"contentCheckOk\":true,\"racyCheckOk\":true}"
+          probe "EMBED" embed.json "$WEBUA" "$B"
+
+          B="{\"context\":{\"client\":{\"clientName\":\"MWEB\",\"clientVersion\":\"2.20241126.01.00\",\"hl\":\"en\",\"gl\":\"US\"}},\"videoId\":\"$VID\",\"contentCheckOk\":true,\"racyCheckOk\":true}"
+          probe "MWEB" mweb.json 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' "$B"
+
+          echo
+          echo "=== search params: which yields music items ==="
+          i=0
+          for P in "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D" "EgWKAQIYAWoKEAkQChAFEAMQBA%3D%3D" "EgWKAQIoAWoKEAkQChAFEAMQBA%3D%3D"; do
+            i=$((i+1))
+            curl -sS -m 40 -o "s_$i.json" -w "  params#$i http=%{http_code}\n" -X POST \
+              "https://music.youtube.com/youtubei/v1/search?key=$MK&prettyPrint=false" \
+              -H 'Content-Type: application/json' -H 'Origin: https://music.youtube.com' -H "User-Agent: $WEBUA" \
+              -d "{\"context\":{\"client\":{\"clientName\":\"WEB_REMIX\",\"clientVersion\":\"1.20241127.01.00\",\"hl\":\"zh-CN\",\"gl\":\"US\"}},\"query\":\"周杰伦\",\"params\":\"$P\"}"
+            echo "    params=$P resp=$(jq -r '[.. | objects | select(has("musicResponsiveListItemRenderer"))] | length' "s_$i.json") tworow=$(jq -r '[.. | objects | select(has("musicTwoRowItemRenderer"))] | length' "s_$i.json")"
+            echo -n "    responsive: "
+            jq -r '[.. | objects | select(has("musicResponsiveListItemRenderer")) | .musicResponsiveListItemRenderer][0] | if . == null then "(none)" else ([.flexColumns[] | .musicResponsiveListItemFlexColumnRenderer.text | if .runs then ([.runs[].text] | join("")) else .simpleText end] | join(" ~ ")) end' "s_$i.json"
+            echo -n "    tworow: "
+            jq -r '[.. | objects | select(has("musicTwoRowItemRenderer")) | .musicTwoRowItemRenderer][0] | if . == null then "(none)" else (([.title.runs[]?.text] | join("")) + " / " + ([.subtitle.runs[]?.text] | join("")) + " / " + (.navigationEndpoint.browseEndpoint.browseEndpointContextSupportedConfigs.browseEndpointContextMusicConfig.pageType // "?")) end' "s_$i.json"
+          done

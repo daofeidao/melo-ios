@@ -33,6 +33,29 @@ enum JS {
         dict(root)?[key]
     }
 
+    /// 收集所有 key 对应的数组（用于 thumbnails 这类数组字段）
+    static func collectArrays(_ key: String, in root: Any?) -> [Any] {
+        guard let root = root else { return [] }
+        var out: [Any] = []
+        var queue: [Any] = [root]
+        var cursor = 0
+        while cursor < queue.count {
+            let node = queue[cursor]
+            cursor += 1
+            if let d = dict(node) {
+                if let hit = d[key] as? [Any] { out.append(hit) }
+                for (_, v) in d {
+                    if v is [String: Any] || v is [Any] { queue.append(v) }
+                }
+            } else if let a = array(node) {
+                for v in a where v is [String: Any] || v is [Any] {
+                    queue.append(v)
+                }
+            }
+        }
+        return out
+    }
+
     /// 按文档顺序收集所有 key 对应的字典（广度优先，保持层级顺序）
     static func collect(_ key: String, in root: Any?) -> [[String: Any]] {
         guard let root = root else { return [] }
