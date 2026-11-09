@@ -45,6 +45,15 @@ enum SmokeTest {
         ProcessInfo.processInfo.arguments.contains("-smoke-playback-test")
     }
 
+    /// 搜一首真实歌曲并播放，用来验证不是只有白名单视频能播
+    static var playSearchQuery: String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let index = args.firstIndex(of: "-smoke-play-search"), index + 1 < args.count else {
+            return nil
+        }
+        return args[index + 1]
+    }
+
     /// 预填的歌单链接，用于在 CI 里跑通「抓取 → 匹配 → 落库」整条链路
     static var importURL: String? {
         let args = ProcessInfo.processInfo.arguments

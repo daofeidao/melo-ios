@@ -59,6 +59,22 @@ struct RootView: View {
         if SmokeTest.seedsPlaylist {
             PlaylistStore.shared.seedForSmokeTest()
         }
+        if let query = SmokeTest.playSearchQuery {
+            Task {
+                guard let tracks = try? await InnerTube.shared.searchSongs(query: query),
+                      let first = tracks.first else { return }
+                await MainActor.run {
+                    player.play(tracks: [first], startAt: 0)
+                    if SmokeTest.presentsPlayer {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 12) {
+                            showPlayer = true
+                        }
+                    }
+                }
+            }
+            return
+        }
+
         if let videoId = SmokeTest.autoPlayVideoId {
             player.play(tracks: [SmokeTest.makeTrack(videoId: videoId)], startAt: 0)
 
