@@ -119,6 +119,7 @@ TABLE = [
     ("Recognizing…", "正在解析…"),
     ("Matching %d of %d", "正在匹配 %d/%d"),
     ("Imported %d of %d songs", "已导入 %d/%d 首"),
+    ("Fetched %d songs", "已识别 %d 首"),
     ("No playlist found in this link", "链接里没识别到歌单"),
     ("Playlist not found", "歌单不存在，或已设为私密"),
     ("Playlist is empty", "歌单里没有歌曲"),

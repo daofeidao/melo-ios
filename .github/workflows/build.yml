@@ -132,6 +132,12 @@ jobs:
           xcrun simctl spawn "$DEVICE_ID" log show --last 90s --style compact \
             --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null | grep -iE 'error|fail|timeout' | tail -15 || echo "no error lines"
 
+          echo "=== 网易云大歌单全量抓取（热歌榜 200 首）==="
+          xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 3 -smoke-import -smoke-import-url 'https://music.163.com/playlist?id=3778678' -smoke-count-only || true
+          sleep 22
+          xcrun simctl io "$DEVICE_ID" screenshot shot-13-netease-count.png
+
           echo "=== 播放诊断 ==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
           xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 3 -smoke-settings-page -smoke-playback-test || true
@@ -163,7 +169,7 @@ jobs:
         if: always()
         run: |
           mkdir -p shots
-          for f in shot-01-home-zh.png shot-02-settings-zh.png shot-03-miniplayer.png shot-04-player.png shot-05-english-dark.png shot-06-library-playlists.png shot-07-import-playlist.png shot-08-import-result.png shot-09-playback-diagnostics.png shot-10-playback-error.png shot-11-real-song.png shot-12-domestic-song.png; do
+          for f in shot-01-home-zh.png shot-02-settings-zh.png shot-03-miniplayer.png shot-04-player.png shot-05-english-dark.png shot-06-library-playlists.png shot-07-import-playlist.png shot-08-import-result.png shot-09-playback-diagnostics.png shot-10-playback-error.png shot-11-real-song.png shot-12-domestic-song.png shot-13-netease-count.png; do
             if [ -f "$f" ]; then
               sips -Z 1400 "$f" --out "shots/$f" >/dev/null
             fi
@@ -208,7 +214,7 @@ jobs:
         id: pkg
         run: |
           APP="$APP_PATH"
-          IPA_NAME="Melo-v1.5.0.B${GITHUB_RUN_NUMBER}.ipa"
+          IPA_NAME="Melo-v1.6.0.B${GITHUB_RUN_NUMBER}.ipa"
           echo "IPA_NAME=${IPA_NAME}" >> "$GITHUB_ENV"
           mkdir -p Payload
           cp -R "$APP" Payload/
@@ -225,7 +231,7 @@ jobs:
         with:
           name: melo-build
           path: |
-            Melo-v1.5.0.B*.ipa
+            Melo-v1.6.0.B*.ipa
             shots/shot-01-home-zh.png
             shots/shot-02-settings-zh.png
             shots/shot-03-miniplayer.png
@@ -238,6 +244,7 @@ jobs:
             shots/shot-10-playback-error.png
             shots/shot-11-real-song.png
             shots/shot-12-domestic-song.png
+            shots/shot-13-netease-count.png
           if-no-files-found: warn
           retention-days: 30
 
@@ -264,6 +271,7 @@ jobs:
             shots/shot-10-playback-error.png
             shots/shot-11-real-song.png
             shots/shot-12-domestic-song.png
+            shots/shot-13-netease-count.png
           draft: false
           prerelease: true
           generate_release_notes: false

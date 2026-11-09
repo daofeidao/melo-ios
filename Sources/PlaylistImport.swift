@@ -171,16 +171,39 @@ enum PlaylistFetcher {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
         ]
 
-        // 新版接口 → 旧版接口
-        if let root = try? await getJSON("https://music.163.com/api/v6/playlist/detail?id=\(id)", headers: headers),
-           let playlist = JS.dict(root["playlist"]),
-           let rawSongs = JS.array(playlist["tracks"]), !rawSongs.isEmpty {
-            return RemotePlaylist(
-                name: JS.string(playlist["name"]) ?? L("Playlist"),
-                platform: .netease,
-                cover: JS.string(playlist["coverImgUrl"]),
-                songs: rawSongs.compactMap { JS.dict($0) }.compactMap(netEaseSong)
-            )
+        // v6 详情接口在未登录时只返回前 10 首曲目（trackIds 却是完整的），
+        // 必须显式带 n 参数才会给全量，否则大歌单会被静默截成 10 首。
+        if let root = try? await getJSON("https://music.163.com/api/v6/playlist/detail?id=\(id)&n=1000&s=0", headers: headers),
+           let playlist = JS.dict(root["playlist"]) {
+            let name = JS.string(playlist["name"]) ?? L("Playlist")
+            let cover = JS.string(playlist["coverImgUrl"])
+
+            // trackIds 是完整清单（元素可能是数字，也可能是带 id 的对象）
+            let trackIds = (JS.array(playlist["trackIds"]) ?? []).compactMap { item -> String? in
+                if let value = JS.int(item) { return String(value) }
+                return JS.dict(item).flatMap { JS.int($0["id"]) }.map(String.init)
+            }
+
+            var songs = (JS.array(playlist["tracks"]) ?? [])
+                .compactMap { JS.dict($0) }
+                .compactMap(netEaseSong)
+
+            // 超过 1000 首时 trackIds 仍比 tracks 多：按缺失的 ID 补齐，再按歌单顺序还原
+            if trackIds.count > songs.count {
+                var byID: [String: RemoteSong] = [:]
+                for song in songs where !song.sourceID.isEmpty {
+                    byID[song.sourceID] = song
+                }
+                let missing = trackIds.filter { byID[$0] == nil }
+                for song in await netEaseSongs(ids: missing, headers: headers) {
+                    byID[song.sourceID] = song
+                }
+                let ordered = trackIds.compactMap { byID[$0] }
+                if ordered.count > songs.count { songs = ordered }
+            }
+
+            guard !songs.isEmpty else { throw PlaylistImportError.empty }
+            return RemotePlaylist(name: name, platform: .netease, cover: cover, songs: songs)
         }
 
         guard let root = try await getJSON("https://music.163.com/api/playlist/detail?id=\(id)", headers: headers) else {
@@ -197,13 +220,35 @@ enum PlaylistFetcher {
         )
     }
 
+    /// 按 ID 批量取曲目（每批 100），用于补齐超过 1000 首的歌单
+    private static func netEaseSongs(ids: [String], headers: [String: String]) async -> [RemoteSong] {
+        guard !ids.isEmpty else { return [] }
+
+        var result: [RemoteSong] = []
+        var index = 0
+        while index < ids.count {
+            let upper = min(index + 100, ids.count)
+            let payload = "[" + ids[index..<upper].joined(separator: ",") + "]"
+            let encoded = payload.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? payload
+
+            if let root = try? await getJSON("https://music.163.com/api/song/detail?ids=\(encoded)", headers: headers),
+               let raw = JS.array(root["songs"]) {
+                result.append(contentsOf: raw.compactMap { JS.dict($0) }.compactMap(netEaseSong))
+            }
+            index = upper
+        }
+        return result
+    }
+
+    /// 字段名两套都要认：v6 详情用 ar/al/dt，song/detail 用 artists/album/duration
     private static func netEaseSong(_ raw: [String: Any]) -> RemoteSong? {
         guard let title = JS.string(raw["name"]), !title.isEmpty else { return nil }
-        let artists = (JS.array(raw["artists"]) ?? [])
+        let artistNodes = JS.array(raw["artists"]) ?? JS.array(raw["ar"]) ?? []
+        let artists = artistNodes
             .compactMap { JS.dict($0) }
             .compactMap { JS.string($0["name"]) }
             .joined(separator: ", ")
-        let album = JS.dict(raw["album"]).flatMap { JS.string($0["name"]) }
+        let album = (JS.dict(raw["album"]) ?? JS.dict(raw["al"])).flatMap { JS.string($0["name"]) }
         let ms = JS.int(raw["duration"]) ?? JS.int(raw["dt"]) ?? 0
         let songID = JS.int(raw["id"]).map(String.init) ?? ""
         return RemoteSong(

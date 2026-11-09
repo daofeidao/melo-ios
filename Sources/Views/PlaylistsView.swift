@@ -306,6 +306,16 @@ struct ImportPlaylistView: View {
                     status = String(format: L("Matching %d of %d"), 0, remote.songs.count)
                 }
 
+                // 冒烟：只验证抓到了多少首，跳过耗时的逐首匹配
+                if SmokeTest.countsOnly {
+                    await MainActor.run {
+                        resultText = String(format: L("Fetched %d songs"), remote.songs.count)
+                        status = nil
+                        working = false
+                    }
+                    return
+                }
+
                 let tracks = await PlaylistMatcher.match(songs: remote.songs) { finished, count in
                     done = finished
                     total = count
