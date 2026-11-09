@@ -154,15 +154,62 @@ enum PlaylistLink {
 
 enum PlaylistFetcher {
 
-    static func fetch(platform: PlaylistPlatform, id: String) async throws -> RemotePlaylist {
+    private static let mobileUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1"
+
+    static func fetch(platform: PlaylistPlatform, id: String, isRank: Bool = false) async throws -> RemotePlaylist {
         switch platform {
         case .netease:
             return try await fetchNetEase(id: id)
         case .qq:
             return try await fetchQQ(id: id)
         case .kugou:
-            return try await fetchKugou(id: id)
+            return isRank ? try await fetchKugouRank(id: id) : try await fetchKugou(id: id)
         }
+    }
+
+    /// 酷狗榜单：m.kugou.com 的移动端接口，返回的每首歌都带 hash，能直接取直链
+    private static func fetchKugouRank(id: String) async throws -> RemotePlaylist {
+        var name = L("Kugou Music")
+        var cover: String?
+        var songs: [RemoteSong] = []
+        var page = 1
+
+        while page <= 3 {
+            guard let root = try await getJSON(
+                "https://m.kugou.com/rank/info/?rankid=\(id)&page=\(page)&json=true",
+                headers: ["Referer": "https://m.kugou.com/", "User-Agent": mobileUA]
+            ) else {
+                if page == 1 { throw PlaylistImportError.notFound }
+                break
+            }
+
+            let rankNode = JS.dict(root["rank"])
+            let info = JS.dict(rankNode?["info"]) ?? JS.dict(root["info"])
+            if let value = JS.string(info?["rankname"]) ?? JS.string(root["rankname"]), !value.isEmpty {
+                name = value
+            }
+            if cover == nil {
+                cover = JS.string(info?["imgurl"]) ?? JS.string(root["imgurl"])
+            }
+
+            let batch = (JS.array(root["songs"])
+                ?? JS.array(rankNode?["songs"])
+                ?? JS.array(JS.dict(root["data"])?["songs"])
+                ?? [])
+                .compactMap { JS.dict($0) }
+                .compactMap(kugouSong)
+
+            if batch.isEmpty { break }
+            songs.append(contentsOf: batch)
+
+            let total = JS.int(root["total"]) ?? JS.int(rankNode?["total"]) ?? 0
+            if total > 0, songs.count >= total { break }
+            if batch.count < 30 { break }
+            page += 1
+        }
+
+        guard !songs.isEmpty else { throw PlaylistImportError.empty }
+        return RemotePlaylist(name: name, platform: .kugou, cover: cover, songs: songs)
     }
 
     // MARK: 网易云

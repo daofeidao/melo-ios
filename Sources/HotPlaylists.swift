@@ -6,6 +6,8 @@ struct ExternalPlaylist: Identifiable, Hashable {
     let name: String
     let subtitle: String
     let cover: String?
+    /// 酷狗的榜单和歌单是两套接口，用 rankid 还是 specialid 得区分开
+    var isRank: Bool = false
 
     var id: String { "\(platform.rawValue):\(playlistID)" }
 
@@ -31,7 +33,43 @@ enum HotPlaylists {
         case .qq:
             return try await qq()
         case .kugou:
-            return []
+            return try await kugou()
+        }
+    }
+
+    // MARK: - 酷狗榜单
+
+    /// 移动端榜单接口。`m.kugou.com` 是唯一同时满足「免签名」「有现成 hash」的入口：
+    /// 拿到 hash 就能直接走 playInfo 取直链，不必导入、不必匹配 YouTube。
+    private static func kugou() async throws -> [ExternalPlaylist] {
+        guard let root = try await getJSON("https://m.kugou.com/rank/list?json=true", headers: [
+            "Referer": "https://m.kugou.com/",
+            "User-Agent": mobileUA
+        ]) else {
+            throw ApiError.unavailable(L("Kugou charts are not reachable right now."))
+        }
+
+        // 结构在不同版本里挪过位置，这里按可能性依次找
+        let nodes = JS.array(JS.dict(root["rank"])?["list"])
+            ?? JS.array(root["list"])
+            ?? JS.array(JS.dict(root["data"])?["list"])
+            ?? []
+
+        return nodes.compactMap { raw -> ExternalPlaylist? in
+            guard let item = JS.dict(raw),
+                  let id = JS.int(item["rankid"]).map(String.init) ?? JS.string(item["rankid"]),
+                  let name = JS.string(item["rankname"]), !name.isEmpty else { return nil }
+
+            let cover = https(JS.string(item["imgurl"]) ?? JS.string(item["banner"]))
+            let frequency = JS.string(item["update_frequency"]) ?? ""
+            return ExternalPlaylist(
+                platform: .kugou,
+                playlistID: id,
+                name: name,
+                subtitle: frequency.isEmpty ? L("Kugou Music") : frequency,
+                cover: cover,
+                isRank: true
+            )
         }
     }
 
@@ -88,6 +126,7 @@ enum HotPlaylists {
     // MARK: - 工具
 
     private static let browserUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    private static let mobileUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1"
 
     private static func playsText(_ count: Int) -> String {
         guard count > 0 else { return "" }

@@ -48,7 +48,11 @@ final class ChartLibrary: ObservableObject {
         }
         let task = Task { [item] () -> [Track] in
             do {
-                let remote = try await PlaylistFetcher.fetch(platform: item.platform, id: item.playlistID)
+                let remote = try await PlaylistFetcher.fetch(
+                    platform: item.platform,
+                    id: item.playlistID,
+                    isRank: item.isRank
+                )
                 return remote.songs.map(ChartLibrary.makeTrack)
             } catch {
                 return []
@@ -84,11 +88,16 @@ final class ChartLibrary: ObservableObject {
 
         for platform in [PlaylistPlatform.netease, .qq] {
             if Task.isCancelled { return }
-            guard let list = try? await HotPlaylists.fetch(platform), !list.isEmpty else { continue }
+            guard let list = try? await HotPlaylists.fetch(platform), !list.isEmpty else {
+                NSLog("SMOKE_CHART \(platform.rawValue) playlists=0")
+                continue
+            }
+            var loaded = 0
             for item in list.prefix(6) {
                 if Task.isCancelled { return }
-                _ = await load(item)
+                if !(await load(item)).isEmpty { loaded += 1 }
             }
+            NSLog("SMOKE_CHART \(platform.rawValue) playlists=\(list.count) loaded=\(loaded)")
         }
     }
 

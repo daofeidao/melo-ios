@@ -70,6 +70,8 @@
 "Dark" = "Dark";
 "Appearance follows the system by default. Pick Light or Dark to override it for this app only." = "Appearance follows the system by default. Pick Light or Dark to override it for this app only.";
 "Save to Library" = "Save to Library";
+"Temporarily unavailable" = "Temporarily unavailable";
+"Kugou charts are not reachable right now." = "Kugou charts are not reachable right now.";
 "Saved to Library" = "Saved to Library";
 "No lyrics for this song" = "No lyrics for this song";
 "This playlist could not be loaded. Pull back and open it again." = "This playlist could not be loaded. Pull back and open it again.";
