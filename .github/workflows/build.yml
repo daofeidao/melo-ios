@@ -35,7 +35,7 @@ jobs:
           import pathlib, re, sys
           keys = set()
           for f in pathlib.Path("Sources").rglob("*.swift"):
-              for m in re.finditer(r'L\("((?:[^"\\]|\\.)*)"\)', f.read_text(encoding="utf-8")):
+              for m in re.finditer(r'(?<![A-Za-z0-9_])L\("((?:[^"\\]|\\.)*)"\)', f.read_text(encoding="utf-8")):
                   keys.add(m.group(1))
           zh = pathlib.Path("Localization/zh-Hans.lproj/Localizable.strings").read_text(encoding="utf-8")
           missing = sorted(k for k in keys if f'"{k}" =' not in zh)
