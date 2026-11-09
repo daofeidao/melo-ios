@@ -9,9 +9,9 @@ enum ApiError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .badURL:
-            return "请求地址无效"
+            return L("Invalid request URL")
         case .http(let code):
-            return "网络请求失败（HTTP \(code)）"
+            return String(format: L("Network request failed (HTTP %d)"), code)
         case .parse(let message):
             return message
         case .unavailable(let message):
@@ -69,14 +69,14 @@ final class InnerTube {
 
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
-            throw ApiError.parse("响应格式异常")
+            throw ApiError.parse(L("Invalid response format"))
         }
         guard (200...299).contains(http.statusCode) else {
             throw ApiError.http(http.statusCode)
         }
         guard let root = try? JSONSerialization.jsonObject(with: data, options: []),
               let dict = root as? [String: Any] else {
-            throw ApiError.parse("返回内容无法解析")
+            throw ApiError.parse(L("Unable to parse response"))
         }
         return dict
     }
@@ -121,7 +121,7 @@ final class InnerTube {
         do { roots.append(try await playlistsRoot) } catch { lastError = error }
 
         guard !roots.isEmpty else {
-            throw lastError ?? ApiError.parse("搜索失败")
+            throw lastError ?? ApiError.parse(L("Search failed"))
         }
 
         var merged = SearchResults()
@@ -221,7 +221,7 @@ final class InnerTube {
         let header = JS.collect("musicResponsiveHeaderRenderer", in: root).first
             ?? JS.collect("musicDetailHeaderRenderer", in: root).first
 
-        var title = "未知专辑"
+        var title = L("Unknown Album")
         var subtitleParts: [String] = []
         if let header = header {
             if let t = JS.text(header["title"]), !t.isEmpty { title = t }
@@ -313,7 +313,7 @@ final class InnerTube {
             return .track(Track(
                 videoId: watchId,
                 title: title,
-                artist: subtitle.isEmpty ? "未知艺人" : subtitle,
+                artist: subtitle.isEmpty ? L("Unknown Artist") : subtitle,
                 album: nil,
                 duration: 0,
                 artwork: bestArtwork(in: renderer) ?? youtubeFallback(videoId: watchId)
@@ -440,7 +440,7 @@ final class InnerTube {
         return Track(
             videoId: videoId,
             title: title,
-            artist: artist.isEmpty ? "未知艺人" : artist,
+            artist: artist.isEmpty ? L("Unknown Artist") : artist,
             album: album,
             duration: duration,
             artwork: bestArtwork(in: renderer) ?? youtubeFallback(videoId: videoId)

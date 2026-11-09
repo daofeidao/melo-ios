@@ -30,7 +30,7 @@ struct FeedView: View {
                     }
 
                     if !loading, error == nil, hasLoaded, shelves.isEmpty {
-                        EmptyHint(symbol: "square.stack", title: "暂无内容", message: "下拉刷新试试。")
+                        EmptyHint(symbol: "square.stack", title: L("Nothing here yet"), message: L("Pull to refresh and try again."))
                     }
                 }
                 .padding(.top, 8)
@@ -70,7 +70,7 @@ struct FeedView: View {
 
 struct BrowseView: View {
     var body: some View {
-        FeedView(title: "浏览") {
+        FeedView(title: L("Browse")) {
             try await InnerTube.shared.home()
         }
     }
@@ -78,7 +78,7 @@ struct BrowseView: View {
 
 struct ChartsView: View {
     var body: some View {
-        FeedView(title: "排行榜") {
+        FeedView(title: L("Charts")) {
             try await InnerTube.shared.charts()
         }
     }

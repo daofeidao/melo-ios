@@ -15,7 +15,7 @@ struct LibraryView: View {
                             }
                         }
                     } header: {
-                        Text("我的收藏")
+                        Text(L("My Favorites"))
                     }
                 }
 
@@ -27,26 +27,33 @@ struct LibraryView: View {
                             }
                         }
                     } header: {
-                        Text("最近播放")
+                        Text(L("Recently Played"))
                     }
                 }
 
                 if library.favorites.isEmpty, library.recent.isEmpty {
                     EmptyHint(
                         symbol: "heart",
-                        title: "资料库是空的",
-                        message: "长按歌曲可以收藏，播放过的歌会自动记录在这里。"
+                        title: L("Your library is empty"),
+                        message: L("Long-press a song to favorite it. Played songs are saved here automatically.")
                     )
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                 }
 
                 Section {
-                    SettingsEntry()
+                    NavigationLink(destination: SettingsView()) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "gearshape.fill")
+                                .foregroundColor(Theme.accent)
+                            Text(L("Settings"))
+                            Spacer()
+                        }
+                    }
                 }
             }
             .listStyle(InsetGroupedListStyle())
-            .navigationTitle("资料库")
+            .navigationTitle(L("Library"))
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -60,78 +67,84 @@ struct LibraryView: View {
     }
 }
 
-private struct SettingsEntry: View {
-    var body: some View {
-        NavigationLink(destination: SettingsView()) {
-            HStack(spacing: 12) {
-                Image(systemName: "gearshape.fill")
-                    .foregroundColor(Theme.accent)
-                Text("设置")
-                Spacer()
-            }
-        }
-    }
-}
-
 struct SettingsView: View {
     @EnvironmentObject private var library: Library
+
     @AppStorage("melo.quality") private var quality: String = StreamResolver.Quality.high.rawValue
+    @AppStorage("melo.appearance") private var appearance: String = AppearanceMode.system.rawValue
 
     @State private var showClearConfirm = false
 
     var body: some View {
         List {
             Section {
-                Picker("音质", selection: $quality) {
+                Picker(L("Audio Quality"), selection: $quality) {
                     ForEach(StreamResolver.Quality.allCases) { option in
                         Text(option.label).tag(option.rawValue)
                     }
                 }
-                .pickerStyle(DefaultPickerStyle())
             } header: {
-                Text("播放")
+                Text(L("Playback"))
             } footer: {
-                Text("高品质为标准 AAC 128kbps。无损格式 YouTube Music 不提供。")
+                Text(L("High quality is AAC 128 kbps. YouTube Music does not offer lossless."))
+            }
+
+            Section {
+                Picker(L("Appearance"), selection: $appearance) {
+                    ForEach(AppearanceMode.allCases) { mode in
+                        Text(mode.label).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(SegmentedPickerStyle())
+                .labelsHidden()
+            } header: {
+                Text(L("Appearance"))
+            } footer: {
+                Text(L("Appearance follows the system by default. Pick Light or Dark to override it for this app only."))
             }
 
             Section {
                 Button {
                     showClearConfirm = true
                 } label: {
-                    Text("清空最近播放")
+                    Text(L("Clear Recently Played"))
                         .foregroundColor(.red)
                 }
             } header: {
-                Text("资料库")
+                Text(L("Library"))
             }
 
             Section {
                 HStack {
-                    Text("版本")
+                    Text(L("Version"))
                     Spacer()
-                    Text("1.0.0")
+                    Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
                         .foregroundColor(Theme.secondaryLabel)
                 }
                 HStack {
-                    Text("数据来源")
+                    Text(L("Data Source"))
                     Spacer()
                     Text("YouTube Music")
                         .foregroundColor(Theme.secondaryLabel)
                 }
             } header: {
-                Text("关于")
+                Text(L("About"))
             } footer: {
-                Text("这是为 iOS 15 定制的第三方客户端，仅用于个人学习，请遵守当地法律与平台条款。")
+                Text(L("A third-party client built for iOS 15, for personal study only. Please follow local laws and the platform's terms."))
             }
         }
         .listStyle(InsetGroupedListStyle())
-        .navigationTitle("设置")
+        .navigationTitle(L("Settings"))
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog("确定清空最近播放？", isPresented: $showClearConfirm, titleVisibility: .visible) {
-            Button("清空", role: .destructive) {
+        .confirmationDialog(
+            L("Clear recently played?"),
+            isPresented: $showClearConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(L("Clear"), role: .destructive) {
                 library.clearRecent()
             }
-            Button("取消", role: .cancel) {}
+            Button(L("Cancel"), role: .cancel) {}
         }
     }
 }

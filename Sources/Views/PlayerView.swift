@@ -37,7 +37,7 @@ struct PlayerView: View {
                         Spacer(minLength: 26)
                         bottomBar
                     } else {
-                        Text("没有正在播放的歌曲")
+                        Text(L("Nothing Playing"))
                             .foregroundColor(.white.opacity(0.7))
                         Spacer()
                     }

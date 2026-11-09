@@ -6,6 +6,9 @@ struct MeloApp: App {
     @StateObject private var player = PlayerEngine.shared
     @StateObject private var library = Library.shared
 
+    /// 外观偏好：system / light / dark，持久化在 UserDefaults
+    @AppStorage("melo.appearance") private var appearance = AppearanceMode.system.rawValue
+
     init() {
         MeloAppearance.apply()
     }
@@ -16,6 +19,7 @@ struct MeloApp: App {
                 .environmentObject(player)
                 .environmentObject(library)
                 .accentColor(Theme.accent)
+                .preferredColorScheme((AppearanceMode(rawValue: appearance) ?? .system).colorScheme)
         }
     }
 }

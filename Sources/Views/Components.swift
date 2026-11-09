@@ -111,7 +111,7 @@ struct TrackRow: View {
                 library.toggleFavorite(track)
             } label: {
                 Label(
-                    library.isFavorite(track) ? "取消收藏" : "收藏",
+                    library.isFavorite(track) ? L("Remove Favorite") : L("Favorite"),
                     systemImage: library.isFavorite(track) ? "heart.slash" : "heart"
                 )
             }
@@ -291,7 +291,7 @@ struct ErrorBanner: View {
                 .foregroundColor(Theme.secondaryLabel)
                 .multilineTextAlignment(.center)
             if let retry = retry {
-                Button("重试", action: retry)
+                Button(L("Retry"), action: retry)
                     .font(.system(size: 15, weight: .semibold))
             }
         }

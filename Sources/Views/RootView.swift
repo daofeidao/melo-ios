@@ -10,23 +10,23 @@ struct RootView: View {
         ZStack(alignment: .bottom) {
             TabView(selection: $selection) {
                 ListenNowView()
-                    .tabItem { Label("现在就听", systemImage: "play.circle.fill") }
+                    .tabItem { Label(L("Listen Now"), systemImage: "play.circle.fill") }
                     .tag(0)
 
                 BrowseView()
-                    .tabItem { Label("浏览", systemImage: "square.grid.2x2.fill") }
+                    .tabItem { Label(L("Browse"), systemImage: "square.grid.2x2.fill") }
                     .tag(1)
 
                 ChartsView()
-                    .tabItem { Label("排行榜", systemImage: "dot.radiowaves.left.and.right") }
+                    .tabItem { Label(L("Charts"), systemImage: "dot.radiowaves.left.and.right") }
                     .tag(2)
 
                 LibraryView()
-                    .tabItem { Label("资料库", systemImage: "music.note.list") }
+                    .tabItem { Label(L("Library"), systemImage: "music.note.list") }
                     .tag(3)
 
                 SearchView()
-                    .tabItem { Label("搜索", systemImage: "magnifyingglass") }
+                    .tabItem { Label(L("Search"), systemImage: "magnifyingglass") }
                     .tag(4)
             }
 

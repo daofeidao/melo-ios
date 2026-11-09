@@ -11,17 +11,17 @@ enum StreamResolver {
 
         var label: String {
             switch self {
-            case .high: return "高品质"
-            case .normal: return "标准"
-            case .low: return "省流量"
+            case .high: return L("High")
+            case .normal: return L("Standard")
+            case .low: return L("Data Saver")
             }
         }
 
         var detail: String {
             switch self {
-            case .high: return "约 128 kbps AAC"
-            case .normal: return "约 128 kbps AAC"
-            case .low: return "约 48 kbps AAC"
+            case .high: return L("About 128 kbps AAC")
+            case .normal: return L("About 128 kbps AAC")
+            case .low: return L("About 48 kbps AAC")
             }
         }
     }
@@ -78,8 +78,8 @@ enum StreamResolver {
             }
         }
 
-        let detail = failures.first ?? "未知原因"
-        throw ApiError.unavailable("无法获取播放地址：\(detail)")
+        let detail = failures.first ?? L("Unknown reason")
+        throw ApiError.unavailable(String(format: L("Unable to resolve playback URL: %@"), detail))
     }
 
     private static func attempt(videoId: String, client: Client, quality: Quality) async throws -> AudioStream {
@@ -101,7 +101,7 @@ enum StreamResolver {
            state != "OK" {
             let reason = JS.string(status["reason"]) ?? state
             if state == "LOGIN_REQUIRED" {
-                throw ApiError.unavailable("YouTube 判定当前网络需要人机验证，请切换代理节点后重试（原文：\(reason)）")
+                throw ApiError.unavailable(String(format: L("YouTube requires human verification for this network. Try switching your proxy node and retry. (%@)"), reason))
             }
             throw ApiError.unavailable(reason)
         }
@@ -125,7 +125,7 @@ enum StreamResolver {
         // AVPlayer 原生只支持 AAC/MP4；opus(webm) 仅作兜底
         let pool = aacFormats.isEmpty ? otherAudio : aacFormats
         guard !pool.isEmpty else {
-            throw ApiError.unavailable("该曲目没有可用的音频流")
+            throw ApiError.unavailable(L("No audio stream available for this track"))
         }
 
         let sorted = pool.sorted { (JS.int($0["bitrate"]) ?? 0) < (JS.int($1["bitrate"]) ?? 0) }
@@ -144,7 +144,7 @@ enum StreamResolver {
         }
 
         guard let urlString = JS.string(chosen["url"]), let url = URL(string: urlString) else {
-            throw ApiError.unavailable("音频地址无效")
+            throw ApiError.unavailable(L("Invalid audio URL"))
         }
 
         return AudioStream(

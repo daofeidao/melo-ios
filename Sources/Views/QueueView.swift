@@ -47,11 +47,11 @@ struct QueueView: View {
                 }
             }
             .listStyle(PlainListStyle())
-            .navigationTitle("待播清单")
+            .navigationTitle(L("Up Next"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("完成") { dismiss() }
+                    Button(L("Done")) { dismiss() }
                 }
             }
         }

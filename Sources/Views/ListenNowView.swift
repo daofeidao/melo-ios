@@ -12,10 +12,10 @@ struct ListenNowView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 26) {
                     if !library.recent.isEmpty {
-                        CarouselSection(title: "最近播放", items: library.recent.map { .track($0) })
+                        CarouselSection(title: L("Recently Played"), items: library.recent.map { .track($0) })
                     }
                     if !library.favorites.isEmpty {
-                        CarouselSection(title: "我的收藏", items: library.favorites.map { .track($0) })
+                        CarouselSection(title: L("My Favorites"), items: library.favorites.map { .track($0) })
                     }
                     ForEach(shelves) { shelf in
                         CarouselSection(title: shelf.title, items: shelf.items)
@@ -36,15 +36,15 @@ struct ListenNowView: View {
                     if !loading, error == nil, shelves.isEmpty, library.recent.isEmpty, library.favorites.isEmpty {
                         EmptyHint(
                             symbol: "play.circle",
-                            title: "开始你的聆听",
-                            message: "去「搜索」找一首歌，播放后这里会记录你的最近播放。"
+                            title: L("Start listening"),
+                            message: L("Search for a song and play it — your listening history will show up here.")
                         )
                     }
                 }
                 .padding(.top, 8)
                 .padding(.bottom, Layout.contentBottomInset)
             }
-            .navigationTitle("现在就听")
+            .navigationTitle(L("Listen Now"))
             .navigationBarTitleDisplayMode(.large)
             .refreshable { await load() }
             .task {

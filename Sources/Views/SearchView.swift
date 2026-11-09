@@ -27,22 +27,22 @@ struct SearchView: View {
                 } else if hasSearched, results.tracks.isEmpty, results.collections.isEmpty {
                     EmptyHint(
                         symbol: "magnifyingglass",
-                        title: "没有找到结果",
-                        message: "换个关键词试试，比如歌手名或歌曲名。"
+                        title: L("No results"),
+                        message: L("Try another keyword, like an artist or song name.")
                     )
                     Spacer()
                 } else if !hasSearched {
                     EmptyHint(
                         symbol: "music.note",
-                        title: "搜索音乐",
-                        message: "可搜索歌曲、艺人，结果来自 YouTube Music。"
+                        title: L("Search music"),
+                        message: L("Search songs and artists from YouTube Music.")
                     )
                     Spacer()
                 } else {
                     resultList
                 }
             }
-            .navigationTitle("搜索")
+            .navigationTitle(L("Search"))
             .navigationBarTitleDisplayMode(.large)
         }
         .navigationViewStyle(StackNavigationViewStyle())
@@ -54,7 +54,7 @@ struct SearchView: View {
                 .font(.system(size: 15))
                 .foregroundColor(Theme.secondaryLabel)
 
-            TextField("搜索歌曲、艺人", text: $query)
+            TextField(L("Songs, artists"), text: $query)
                 .font(.system(size: 16))
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
@@ -94,7 +94,7 @@ struct SearchView: View {
             VStack(alignment: .leading, spacing: 22) {
                 if !results.collections.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
-                        SectionHeader(title: "专辑与歌单")
+                        SectionHeader(title: L("Albums & Playlists"))
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(alignment: .top, spacing: 14) {
                                 ForEach(results.collections) { collection in
@@ -108,7 +108,7 @@ struct SearchView: View {
 
                 if !results.tracks.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
-                        SectionHeader(title: "歌曲")
+                        SectionHeader(title: L("Songs"))
                         LazyVStack(spacing: 0) {
                             ForEach(Array(results.tracks.enumerated()), id: \.offset) { index, track in
                                 TrackRow(track: track) {

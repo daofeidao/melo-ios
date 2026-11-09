@@ -39,7 +39,7 @@ struct CollectionView: View {
                     ProgressView()
                         .padding(.top, 60)
                 } else {
-                    ErrorBanner(message: error ?? "没有找到曲目") {
+                    ErrorBanner(message: error ?? L("No tracks found")) {
                         Task { await load() }
                     }
                 }
@@ -82,7 +82,7 @@ struct CollectionView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "play.fill")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("播放")
+                    Text(L("Play"))
                         .font(.system(size: 15, weight: .semibold))
                 }
                 .foregroundColor(.white)
@@ -103,7 +103,7 @@ struct CollectionView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "shuffle")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("随机播放")
+                    Text(L("Shuffle"))
                         .font(.system(size: 15, weight: .semibold))
                 }
                 .foregroundColor(Theme.accent)

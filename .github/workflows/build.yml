@@ -29,6 +29,23 @@ jobs:
       - name: Install build tools
         run: brew install xcodegen ldid
 
+      - name: Verify localization keys
+        run: |
+          python3 - <<'PY'
+          import pathlib, re, sys
+          keys = set()
+          for f in pathlib.Path("Sources").rglob("*.swift"):
+              for m in re.finditer(r'L\("((?:[^"\\]|\\.)*)"\)', f.read_text(encoding="utf-8")):
+                  keys.add(m.group(1))
+          zh = pathlib.Path("Localization/zh-Hans.lproj/Localizable.strings").read_text(encoding="utf-8")
+          missing = sorted(k for k in keys if f'"{k}" =' not in zh)
+          print("keys used:", len(keys))
+          if missing:
+              print("MISSING:", missing)
+              sys.exit(1)
+          print("all keys present")
+          PY
+
       - name: Generate Xcode project
         run: xcodegen generate
 
@@ -58,14 +75,20 @@ jobs:
           xcrun simctl bootstatus "$DEVICE_ID" -b
           APP="build-sim/Build/Products/Debug-iphonesimulator/Melo.app"
           ls -la "$APP"
+          echo "--- 语言包是否进了 bundle ---"
+          ls -1 "$APP" | grep -E '\.lproj$'
           xcrun simctl install "$DEVICE_ID" "$APP"
-          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo || true
-          sleep 15
-          xcrun simctl io "$DEVICE_ID" screenshot shot-01-listennow.png
+
+          xcrun simctl ui "$DEVICE_ID" appearance light || true
+
+          echo "=== 中文（强制 zh-Hans）==="
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN || true
+          sleep 14
+          xcrun simctl io "$DEVICE_ID" screenshot shot-01-home-zh.png
 
           echo "=== 冒烟播放：验证 直链解析 -> AVPlayer -> 播放页 ==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
-          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -smoke-play dQw4w9WgXcQ -smoke-player || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-play dQw4w9WgXcQ -smoke-player || true
           sleep 8
           xcrun simctl io "$DEVICE_ID" screenshot shot-02-miniplayer.png
           sleep 16
@@ -73,6 +96,14 @@ jobs:
           echo "--- 播放相关日志 ---"
           xcrun simctl spawn "$DEVICE_ID" log show --last 60s --style compact \
             --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null | grep -iE 'error|fail|denied|AVPlayer' | tail -20 || echo "no error lines"
+
+          echo "=== 英文 + 深色 ==="
+          xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
+          xcrun simctl ui "$DEVICE_ID" appearance dark || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(en)' -AppleLocale en_US || true
+          sleep 14
+          xcrun simctl io "$DEVICE_ID" screenshot shot-04-english-dark.png
+
           echo "--- process check ---"
           xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -i melo || echo "process not listed"
 
@@ -102,12 +133,19 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes' "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDevelopmentRegion' "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleLocalizations' "$APP/Info.plist"
+          echo "--- 本地化资源（缺一个就构建失败）---"
+          ls -1 "$APP" | grep -E '\.lproj$'
+          test -f "$APP/en.lproj/Localizable.strings"
+          test -f "$APP/zh-Hans.lproj/Localizable.strings"
+          echo "本地化资源齐全"
 
       - name: Package IPA
         id: pkg
         run: |
           APP="$APP_PATH"
-          IPA_NAME="Melo-v1.0.0.B${GITHUB_RUN_NUMBER}.ipa"
+          IPA_NAME="Melo-v1.1.0.B${GITHUB_RUN_NUMBER}.ipa"
           echo "IPA_NAME=${IPA_NAME}" >> "$GITHUB_ENV"
           mkdir -p Payload
           cp -R "$APP" Payload/
@@ -116,7 +154,7 @@ jobs:
           test -s "$IPA_NAME"
           ls -lh "$IPA_NAME"
           echo "--- 内容 ---"
-          unzip -l "$IPA_NAME" | head -20
+          unzip -l "$IPA_NAME" | head -25
 
       - name: Upload artifacts
         if: always()
@@ -124,10 +162,11 @@ jobs:
         with:
           name: melo-build
           path: |
-            Melo-v1.0.0.B*.ipa
-            shot-01-listennow.png
+            Melo-v1.1.0.B*.ipa
+            shot-01-home-zh.png
             shot-02-miniplayer.png
             shot-03-player.png
+            shot-04-english-dark.png
           if-no-files-found: warn
           retention-days: 30
 
@@ -139,11 +178,13 @@ jobs:
           name: Melo build ${{ github.run_number }}
           body: |
             未签名 IPA，iOS 15.0+，用 TrollStore 安装。
+            界面语言跟随系统（简体中文 / English），设置内可切换 跟随系统 / 浅色 / 深色。
           files: |
             ${{ env.IPA_NAME }}
-            shot-01-listennow.png
+            shot-01-home-zh.png
             shot-02-miniplayer.png
             shot-03-player.png
+            shot-04-english-dark.png
           draft: false
           prerelease: true
           generate_release_notes: false
