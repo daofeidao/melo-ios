@@ -71,6 +71,26 @@ struct RootView: View {
         if SmokeTest.runsBackupTest {
             runBackupRoundTrip()
         }
+        if SmokeTest.runsKugouCheck {
+            selection = 1
+            Task {
+                let list = (try? await HotPlaylists.fetch(.kugou)) ?? []
+                var tracks = 0
+                var firstName = "-"
+                if let first = list.first {
+                    firstName = first.name
+                    let remote = try? await PlaylistFetcher.fetch(
+                        platform: .kugou,
+                        id: first.playlistID,
+                        isRank: first.isRank
+                    )
+                    tracks = remote?.songs.count ?? 0
+                }
+                NSLog("SMOKE_KUGOU_CHART playlists=\(list.count) first=\(firstName) tracks=\(tracks)")
+            }
+            return
+        }
+
         if let cat = SmokeTest.playGenre {
             selection = 3
             Task {

@@ -120,10 +120,12 @@ enum HotPlaylists {
         // 这个接口在不同网络/UA 下表现不一致：有的只认 `?json=true`，
         // 有的要 `&json=true`，https 偶尔握手失败但 http 反而通。
         // 依次试，谁先给出非空列表用谁，并把结果打进日志方便排查。
+        // mobilecdn 走 http：https 证书有问题，而 http 实测 1 秒回 97KB。
+        // m.kugou.com 那三个地址实测要 40 秒才读完，只当兜底。
         let endpoints = [
-            "https://m.kugou.com/rank/list?json=true",
-            "https://m.kugou.com/rank/list&json=true",
-            "http://m.kugou.com/rank/list?json=true"
+            "http://mobilecdn.kugou.com/api/v3/rank/list?version=8000",
+            "http://m.kugou.com/rank/list?json=true",
+            "https://m.kugou.com/rank/list?json=true"
         ]
 
         if let cached = loadKugouCache() {
@@ -183,10 +185,10 @@ enum HotPlaylists {
             throw ApiError.unavailable(L("Kugou charts are not reachable right now."))
         }
 
-        // 结构在不同版本里挪过位置，这里按可能性依次找
-        let nodes = JS.array(JS.dict(root["rank"])?["list"])
+        // mobilecdn 是 data.info，m.kugou 是 rank.list
+        let nodes = JS.array(JS.dict(root["data"])?["info"])
+            ?? JS.array(JS.dict(root["rank"])?["list"])
             ?? JS.array(root["list"])
-            ?? JS.array(JS.dict(root["data"])?["list"])
             ?? []
 
         return nodes.compactMap { raw -> ExternalPlaylist? in

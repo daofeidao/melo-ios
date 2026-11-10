@@ -207,6 +207,15 @@ jobs:
             echo "===== $(basename "$CRASH") ====="
             python3 scripts/parse_crash.py "$CRASH" || true
           done
+          echo "=== 排行榜 · 酷狗榜单 ==="
+          xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 1 -smoke-kugou || true
+          sleep 20
+          xcrun simctl io "$DEVICE_ID" screenshot shot-18-charts-kugou.png
+          echo "--- 酷狗榜单日志 ---"
+          xcrun simctl spawn "$DEVICE_ID" log show --last 40s --style compact \
+            --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null | grep 'SMOKE_KUGOU_CHART' | tail -2 || echo "no kugou sample"
+
           echo "=== 搜索空态（按风格浏览）==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
           xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-tab 3 || true

@@ -60,6 +60,11 @@ enum SmokeTest {
         ProcessInfo.processInfo.arguments.contains("-smoke-no-autoplayer")
     }
 
+    /// 拉一遍酷狗榜单 + 第一个榜单的曲目，验证「榜单 → 曲目」这条链路
+    static var runsKugouCheck: Bool {
+        ProcessInfo.processInfo.arguments.contains("-smoke-kugou")
+    }
+
     /// 直接播某个风格分类下的第一个歌单，用来验证「分类 → 歌单 → 出声」不依赖代理
     static var playGenre: String? {
         let args = ProcessInfo.processInfo.arguments

@@ -167,8 +167,44 @@ enum PlaylistFetcher {
         }
     }
 
-    /// 酷狗榜单：m.kugou.com 的移动端接口，返回的每首歌都带 hash，能直接取直链
+    /// 酷狗榜单曲目：优先 mobilecdn（http，实测 0.4 秒回 30 首），
+    /// 失败再退回 m.kugou.com 那套慢接口。
     private static func fetchKugouRank(id: String) async throws -> RemotePlaylist {
+        if let fast = try? await fetchKugouRankMobile(id: id) {
+            return fast
+        }
+        return try await fetchKugouRankLegacy(id: id)
+    }
+
+    private static func fetchKugouRankMobile(id: String) async throws -> RemotePlaylist {
+        var songs: [RemoteSong] = []
+        var page = 1
+
+        while page <= 2 {
+            guard let root = try await getJSON(
+                "http://mobilecdn.kugou.com/api/v3/rank/song?rankid=\(id)&page=\(page)&pagesize=100&version=8000",
+                headers: ["Referer": "https://m.kugou.com/", "User-Agent": mobileUA]
+            ) else {
+                if page == 1 { throw PlaylistImportError.notFound }
+                break
+            }
+
+            let data = JS.dict(root["data"])
+            let batch = (JS.array(data?["info"]) ?? []).compactMap { JS.dict($0) }.compactMap(kugouSong)
+            if batch.isEmpty { break }
+            songs.append(contentsOf: batch)
+
+            let total = JS.int(data?["total"]) ?? 0
+            if total > 0, songs.count >= total { break }
+            if batch.count < 100 { break }
+            page += 1
+        }
+
+        guard !songs.isEmpty else { throw PlaylistImportError.empty }
+        return RemotePlaylist(name: L("Kugou Music"), platform: .kugou, cover: nil, songs: songs)
+    }
+
+    private static func fetchKugouRankLegacy(id: String) async throws -> RemotePlaylist {
         var name = L("Kugou Music")
         var cover: String?
         var songs: [RemoteSong] = []
@@ -443,6 +479,13 @@ enum PlaylistFetcher {
     private static func kugouSong(_ raw: [String: Any]) -> RemoteSong? {
         var title = JS.string(raw["songname"]) ?? ""
         var artist = JS.string(raw["singername"]) ?? ""
+        if artist.isEmpty {
+            // mobilecdn 的榜单接口把艺人放在 authors[].author_name
+            artist = (JS.array(raw["authors"]) ?? [])
+                .compactMap { JS.dict($0) }
+                .compactMap { JS.string($0["author_name"]) }
+                .joined(separator: ", ")
+        }
 
         if title.isEmpty {
             // 酷狗只返回 filename，多为「歌手 - 歌名」，且不一定带扩展名
@@ -464,15 +507,18 @@ enum PlaylistFetcher {
         }
 
         guard !title.isEmpty else { return nil }
+        // timelen 是毫秒（m.kugou），duration 是秒（mobilecdn）
         let ms = JS.int(raw["timelen"]) ?? 0
+        let seconds = ms > 0 ? ms / 1000 : (JS.int(raw["duration"]) ?? 0)
+        let cover = JS.string(raw["img"]) ?? JS.string(raw["album_sizable_cover"])
         return RemoteSong(
             title: title,
             artist: artist,
             album: JS.string(raw["album_name"]),
-            duration: max(0, ms / 1000),
+            duration: max(0, seconds),
             source: .kugou,
             sourceID: JS.string(raw["hash"]) ?? "",
-            artwork: DomesticSource.normalizeArtwork(JS.string(raw["img"]))
+            artwork: DomesticSource.normalizeArtwork(cover)
         )
     }
 
