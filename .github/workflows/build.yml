@@ -11,6 +11,10 @@ on:
         description: "发布 GitHub Release"
         type: boolean
         default: true
+      verify_only:
+        description: "只做编译验证（模拟器构建 + 本地化校验），不打包 IPA、不发布"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -69,7 +73,7 @@ jobs:
         run: xcodegen generate
 
       - name: Build for simulator
-        if: inputs.full_smoke == true
+        if: inputs.full_smoke == true || inputs.verify_only == true
         run: |
           set -o pipefail
           xcodebuild \
@@ -81,6 +85,43 @@ jobs:
             -derivedDataPath build-sim \
             CODE_SIGNING_ALLOWED=NO \
             build -quiet
+
+      # verify_only：只跑新增功能的定向冒烟，不出 IPA、不跑 20 张截图那套长流程
+      - name: Verify new UI (settings pages + chart cache)
+        if: inputs.verify_only == true && inputs.full_smoke == false
+        run: |
+          set -x
+          DEVICE_ID=$(xcrun simctl list devices available | grep -E '^[[:space:]]+iPhone' | head -1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+          echo "device=$DEVICE_ID"
+          if [ -z "$DEVICE_ID" ]; then echo "no iPhone simulator found"; exit 1; fi
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          APP="build-sim/Build/Products/Debug-iphonesimulator/Melo.app"
+          xcrun simctl install "$DEVICE_ID" "$APP"
+          mkdir -p shots
+
+          echo "=== 版本更新记录（版本号彩蛋页）==="
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-settings-page -smoke-changelog || true
+          sleep 9
+          xcrun simctl io "$DEVICE_ID" screenshot shots/shot-20-changelog.png
+
+          echo "=== 数据来源页 ==="
+          xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-settings-page -smoke-data-sources || true
+          sleep 9
+          xcrun simctl io "$DEVICE_ID" screenshot shots/shot-21-data-sources.png
+
+          echo "=== 榜单缓存 / 酷狗封面 ==="
+          xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-chart-cache -smoke-tab 1 || true
+          sleep 14
+          xcrun simctl io "$DEVICE_ID" screenshot shots/shot-22-charts.png
+
+          echo "--- 关键日志 ---"
+          xcrun simctl spawn "$DEVICE_ID" log show --last 90s --style compact \
+            --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null | grep -E 'SMOKE_ABOUT|SMOKE_CHART_CACHE|SMOKE_CHART_COVERS' | tail -10 || echo "no sample"
+          echo "--- 进程是否存活 ---"
+          if xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -qi melo; then echo alive; else echo "NOT RUNNING (crashed)"; exit 1; fi
 
       - name: Simulator smoke test
         if: inputs.full_smoke == true
@@ -252,6 +293,7 @@ jobs:
           ls -lh shots || true
 
       - name: Build for device
+        if: inputs.verify_only == false
         run: |
           set -o pipefail
           xcodebuild \
@@ -265,6 +307,7 @@ jobs:
             build -quiet
 
       - name: Fakesign
+        if: inputs.verify_only == false
         run: |
           APP=$(find build-dev/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app')
           test -n "$APP"
@@ -287,6 +330,7 @@ jobs:
 
       - name: Package IPA
         id: pkg
+        if: inputs.verify_only == false
         run: |
           APP="$APP_PATH"
           # 版本号只认 project.yml，避免改名时漏改工作流
@@ -315,7 +359,7 @@ jobs:
           retention-days: 30
 
       - name: Collect release assets
-        if: success() && inputs.publish == true
+        if: success() && inputs.publish == true && inputs.verify_only == false
         run: |
           {
             echo "RELEASE_FILES<<EOF"
@@ -329,7 +373,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Publish release
-        if: success() && inputs.publish == true
+        if: success() && inputs.publish == true && inputs.verify_only == false
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}

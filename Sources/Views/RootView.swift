@@ -71,6 +71,17 @@ struct RootView: View {
         if SmokeTest.runsBackupTest {
             runBackupRoundTrip()
         }
+        if SmokeTest.checksChartCache {
+            Task {
+                let netease = ChartFeed.shared.cached(.netease)?.count ?? 0
+                let qq = ChartFeed.shared.cached(.qq)?.count ?? 0
+                let kugou = ChartFeed.shared.cached(.kugou)?.count ?? 0
+                NSLog("SMOKE_CHART_CACHE netease=\(netease) qq=\(qq) kugou=\(kugou) fresh=\(ChartFeed.shared.isFresh)")
+                let list = (try? await HotPlaylists.fetch(.kugou)) ?? []
+                let usable = list.compactMap { $0.cover }.filter { !$0.contains("{size}") }.count
+                NSLog("SMOKE_CHART_COVERS total=\(list.count) usable=\(usable)")
+            }
+        }
         if SmokeTest.runsKugouCheck {
             selection = 1
             Task {

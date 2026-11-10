@@ -88,7 +88,15 @@ final class ChartLibrary: ObservableObject {
 
         for platform in [PlaylistPlatform.netease, .qq, .kugou] {
             if Task.isCancelled { return }
-            guard let list = try? await HotPlaylists.fetch(platform), !list.isEmpty else {
+            // 榜单列表层已经有落盘缓存（ChartFeed），冷启动先读它，
+            // 不再每次启动都把三家发现接口重拉一遍 —— 这是流量浪费的大头。
+            let list: [ExternalPlaylist]
+            if let cached = ChartFeed.shared.cached(platform), !cached.isEmpty {
+                list = cached
+            } else if let fetched = try? await HotPlaylists.fetch(platform), !fetched.isEmpty {
+                ChartFeed.shared.store(fetched, for: platform)
+                list = fetched
+            } else {
                 NSLog("SMOKE_CHART \(platform.rawValue) playlists=0")
                 continue
             }

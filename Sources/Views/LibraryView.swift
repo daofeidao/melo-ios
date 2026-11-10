@@ -99,6 +99,13 @@ struct LibraryView: View {
     }
 }
 
+private enum AboutPage: String, Identifiable {
+    case changelog
+    case dataSources
+
+    var id: String { rawValue }
+}
+
 struct SettingsView: View {
     @EnvironmentObject private var library: Library
 
@@ -118,6 +125,12 @@ struct SettingsView: View {
     @State private var alertTitle = ""
     @State private var alertText = ""
     @State private var showAlert = false
+
+    // 版本号彩蛋：7 次连点（间隔超过 2.5 秒重新计数）
+    @State private var versionTaps = 0
+    @State private var lastVersionTap = Date.distantPast
+    /// 两个「关于」页共用一个 sheet：iOS 15 上同一视图叠两个 .sheet 会互相顶掉
+    @State private var aboutPage: AboutPage?
 
     var body: some View {
         List {
@@ -254,11 +267,16 @@ struct SettingsView: View {
                     Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
                         .foregroundColor(Theme.secondaryLabel)
                 }
-                HStack {
-                    Text(L("Data Source"))
-                    Spacer()
-                    Text("YouTube Music")
-                        .foregroundColor(Theme.secondaryLabel)
+                .contentShape(Rectangle())
+                .onTapGesture { registerVersionTap() }
+
+                NavigationLink(destination: DataSourcesView()) {
+                    HStack {
+                        Text(L("Data Sources"))
+                        Spacer()
+                        Text(L("6 sources"))
+                            .foregroundColor(Theme.secondaryLabel)
+                    }
                 }
             } header: {
                 Text(L("About"))
@@ -270,6 +288,11 @@ struct SettingsView: View {
         .navigationTitle(L("Settings"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            if SmokeTest.showsChangelog { aboutPage = .changelog }
+            if SmokeTest.showsDataSources { aboutPage = .dataSources }
+            if SmokeTest.showsChangelog || SmokeTest.showsDataSources {
+                NSLog("SMOKE_ABOUT changelog=\(SmokeTest.showsChangelog) sources=\(SmokeTest.showsDataSources)")
+            }
             guard SmokeTest.runsPlaybackTest, playbackLines.isEmpty, !playbackTesting else { return }
             Task { await runPlaybackTest() }
         }
@@ -314,6 +337,30 @@ struct SettingsView: View {
             Button(L("Done"), role: .cancel) {}
         } message: {
             Text(alertText)
+        }
+        .sheet(item: $aboutPage) { page in
+            switch page {
+            case .changelog:
+                ChangelogView()
+            case .dataSources:
+                NavigationView {
+                    DataSourcesView()
+                }
+                .navigationViewStyle(StackNavigationViewStyle())
+            }
+        }
+    }
+
+    /// 连点 7 次才打开更新记录。中间停顿超过 2.5 秒就重新计数，
+    /// 免得平时误触把页面弹出来。
+    private func registerVersionTap() {
+        let now = Date()
+        if now.timeIntervalSince(lastVersionTap) > 2.5 { versionTaps = 0 }
+        lastVersionTap = now
+        versionTaps += 1
+        if versionTaps >= 7 {
+            versionTaps = 0
+            aboutPage = .changelog
         }
     }
 

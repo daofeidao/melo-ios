@@ -35,14 +35,40 @@ enum AudioSource {
     /// 标记之后下次解析跳过直链，直接按歌名去国内源找同一首 —— 这就是
     /// "把 probe 移出关键路径"的代价补偿：让播放器当裁判，失败一次就换路。
     private static var failedTracks = Set<String>()
+    /// 原曲目 id -> 已经试过的兜底候选 id。播放失败重试时跳过它们，
+    /// 否则会反复撞同一条死链，永远轮到下一个音源。
+    private static var attemptedFallbacks: [String: Set<String>] = [:]
+    private static let stateLock = NSLock()
 
     static func notePlaybackFailure(_ track: Track) {
+        stateLock.lock(); defer { stateLock.unlock() }
         failedTracks.insert(track.id)
+    }
+
+    private static func hasFailed(_ id: String) -> Bool {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return failedTracks.contains(id)
+    }
+
+    private static func triedCandidates(for id: String) -> Set<String> {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return attemptedFallbacks[id] ?? []
+    }
+
+    private static func rememberFallback(_ candidate: Track, for id: String) {
+        stateLock.lock(); defer { stateLock.unlock() }
+        attemptedFallbacks[id, default: []].insert(candidate.id)
     }
 
     /// 冷启动预热：国内源都是新的域名，TLS 握手比 RTT 还贵
     static func warmUp() {
-        let hosts = ["https://m.kugou.com/", "https://songsearch.kugou.com/", "https://music.163.com/"]
+        let hosts = [
+            "https://m.kugou.com/",
+            "https://songsearch.kugou.com/",
+            "https://music.163.com/",
+            "https://search.kuwo.cn/",
+            "https://antiserver.kuwo.cn/"
+        ]
         for string in hosts {
             guard let url = URL(string: string) else { continue }
             var request = URLRequest(url: url)
@@ -63,7 +89,7 @@ enum AudioSource {
         }
 
         // 直链能拿到就直接播（probe 已经移出关键路径）
-        if !failedTracks.contains(track.id), let domestic = await domesticStream(for: track) {
+        if !hasFailed(track.id), let domestic = await domesticStream(for: track) {
             return domestic
         }
 
@@ -103,14 +129,40 @@ enum AudioSource {
 
     // MARK: - 按歌名兜底国内音源
 
-    /// 宁可找不到，也不播翻唱：标题必须同名、艺人必须对得上
+    /// 多源兜底：先走酷狗快路径，再把酷狗 / 网易云 / 酷我的候选逐个试到能播为止。
+    /// 歌单里最容易失败的是 QQ 曲目和网易云 VIP —— 以前只问一次酷狗就判失败。
     private static func domesticFallback(for track: Track) async -> AudioStream? {
-        guard let matched = await DomesticSource.match(
+        let tried = triedCandidates(for: track.id)
+
+        if let quick = await DomesticSource.match(
             title: track.title,
             artist: track.artist,
             duration: track.duration
-        ) else { return nil }
-        return await domesticStream(for: matched)
+        ), !hasFailed(quick.id), !tried.contains(quick.id) {
+            rememberFallback(quick, for: track.id)
+            if let stream = await verifiedDomesticStream(for: quick) { return stream }
+        }
+
+        let picks = await DomesticSource.fallbackCandidates(
+            title: track.title,
+            artist: track.artist,
+            duration: track.duration,
+            limit: 4
+        )
+        for candidate in picks {
+            guard !hasFailed(candidate.id), !tried.contains(candidate.id) else { continue }
+            // 先记下来：拿不到直链的候选下次不必再问
+            rememberFallback(candidate, for: track.id)
+            if let stream = await verifiedDomesticStream(for: candidate) { return stream }
+        }
+        return nil
+    }
+
+    /// 兜底链上每个候选先验 1KB：这些地址的典型失败是「200 但其实是 HTML 404 页」。
+    /// 主路径不做这一步，避免正常起播多一个 RTT。
+    private static func verifiedDomesticStream(for track: Track) async -> AudioStream? {
+        guard let stream = await domesticStream(for: track) else { return nil }
+        return await probe(stream.url.absoluteString, timeout: 3)
     }
 
     /// 该曲目是否有可能走国内音源
@@ -135,6 +187,8 @@ enum AudioSource {
         case .qq:
             // QQ 需要 vkey，公开请求拿不到 purl，只能回落 YouTube
             resolved = nil
+        case .kuwo:
+            resolved = await DomesticSource.kuwoStreamURL(id: id)
         }
 
         guard let url = resolved else { return nil }
@@ -149,10 +203,10 @@ enum AudioSource {
 
     /// 先拉 1KB 确认「真的很像音频」，再交给播放器 —— 否则 VIP 曲目会跳到一个 HTML 404 页。
     /// 超时压到 4 秒：源不可用时用户等不起十几秒，宁可快速判失败再回落。
-    private static func probe(_ urlString: String) async -> AudioStream? {
+    private static func probe(_ urlString: String, timeout: TimeInterval = 6) async -> AudioStream? {
         guard let url = URL(string: urlString) else { return nil }
         var request = URLRequest(url: url)
-        request.timeoutInterval = 6
+        request.timeoutInterval = timeout
         request.setValue("bytes=0-1023", forHTTPHeaderField: "Range")
         request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
 

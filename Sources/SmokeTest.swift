@@ -41,6 +41,20 @@ enum SmokeTest {
         ProcessInfo.processInfo.arguments.contains("-smoke-settings-page")
     }
 
+    /// 打开版本号彩蛋页 / 数据来源页，验证新增的两个设置页能正常渲染
+    static var showsChangelog: Bool {
+        ProcessInfo.processInfo.arguments.contains("-smoke-changelog")
+    }
+
+    static var showsDataSources: Bool {
+        ProcessInfo.processInfo.arguments.contains("-smoke-data-sources")
+    }
+
+    /// 打印榜单列表缓存与封面模板替换情况，验证「本地缓存 + 酷狗封面」
+    static var checksChartCache: Bool {
+        ProcessInfo.processInfo.arguments.contains("-smoke-chart-cache")
+    }
+
     static var runsPlaybackTest: Bool {
         ProcessInfo.processInfo.arguments.contains("-smoke-playback-test")
     }

@@ -17,6 +17,7 @@ struct ExternalPlaylist: Identifiable, Hashable, Codable {
         case .netease: return "https://music.163.com/playlist?id=\(playlistID)"
         case .qq: return "https://y.qq.com/n/ryqq/playlist/\(playlistID)"
         case .kugou: return "https://www.kugou.com/yy/special/single/\(playlistID).html"
+        case .kuwo: return "https://www.kuwo.cn/playlist_detail/\(playlistID)"
         }
     }
 }
@@ -60,6 +61,9 @@ enum HotPlaylists {
             return try await qq()
         case .kugou:
             return try await kugou()
+        case .kuwo:
+            // 酷我暂时只做搜索和直链，没有公开的榜单/歌单发现接口
+            return []
         }
     }
 
@@ -197,10 +201,12 @@ enum HotPlaylists {
                   let name = JS.string(item["rankname"]) ?? JS.string(item["rank_name"]), !name.isEmpty
             else { return nil }
 
-            let cover = https(
+            // 酷狗榜单封面是模板串（含 {size}），不替换就永远加载不出来
+            let cover = DomesticSource.normalizeArtwork(
                 JS.string(item["imgurl"])
-                ?? JS.string(item["img_url"])
-                ?? JS.string(item["banner"])
+                    ?? JS.string(item["img_url"])
+                    ?? JS.string(item["banner"]),
+                size: 400
             )
             let frequency = JS.string(item["update_frequency"]) ?? ""
             return ExternalPlaylist(

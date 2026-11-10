@@ -6,6 +6,8 @@ enum PlaylistPlatform: String, CaseIterable, Identifiable, Codable {
     case netease
     case qq
     case kugou
+    /// 酷我：直链最容易拿到的一家（antiserver 不需要签名），当兜底音源用
+    case kuwo
 
     var id: String { rawValue }
 
@@ -14,6 +16,7 @@ enum PlaylistPlatform: String, CaseIterable, Identifiable, Codable {
         case .netease: return L("NetEase Cloud Music")
         case .qq: return L("QQ Music")
         case .kugou: return L("Kugou Music")
+        case .kuwo: return L("Kuwo Music")
         }
     }
 
@@ -22,6 +25,7 @@ enum PlaylistPlatform: String, CaseIterable, Identifiable, Codable {
         case .netease: return "网易云"
         case .qq: return "QQ音乐"
         case .kugou: return "酷狗"
+        case .kuwo: return "酷我"
         }
     }
 }
@@ -164,6 +168,9 @@ enum PlaylistFetcher {
             return try await fetchQQ(id: id)
         case .kugou:
             return isRank ? try await fetchKugouRank(id: id) : try await fetchKugou(id: id)
+        case .kuwo:
+            // 没有公开的歌单抓取接口
+            throw PlaylistImportError.unsupportedLink
         }
     }
 

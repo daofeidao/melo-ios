@@ -8,6 +8,7 @@ struct ChartsView: View {
     @State private var error: String?
     @State private var hasLoaded = false
     @State private var failures: [String: String] = [:]
+    private let feed = ChartFeed.shared
 
     private let platforms: [PlaylistPlatform] = [.netease, .qq, .kugou]
 
@@ -49,7 +50,7 @@ struct ChartsView: View {
             }
             .navigationTitle(L("Charts"))
             .navigationBarTitleDisplayMode(.large)
-            .refreshable { await load() }
+            .refreshable { await load(force: true) }
             .task {
                 if !hasLoaded { await load() }
             }
@@ -121,64 +122,129 @@ struct ChartsView: View {
         .frame(width: 148, alignment: .leading)
     }
 
-    private func load() async {
-        await MainActor.run {
-            loading = true
-            error = nil
+    private func load(force: Bool = false) async {
+        // 先用本地缓存铺满：切回 tab 时立刻有内容，不闪白
+        var seeded = false
+        for platform in platforms {
+            if let cached = feed.cached(platform) {
+                external[platform.rawValue] = cached
+                seeded = true
+            }
+        }
+        if ytShelves.isEmpty { ytShelves = feed.cachedShelves() }
+
+        let listsFresh = seeded && feed.isFresh && !force
+        let ytFresh = feed.shelvesReady && !force
+
+        // 两层都热：一次网络请求都不发。这是「每次进排行榜都要重新刷新」的根治点。
+        if listsFresh && ytFresh {
+            await MainActor.run {
+                loading = false
+                hasLoaded = true
+                error = nil
+            }
+            return
         }
 
-        // 不用 async let：Swift 6 的 async-let 在父作用域提前退出时会 fatalError
-        let ytJob = Task { try await InnerTube.shared.charts() }
-        let neteaseJob = Task { try await HotPlaylists.fetch(.netease) }
-        let qqJob = Task { try await HotPlaylists.fetch(.qq) }
-        let kugouJob = Task { try await HotPlaylists.fetch(.kugou) }
+        await MainActor.run {
+            loading = true
+            if !seeded { error = nil }
+        }
+
+        // 不用 async let：Swift 6 的 async-let 在父作用域提前退出时会 fatalError。
+        // 哪一层还新鲜就根本不创建那一层的 Task，省请求也省流量。
+        let ytJob: Task<[Shelf], Error>? = ytFresh
+            ? nil
+            : Task { try await InnerTube.shared.charts() }
+        let neteaseJob: Task<[ExternalPlaylist], Error>? = listsFresh
+            ? nil
+            : Task { try await HotPlaylists.fetch(.netease) }
+        let qqJob: Task<[ExternalPlaylist], Error>? = listsFresh
+            ? nil
+            : Task { try await HotPlaylists.fetch(.qq) }
+        let kugouJob: Task<[ExternalPlaylist], Error>? = listsFresh
+            ? nil
+            : Task { try await HotPlaylists.fetch(.kugou) }
 
         // 失败不再静默：哪个源挂了就在分区标题旁标出来，用户才不会以为是缺功能
         var failures: [String: String] = [:]
 
         let yt: [Shelf]
-        do {
-            yt = try await ytJob.value
-        } catch {
+        if let job = ytJob {
+            do {
+                yt = try await job.value
+            } catch {
+                yt = []
+                failures["youtube"] = describe(error)
+            }
+            feed.markShelvesAttempted()
+        } else {
             yt = []
-            failures["youtube"] = describe(error)
         }
 
         let netease: [ExternalPlaylist]
-        do {
-            netease = try await neteaseJob.value
-        } catch {
+        if let job = neteaseJob {
+            do {
+                netease = try await job.value
+            } catch {
+                netease = []
+                failures[PlaylistPlatform.netease.rawValue] = describe(error)
+            }
+        } else {
             netease = []
-            failures[PlaylistPlatform.netease.rawValue] = describe(error)
         }
 
         let qq: [ExternalPlaylist]
-        do {
-            qq = try await qqJob.value
-        } catch {
+        if let job = qqJob {
+            do {
+                qq = try await job.value
+            } catch {
+                qq = []
+                failures[PlaylistPlatform.qq.rawValue] = describe(error)
+            }
+        } else {
             qq = []
-            failures[PlaylistPlatform.qq.rawValue] = describe(error)
         }
 
         let kugou: [ExternalPlaylist]
-        do {
-            kugou = try await kugouJob.value
-        } catch {
+        if let job = kugouJob {
+            do {
+                kugou = try await job.value
+            } catch {
+                kugou = []
+                failures[PlaylistPlatform.kugou.rawValue] = describe(error)
+            }
+        } else {
             kugou = []
-            failures[PlaylistPlatform.kugou.rawValue] = describe(error)
         }
 
         await MainActor.run {
-            ytShelves = yt
+            // 抓失败时保留上一次的缓存，别让整块内容凭空消失
+            if !yt.isEmpty {
+                ytShelves = yt
+                feed.storeShelves(yt)
+            }
             self.failures = failures
-            external = [
-                PlaylistPlatform.netease.rawValue: netease,
-                PlaylistPlatform.qq.rawValue: qq,
-                PlaylistPlatform.kugou.rawValue: kugou
-            ]
+
+            var merged = external
+            if !netease.isEmpty {
+                merged[PlaylistPlatform.netease.rawValue] = netease
+                feed.store(netease, for: .netease)
+            }
+            if !qq.isEmpty {
+                merged[PlaylistPlatform.qq.rawValue] = qq
+                feed.store(qq, for: .qq)
+            }
+            if !kugou.isEmpty {
+                merged[PlaylistPlatform.kugou.rawValue] = kugou
+                feed.store(kugou, for: .kugou)
+            }
+            external = merged
+            if !listsFresh { feed.touch() }
             loading = false
             hasLoaded = true
-            if yt.isEmpty && netease.isEmpty && qq.isEmpty && kugou.isEmpty {
+
+            if ytShelves.isEmpty && external.values.allSatisfy({ $0.isEmpty }) {
                 error = L("No content was returned. Check that your proxy also covers music.youtube.com, then retry.")
             }
         }

@@ -31,14 +31,19 @@ enum DomesticSource {
         let neteaseJob: Task<[Track], Never>? = kugouFirst
             ? nil
             : Task { await neteaseSearch(query: trimmed, limit: limit) }
+        // 酷我当第三路：直链最容易拿，兜底用
+        let kuwoJob: Task<[Track], Never>? = kugouFirst
+            ? nil
+            : Task { await kuwoSearch(query: trimmed, limit: min(limit, 10)) }
 
         let kugou = await kugouJob.value
         if kugouFirst, !kugou.isEmpty {
             return dedup(kugou)
         }
         let netease = await neteaseJob?.value ?? []
+        let kuwo = await kuwoJob?.value ?? []
 
-        return dedup(kugou + netease)
+        return dedup(kugou + netease + kuwo)
     }
 
     private static func dedup(_ tracks: [Track]) -> [Track] {
@@ -165,7 +170,33 @@ enum DomesticSource {
     }
 
     static func neteaseStreamURL(id: String) async -> URL? {
-        await resolveURL("https://music.163.com/song/media/outer/url?id=\(id).mp3")
+        // player/url 直接回 CDN 地址（实测 ~150ms），比 outer/url 的 302 + Range 探测快
+        if let direct = await neteasePlayerURL(id: id) { return direct }
+        return await resolveURL("https://music.163.com/song/media/outer/url?id=\(id).mp3")
+    }
+
+    /// 网易云第二条取流路径：API 直接给带签名的 mp3 地址，不用跟 302。
+    /// 实测 http / https 都返回 206 audio/mpeg，这里统一升成 https。
+    private static func neteasePlayerURL(id: String) async -> URL? {
+        guard let url = URL(string: "https://music.163.com/api/song/enhance/player/url?id=\(id)&ids=%5B\(id)%5D&br=128000")
+        else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
+        request.setValue("https://music.163.com/", forHTTPHeaderField: "Referer")
+        request.setValue(declaredIP, forHTTPHeaderField: "X-Real-IP")
+
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let first = (JS.array(root["data"]) ?? []).compactMap({ JS.dict($0) }).first,
+              let raw = JS.string(first["url"]), !raw.isEmpty else { return nil }
+
+        var text = raw
+        if text.hasPrefix("http://") {
+            text = "https://" + text.dropFirst("http://".count)
+        }
+        return URL(string: text)
     }
 
     // MARK: - 可播性验证
@@ -200,6 +231,8 @@ enum DomesticSource {
             return await kugouStreamURL(hash: id) != nil
         case .netease:
             return await neteaseStreamURL(id: id) != nil
+        case .kuwo:
+            return await kuwoStreamURL(id: id) != nil
         case .qq:
             return false
         }
@@ -225,23 +258,44 @@ enum DomesticSource {
         return looksAudio ? finalURL : nil
     }
 
-    // MARK: - 按歌名匹配（YouTube 被拦时的保底）
+    // MARK: - 按歌名匹配（播放失败时的保底）
 
-    /// 宁可找不到，也不播翻唱：标题必须同名或包含，艺人必须对得上
+    /// 快路径：只问酷狗（一次请求），取最可信的一条。
     static func match(title: String, artist: String, duration: Int) async -> Track? {
-        let query = [title, artist].filter { !$0.isEmpty }.joined(separator: " ")
+        let query = titleArtistQuery(title: title, artist: artist)
         guard !query.isEmpty else { return nil }
+        let found = await search(query: query, limit: 30, kugouFirst: true)
+        let picked = ranked(title: title, artist: artist, duration: duration, tracks: found)
+        guard let best = picked.first else { return nil }
+        return best.track
+    }
 
-        let candidates = await search(query: query, limit: 30, kugouFirst: true)
-        guard !candidates.isEmpty else { return nil }
+    /// 全源兜底：酷狗 + 网易云 + 酷我并发拉齐，按可播率排序后逐个试。
+    /// 歌单里的 QQ / 网易云 VIP 曲目走这条路 —— 以前只问酷狗，酷狗没版权就直接判失败。
+    static func fallbackCandidates(title: String, artist: String, duration: Int,
+                                   limit: Int = 6) async -> [Track] {
+        let query = titleArtistQuery(title: title, artist: artist)
+        guard !query.isEmpty else { return [] }
+        let found = await search(query: query, limit: 30)
+        let picked = ranked(title: title, artist: artist, duration: duration, tracks: found)
+        return Array(picked.prefix(limit).map { $0.track })
+    }
 
+    private static func titleArtistQuery(title: String, artist: String) -> String {
+        [title, artist].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// 宁可找不到，也不播翻唱：标题必须同名或包含，艺人必须对得上。
+    /// 另外按实测可播率给音源加权：酷狗 > 酷我 > 网易云，VIP 曲目降权。
+    private static func ranked(title: String, artist: String, duration: Int,
+                               tracks: [Track]) -> [(track: Track, score: Int)] {
         let wantedTitle = normalize(title)
         let wantedArtist = normalize(artist)
-        guard !wantedTitle.isEmpty else { return nil }
+        guard !wantedTitle.isEmpty else { return [] }
 
-        var best: (track: Track, score: Int)?
+        var scored: [(track: Track, score: Int)] = []
 
-        for candidate in candidates {
+        for candidate in tracks {
             let candidateTitle = normalize(candidate.title)
             var score = 0
 
@@ -261,9 +315,6 @@ enum DomesticSource {
                 // 艺人没对上基本就是翻唱，直接跳过，避免播成别人的版本
                 guard matched else { continue }
                 score += 60
-            } else {
-                // 没有艺人信息时，酷狗优先（可播率更高）
-                if candidate.source == PlaylistPlatform.kugou.rawValue { score += 20 }
             }
 
             if duration > 20, candidate.duration > 20 {
@@ -277,13 +328,120 @@ enum DomesticSource {
                 }
             }
 
-            if score > (best?.score ?? 0) {
-                best = (candidate, score)
+            let source = candidate.source ?? ""
+            if source == PlaylistPlatform.kugou.rawValue {
+                score += 12
+            } else if source == PlaylistPlatform.kuwo.rawValue {
+                score += 10
+            } else if source == PlaylistPlatform.netease.rawValue {
+                score += 4
             }
+            if candidate.isVip { score -= 8 }
+
+            guard score >= 100 else { continue }
+            scored.append((candidate, score))
         }
 
-        guard let picked = best, picked.score >= 100 else { return nil }
-        return picked.track
+        return scored.sorted { $0.score > $1.score }
+    }
+
+    // MARK: - 酷我
+
+    /// 酷我的响应是 Python 字面量（单引号），不是严格 JSON。
+    /// 先当 JSON 解析，失败再把「作为分隔符的单引号」换成双引号重试 ——
+    /// 值里的撇号（Don't）前面是字母，不会被误伤。
+    private static func kuwoJSON(_ text: String) -> [String: Any]? {
+        if let data = text.data(using: .utf8),
+           let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            return root
+        }
+        var fixed = text
+        let patterns = [
+            "(?<=[\\{,:])\\s*'",
+            "'(?=\\s*[\\},:])"
+        ]
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(fixed.startIndex..., in: fixed)
+            fixed = regex.stringByReplacingMatches(in: fixed, range: range, withTemplate: "\"")
+        }
+        guard let data = fixed.data(using: .utf8),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        return root
+    }
+
+    /// 依次尝试一组镜像地址，谁先回内容用谁。酷我 / 网易云的 CDN 在不同网络下
+    /// http 与 https 表现不一致，单押一个地址会偶发「整片源失效」。
+    private static func fetchText(_ urls: [String], timeout: TimeInterval,
+                                  headers: [String: String] = [:]) async -> String? {
+        for raw in urls {
+            guard let url = URL(string: raw) else { continue }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = timeout
+            for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
+            guard let (data, _) = try? await URLSession.shared.data(for: request),
+                  let text = String(data: data, encoding: .utf8), !text.isEmpty else { continue }
+            return text
+        }
+        return nil
+    }
+
+    static func kuwoSearch(query: String, limit: Int = 20) async -> [Track] {
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .alphanumerics)
+        else { return [] }
+        let path = "r.s?all=\(encoded)&ft=music&itemset=web_2013&client=kt&pn=0&rn=\(limit)&rformat=json&encoding=utf8"
+        // 本机实测 https 169ms / http 273ms，两个都通；优先 https
+        guard let text = await fetchText(
+            ["https://search.kuwo.cn/" + path, "http://search.kuwo.cn/" + path],
+            timeout: 6,
+            headers: ["User-Agent": browserUA]
+        ),
+              let root = kuwoJSON(text),
+              let list = JS.array(root["abslist"]) else { return [] }
+
+        return list.compactMap { raw -> Track? in
+            guard let item = JS.dict(raw) else { return nil }
+            let name = (JS.string(item["NAME"]) ?? "")
+                .replacingOccurrences(of: "&nbsp;", with: " ")
+                .trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty else { return nil }
+
+            // MUSICRID 形如 MUSIC_51685512，取数字部分给 antiserver
+            let rid = (JS.string(item["MUSICRID"]) ?? "")
+                .replacingOccurrences(of: "MUSIC_", with: "")
+            guard !rid.isEmpty else { return nil }
+
+            let artist = (JS.string(item["ARTIST"]) ?? "")
+                .replacingOccurrences(of: "&nbsp;", with: " ")
+                .trimmingCharacters(in: .whitespaces)
+            let album = JS.string(item["ALBUM"])?.replacingOccurrences(of: "&nbsp;", with: " ")
+
+            return Track(
+                videoId: "",
+                title: name,
+                artist: artist.isEmpty ? L("Unknown Artist") : artist,
+                album: (album?.isEmpty ?? true) ? nil : album,
+                duration: JS.int(item["DURATION"]) ?? 0,
+                artwork: normalizeArtwork(JS.string(item["web_albumpic_short"])),
+                source: PlaylistPlatform.kuwo.rawValue,
+                sourceID: rid
+            )
+        }
+    }
+
+    /// antiserver 直接回一个 mp3 地址，不需要签名、不需要 cookie。
+    /// 实测 http / https 都可用，直链本身 206 audio/mpeg。
+    static func kuwoStreamURL(id: String) async -> URL? {
+        let path = "anti.s?type=convert_url&format=mp3&response=url&rid=MUSIC_\(id)"
+        guard let text = await fetchText(
+            ["https://antiserver.kuwo.cn/" + path, "http://antiserver.kuwo.cn/" + path],
+            timeout: 5,
+            headers: ["User-Agent": browserUA]
+        ) else { return nil }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("http"), let resolved = URL(string: trimmed) else { return nil }
+        return resolved
     }
 
     // MARK: - 网易云专辑 / 歌单搜索
@@ -419,9 +577,9 @@ enum DomesticSource {
 
     /// 酷狗返回的封面是模板：`http://imge.kugou.com/stdmusic/{size}/2025....jpg`。
     /// 必须把 {size} 换成像素数，并升到 https，否则只会一直显示占位图。
-    static func normalizeArtwork(_ raw: String?) -> String? {
+    static func normalizeArtwork(_ raw: String?, size: Int = 240) -> String? {
         guard var text = raw, !text.isEmpty else { return nil }
-        text = text.replacingOccurrences(of: "{size}", with: "240")
+        text = text.replacingOccurrences(of: "{size}", with: String(size))
         if text.hasPrefix("http://") {
             text = "https://" + text.dropFirst("http://".count)
         }
