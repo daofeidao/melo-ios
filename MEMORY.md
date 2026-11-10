@@ -37,3 +37,18 @@
 - 覆盖安装（同 bundle id）保留数据；删除 App 会清空。备份走
   「设置 → 备份与恢复」，导出到「文件」（可放 iCloud Drive）。
 - 真 iCloud 同步做不了：假签名包没有 Apple 开发者 Team，iCloud 容器注册不了。
+
+## YouTube 播放（2026-11-10 实测，别再重复验证）
+
+- **元数据能拿、播放拿不到**不是代理问题：用户 VPN 下 Safari 与官方客户端都能播。
+  根因是 Melo 自称 iOS 客户端却没有 PO Token / visitorData。
+- **App 内嵌 WKWebView 能完整播放 YouTube**（真机同款引擎，已验证）。
+  设置 →「YouTube 网页验证」可复现：页面 videoReady=4、正在播放、向
+  `rr*.googlevideo.com` 发过请求。
+- **但网页端不给直链**：`playabilityStatus=OK`、`streamingData` 有 30 条格式，
+  `withURL=0` —— 全是 SABR（`serverAbrStreamingUrl`）。所以「从网页抠 URL 交给
+  AVPlayer」这条路**不通**，不用再试。
+- 想原生播放只剩两条：
+  1. WKWebView 跑 BotGuard 铸 PO Token，再用自己的 IOS/ANDROID player 请求取直链（未验证能否拿到直链）；
+  2. 自建服务端（yt-dlp + bgutil PO token provider）中转音频。
+- 验证入口：`-smoke-yt-web`，CI 用 `verify_only=true` 跑（只编译 + 模拟器，不出 IPA）。
