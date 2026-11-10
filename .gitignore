@@ -1,4 +1,4 @@
-build/
+﻿build/
 build-sim/
 build-dev/
 Payload/
@@ -12,4 +12,4 @@ scripts/_secrets/
 .git-commit-msg.txt
 
 # CI 下载的截图/产物，不要进仓库
-art/
+art*/
