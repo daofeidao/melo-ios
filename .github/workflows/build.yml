@@ -381,6 +381,20 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes' "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDevelopmentRegion' "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleLocalizations' "$APP/Info.plist"
+          echo "--- 版本一致性（写死 Info.plist 会让安装后显示旧版本）---"
+          EXPECTED_VERSION=$(grep -m1 'MARKETING_VERSION' project.yml | sed -E 's/.*"([0-9]+(\.[0-9]+)*)".*/\1/')
+          ACTUAL_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")
+          ACTUAL_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")
+          echo "plist: ${ACTUAL_VERSION} (${ACTUAL_BUILD}) / 期望: ${EXPECTED_VERSION} (${GITHUB_RUN_NUMBER})"
+          if [ "$ACTUAL_VERSION" != "$EXPECTED_VERSION" ]; then
+            echo "::error::CFBundleShortVersionString=${ACTUAL_VERSION}，与 MARKETING_VERSION=${EXPECTED_VERSION} 不一致"
+            exit 1
+          fi
+          if [ "$ACTUAL_BUILD" != "${GITHUB_RUN_NUMBER}" ]; then
+            echo "::error::CFBundleVersion=${ACTUAL_BUILD}，与构建号=${GITHUB_RUN_NUMBER} 不一致"
+            exit 1
+          fi
+          echo "版本一致"
           echo "--- 本地化资源（缺一个就构建失败）---"
           ls -1 "$APP" | grep -E '\.lproj$'
           test -f "$APP/en.lproj/Localizable.strings"

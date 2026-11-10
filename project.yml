@@ -49,8 +49,8 @@ targets:
         CFBundleDisplayName: Melo
         CFBundleName: Melo
         CFBundleDevelopmentRegion: en
-        CFBundleShortVersionString: "1.16.1"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundleLocalizations:
           - en
           - zh-Hans
