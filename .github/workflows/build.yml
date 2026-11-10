@@ -101,13 +101,13 @@ jobs:
           mkdir -p shots
 
           echo "=== 版本更新记录（版本号彩蛋页）==="
-          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-settings-page -smoke-changelog || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-changelog || true
           sleep 9
           xcrun simctl io "$DEVICE_ID" screenshot shots/shot-20-changelog.png
 
           echo "=== 数据来源页 ==="
           xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
-          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-settings-page -smoke-data-sources || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-data-sources || true
           sleep 9
           xcrun simctl io "$DEVICE_ID" screenshot shots/shot-21-data-sources.png
 

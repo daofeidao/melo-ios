@@ -167,6 +167,13 @@ struct RootView: View {
                 showSettings = true
             }
         }
+        // 关于页的两个子页面：直接由根视图弹设置页，不依赖「先切到资料库 tab」。
+        // 冒烟启动默认停在首页，走 LibraryView 的延迟 sheet 永远等不到。
+        if SmokeTest.showsChangelog || SmokeTest.showsDataSources {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                showSettings = true
+            }
+        }
     }
 
     /// 备份往返：编码 → 写文件 → 解码 → 覆盖回内存，确认收藏/歌单没在 Codable 上丢东西
