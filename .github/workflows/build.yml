@@ -129,6 +129,22 @@ jobs:
           echo "--- 进程是否存活 ---"
           if xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -qi melo; then echo alive; else echo "NOT RUNNING (crashed)"; exit 1; fi
 
+      # 应用起不来时，把崩溃报告打出来，省得靠猜
+      - name: Dump crash reports
+        if: always()
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices available | grep -E '^[[:space:]]+iPhone' | head -1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+          echo "--- 最近的崩溃报告 ---"
+          ls -lt ~/Library/Logs/DiagnosticReports/ 2>/dev/null | head -8 || echo "none"
+          for f in $(ls -t ~/Library/Logs/DiagnosticReports/Melo* 2>/dev/null | head -2); do
+            echo "=== $f ==="
+            head -c 5000 "$f" || true
+            echo
+          done
+          echo "--- 应用最后 3 分钟日志 ---"
+          xcrun simctl spawn "$DEVICE_ID" log show --last 3m --style compact \
+            --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null | tail -40 || true
+
       # 验证「App 内嵌 WebKit 能不能让 YouTube 网页自己交出可播地址」。
       # runner 在境外，直连 youtube.com，所以这一页能拿到真实结果。
       - name: Verify YouTube web probe (WKWebView)
