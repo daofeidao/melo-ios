@@ -208,3 +208,9 @@
 "Checks whether YouTube's own page, running inside the app, hands back a direct audio URL — no client impersonation." = "Checks whether YouTube's own page, running inside the app, hands back a direct audio URL — no client impersonation.";
 "Result" = "Result";
 "YouTube Web Probe" = "YouTube Web Probe";
+"Step B · Player response" = "Step B · Player response";
+"Step C · Page config" = "Step C · Page config";
+"Not present on this page" = "Not present on this page";
+"Streaming data present but no direct URL (SABR)" = "Streaming data present but no direct URL (SABR)";
+"Step E · Audio CDN" = "Step E · Audio CDN";
+"No googlevideo request seen" = "No googlevideo request seen";

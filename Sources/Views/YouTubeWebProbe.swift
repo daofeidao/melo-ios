@@ -8,9 +8,9 @@ import WebKit
 /// 并把可播地址交出来」。这一页不参与正常播放，也不改任何现有解析逻辑。
 ///
 /// 判定标准：
-/// - 步骤 A/B/C 绿 → 网页在 App 内是通的（T0 成立）
-/// - 步骤 D 绿 → 网页直接给了音频直链，可以交给 AVPlayer（T1 成立，不用做 PO Token）
-/// - 步骤 D 红但 C 绿 → 只有 SABR，需要 T2（PO Token 管道）
+/// - 步骤 A/B 绿 → 网页在 App 内能拿到 player response（T0 成立）
+/// - 步骤 D 绿 → 页面确实向 googlevideo 发过音频请求，说明 CDN 链路在 App 内是通的
+/// - 有了直链 → 可以交给 AVPlayer（T1 成立，不用做 PO Token）
 struct WebProbeLine: Identifiable {
     let id = UUID()
     let title: String
@@ -49,20 +49,22 @@ final class YouTubeWebProbeModel: NSObject, ObservableObject {
     }
 
     func load(videoID: String) {
-        guard let url = URL(string: "https://music.youtube.com/watch?v=\(videoID)") else { return }
+        // 用 www.youtube.com 的 watch 页，不是 music.youtube.com：
+        // 前者会把 ytInitialPlayerResponse 直接内联进 HTML，后者不会。
+        guard let url = URL(string: "https://www.youtube.com/watch?v=\(videoID)") else { return }
         pageLoaded = false
         lines = []
         busy = true
         webView.load(URLRequest(url: url, timeoutInterval: 25))
     }
 
-    /// 反复读 `ytInitialPlayerResponse`，最多试 `attempts` 次。
-    /// 页面 didFinish 之后 YouTube 还会异步填这个对象，读一次经常是空的。
+    /// 反复读页面状态，最多试 `attempts` 次。
+    /// 页面 didFinish 之后 YouTube 还会异步填对象，读一次经常是空的。
     func runProbe(videoID: String, attempts: Int = 8) {
         guard attempts > 0 else {
             busy = false
             if lines.isEmpty {
-                append(title: L("Step A · Page loaded"), detail: "timeout", ok: false)
+                lines = [WebProbeLine(title: L("Step A · Page loaded"), detail: "timeout", ok: false)]
             }
             return
         }
@@ -70,14 +72,14 @@ final class YouTubeWebProbeModel: NSObject, ObservableObject {
             guard let self = self else { return }
             if let error = error {
                 self.busy = false
-                self.append(title: L("Step C · Streaming data"), detail: error.localizedDescription, ok: false)
+                self.lines = [WebProbeLine(title: L("Step B · Player response"), detail: error.localizedDescription, ok: false)]
                 return
             }
             let raw = (result as? String) ?? "{}"
             self.lastRaw = raw
             self.onResult?(raw)
-            if raw.contains("\"noplayer\"") {
-                // 还没填好，等 1 秒再来
+            // 页面还没起来，等 1 秒再来
+            if raw.contains("\"ready\":false") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                     self.runProbe(videoID: videoID, attempts: attempts - 1)
                 }
@@ -94,114 +96,123 @@ final class YouTubeWebProbeModel: NSObject, ObservableObject {
         lines = []
         guard let data = raw.data(using: .utf8),
               let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            append(title: L("Step C · Streaming data"), detail: "unparsable: \(raw.prefix(120))", ok: false)
+            lines = [WebProbeLine(title: L("Step B · Player response"), detail: "unparsable", ok: false)]
             return
         }
 
-        append(title: L("Step A · Page loaded"), detail: "music.youtube.com", ok: pageLoaded)
+        let ready = json["ready"] as? Bool ?? false
+        lines.append(WebProbeLine(title: L("Step A · Page loaded"), detail: webView.url?.absoluteString ?? "—", ok: ready))
 
+        let hasPR = json["hasPR"] as? Bool ?? false
         let status = json["status"] as? String ?? ""
         let reason = json["reason"] as? String ?? ""
-        let playable = status == "OK"
-        append(
-            title: L("Step B · Playability"),
-            detail: reason.isEmpty ? status : "\(status) · \(reason)",
-            ok: playable
-        )
+        lines.append(WebProbeLine(
+            title: L("Step B · Player response"),
+            detail: hasPR ? (reason.isEmpty ? status : "\(status) · \(reason)") : L("Not present on this page"),
+            ok: hasPR && status == "OK"
+        ))
+
+        let hasCfg = json["hasCfg"] as? Bool ?? false
+        let visitor = json["visitor"] as? String ?? ""
+        lines.append(WebProbeLine(
+            title: L("Step C · Page config"),
+            detail: hasCfg
+                ? "ytcfg ✓ · visitor \(visitor.isEmpty ? "—" : String(visitor.prefix(20)) + "…")"
+                : "ytcfg ✗",
+            ok: hasCfg && !visitor.isEmpty
+        ))
 
         let hasSD = json["hasSD"] as? Bool ?? false
-        let sabr = json["sabr"] as? Bool ?? false
-        let total = json["total"] as? Int ?? 0
         let withURL = json["withURL"] as? Int ?? 0
-        append(
-            title: L("Step C · Streaming data"),
-            detail: hasSD
-                ? String(format: L("%d formats, %d with URL"), total, withURL) + (sabr ? " · SABR" : "")
-                : L("Streaming data missing"),
-            ok: hasSD && withURL > 0
-        )
-
         let audio = json["audio"] as? Int ?? 0
         let itag = json["itag"] as? Int ?? 0
         let mime = json["mime"] as? String ?? ""
-        let host = json["host"] as? String ?? ""
-        let pot = json["pot"] as? Bool ?? false
         if audio > 0 {
-            append(
+            lines.append(WebProbeLine(
                 title: L("Step D · Direct audio URL"),
-                detail: "itag \(itag) · \(mime) · \(host)\(pot ? " · pot" : "")",
+                detail: "itag \(itag) · \(mime) · \(withURL)/\(withURL + (json["noURL"] as? Int ?? 0)) 条带直链",
                 ok: true
-            )
+            ))
         } else {
-            append(title: L("Step D · Direct audio URL"), detail: L("No direct audio URL"), ok: false)
+            lines.append(WebProbeLine(
+                title: L("Step D · Direct audio URL"),
+                detail: hasSD ? L("Streaming data present but no direct URL (SABR)") : L("No direct audio URL"),
+                ok: false
+            ))
         }
 
-        let visitor = json["visitor"] as? String ?? ""
-        append(
-            title: L("Step E · Visitor data"),
-            detail: visitor.isEmpty ? "—" : String(visitor.prefix(28)) + "…",
-            ok: !visitor.isEmpty
-        )
-    }
-
-    private func append(title: String, detail: String, ok: Bool) {
-        lines.append(WebProbeLine(title: title, detail: detail, ok: ok))
+        let gv = json["gvCount"] as? Int ?? 0
+        let gvHost = json["gvHost"] as? String ?? ""
+        let gvPot = json["gvPot"] as? Bool ?? false
+        lines.append(WebProbeLine(
+            title: L("Step E · Audio CDN"),
+            detail: gv > 0 ? "googlevideo ×\(gv) · \(gvHost)\(gvPot ? " · pot" : "")" : L("No googlevideo request seen"),
+            ok: gv > 0
+        ))
     }
 
     // MARK: - 注入脚本
 
-    /// 只读 window 上 YouTube 自己挂的对象，不发任何请求、不伪造身份。
+    /// 只读页面已有的对象和已发生的请求，不发新请求、不伪造身份。
     static let probeScript = """
     (function () {
       try {
-        var r = window.ytInitialPlayerResponse;
-        if (!r) { return JSON.stringify({ stage: "noplayer" }); }
-        var ps = r.playabilityStatus || {};
-        var sd = r.streamingData || null;
-        var out = {
-          stage: "ok",
-          status: ps.status || "",
-          reason: ps.reason || "",
-          hasSD: !!sd,
-          sabr: !!(sd && sd.serverAbrStreamingUrl),
-          total: 0,
-          withURL: 0,
-          audio: 0,
-          itag: 0,
-          mime: "",
-          host: "",
-          pot: false,
-          visitor: ""
-        };
+        var out = { ready: false, hasPR: false, status: "", reason: "", hasSD: false,
+                    withURL: 0, noURL: 0, audio: 0, itag: 0, mime: "",
+                    hasCfg: false, visitor: "", gvCount: 0, gvHost: "", gvPot: false,
+                    videoReady: -1, videoPaused: true };
+        out.ready = (document.readyState === "complete") || !!document.body;
         try {
           if (window.ytcfg && window.ytcfg.get) {
+            out.hasCfg = true;
             out.visitor = window.ytcfg.get("VISITOR_DATA") || "";
           }
         } catch (e) {}
-        if (sd) {
-          var all = (sd.adaptiveFormats || []).concat(sd.formats || []);
-          out.total = all.length;
-          var withURL = [];
-          for (var i = 0; i < all.length; i++) {
-            if (all[i].url) { withURL.push(all[i]); }
-          }
-          out.withURL = withURL.length;
-          var audio = [];
-          for (var j = 0; j < withURL.length; j++) {
-            if ((withURL[j].mimeType || "").indexOf("audio") === 0) { audio.push(withURL[j]); }
-          }
-          out.audio = audio.length;
-          if (audio.length) {
-            var a = audio[0];
-            out.itag = a.itag || 0;
-            out.mime = (a.mimeType || "").split(";")[0];
-            out.pot = (a.url || "").indexOf("pot=") >= 0;
-            try { out.host = new URL(a.url).host; } catch (e) { out.host = ""; }
+        var r = window.ytInitialPlayerResponse || null;
+        if (r) {
+          out.hasPR = true;
+          var ps = r.playabilityStatus || {};
+          out.status = ps.status || "";
+          out.reason = ps.reason || "";
+          var sd = r.streamingData || null;
+          if (sd) {
+            out.hasSD = true;
+            var all = (sd.adaptiveFormats || []).concat(sd.formats || []);
+            var withURL = [];
+            for (var i = 0; i < all.length; i++) {
+              if (all[i].url) { withURL.push(all[i]); } else { out.noURL++; }
+            }
+            out.withURL = withURL.length;
+            var audio = [];
+            for (var j = 0; j < withURL.length; j++) {
+              if ((withURL[j].mimeType || "").indexOf("audio") === 0) { audio.push(withURL[j]); }
+            }
+            out.audio = audio.length;
+            if (audio.length) {
+              out.itag = audio[0].itag || 0;
+              out.mime = (audio[0].mimeType || "").split(";")[0];
+            }
           }
         }
+        try {
+          var res = performance.getEntriesByType("resource") || [];
+          var gv = [];
+          for (var k = 0; k < res.length; k++) {
+            if ((res[k].name || "").indexOf("googlevideo.com") >= 0) { gv.push(res[k].name); }
+          }
+          out.gvCount = gv.length;
+          if (gv.length) {
+            out.gvPot = gv[0].indexOf("pot=") >= 0;
+            try { out.gvHost = new URL(gv[0]).host; } catch (e) {}
+          }
+        } catch (e) {}
+        try {
+          var v = document.querySelector("video");
+          if (v) { out.videoReady = v.readyState; out.videoPaused = v.paused; }
+        } catch (e) {}
         return JSON.stringify(out);
       } catch (e) {
-        return JSON.stringify({ stage: "error", reason: String(e) });
+        return JSON.stringify({ ready: true, error: String(e) });
       }
     })()
     """
@@ -240,7 +251,7 @@ struct YouTubeWebProbeView: View {
     var body: some View {
         VStack(spacing: 0) {
             WebProbeContainer(webView: model.webView)
-                .frame(height: 280)
+                .frame(height: 260)
                 .background(Color.black)
 
             Divider()
@@ -258,7 +269,7 @@ struct YouTubeWebProbeView: View {
                     }
                     Button {
                         model.load(videoID: videoID)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
                             model.runProbe(videoID: videoID)
                         }
                     } label: {
@@ -304,7 +315,7 @@ struct YouTubeWebProbeView: View {
             model.load(videoID: videoID)
             guard autoRun else { return }
             // 页面 didFinish 之后 YouTube 还要一会儿才填好 player response
-            DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 12) {
                 model.runProbe(videoID: videoID)
             }
         }

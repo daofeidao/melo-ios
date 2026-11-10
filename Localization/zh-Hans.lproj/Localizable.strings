@@ -208,3 +208,9 @@
 "Checks whether YouTube's own page, running inside the app, hands back a direct audio URL — no client impersonation." = "检查 YouTube 自己的网页在 App 内运行时，能不能直接交出音频直链——全程不伪装客户端身份。";
 "Result" = "结果";
 "YouTube Web Probe" = "YouTube 网页验证";
+"Step B · Player response" = "步骤 B · player 响应";
+"Step C · Page config" = "步骤 C · 页面配置";
+"Not present on this page" = "这个页面没有该对象";
+"Streaming data present but no direct URL (SABR)" = "有 streamingData 但没有直链（SABR）";
+"Step E · Audio CDN" = "步骤 E · 音频节点请求";
+"No googlevideo request seen" = "没有看到 googlevideo 请求";
