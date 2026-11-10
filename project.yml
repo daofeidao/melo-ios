@@ -43,9 +43,6 @@ targets:
         CODE_SIGN_IDENTITY: ""
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGNING_ALLOWED: NO
-        # libswiftWebKit.dylib 只有 iOS 16+ 才有，而本项目要跑 iOS 15.6.1。
-        # 不弱链接的话，dyld 会在启动时直接报 "Library not loaded" 然后退出。
-        OTHER_LDFLAGS: "$(inherited) -Wl,-weak-lswiftWebKit"
     info:
       path: Support/Info.plist
       properties:
