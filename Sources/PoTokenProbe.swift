@@ -220,7 +220,7 @@ final class PoTokenProbe: ObservableObject {
         // 等空白页就绪，最多 3 秒
         for _ in 0..<30 {
             try await Task.sleep(nanoseconds: 100_000_000)
-            let raw = try? await view.evaluateJavaScript("document.readyState")
+            let raw = try? await js("document.readyState")
             let state = raw as? String
             if state == "complete" || state == "interactive" {
                 webViewReady = true
@@ -230,17 +230,57 @@ final class PoTokenProbe: ObservableObject {
         webViewReady = true
     }
 
-    private func evaluate(_ body: String, payload: [String: Any]) async throws -> Any? {
+    /// 只用最老的 `evaluateJavaScript(_:completionHandler:)`。
+    /// 不用 `callAsyncJavaScript` / `WKContentWorld`：那两个会把 libswiftWebKit 拖进来，
+    /// 而 libswiftWebKit 只有 iOS 16+ 才有，本项目要跑 iOS 15.6.1。
+    private func js(_ script: String) async throws -> Any? {
         guard let view = webView else { throw ProbeError.message("webview missing") }
-        let json = String(data: try JSONSerialization.data(withJSONObject: payload), encoding: .utf8) ?? "{}"
         return try await withCheckedThrowingContinuation { continuation in
-            view.callAsyncJavaScript(body, arguments: ["payload": json], in: nil, in: .page) { result in
-                switch result {
-                case .success(let value): continuation.resume(returning: value)
-                case .failure(let error): continuation.resume(throwing: error)
+            view.evaluateJavaScript(script) { result, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: result)
                 }
             }
         }
+    }
+
+    /// 把一段 async JS 跑起来，结果写在 window.__meloResult 上，然后轮询取回。
+    /// 这样就不需要任何 iOS 16 才有的 WebKit API。
+    private func evaluate(_ body: String, payload: [String: Any]) async throws -> Any? {
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        let json = String(data: data, encoding: .utf8) ?? "{}"
+        let wrapper = """
+        window.__meloResult = null;
+        window.__meloError = null;
+        (async function () {
+          const payload = \(json);
+          try {
+            const value = await (async function () {
+        \(body)
+            })();
+            window.__meloResult = (value === undefined || value === null) ? "" : String(value);
+          } catch (e) {
+            window.__meloError = String(e && e.message ? e.message : e);
+          }
+        })();
+        0
+        """
+        _ = try? await js(wrapper)
+        // 最多等 30 秒：BotGuard 解释器本身就要跑几秒
+        for _ in 0..<300 {
+            try await Task.sleep(nanoseconds: 100_000_000)
+            let rawError = try? await js("window.__meloError || ''")
+            if let text = rawError as? String, !text.isEmpty {
+                throw ProbeError.message(text)
+            }
+            let rawResult = try? await js("window.__meloResult")
+            if let text = rawResult as? String, !text.isEmpty {
+                return text
+            }
+        }
+        throw ProbeError.message("JS timeout")
     }
 
     // MARK: - 工具

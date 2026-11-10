@@ -144,6 +144,11 @@ jobs:
           echo "--- 应用最后 3 分钟日志 ---"
           xcrun simctl spawn "$DEVICE_ID" log show --last 3m --style compact \
             --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null | tail -40 || true
+          echo "--- 动态库依赖（看 libswiftWebKit 是不是 weak）---"
+          APP="build-sim/Build/Products/Debug-iphonesimulator/Melo.app"
+          otool -L "$APP/Melo" 2>/dev/null | grep -i 'swift' || echo "main: no swift libs"
+          otool -L "$APP/Melo.debug.dylib" 2>/dev/null | grep -i 'swift' || echo "debug dylib: none"
+          otool -l "$APP/Melo.debug.dylib" 2>/dev/null | grep -A2 -i 'swiftWebKit' | head -20 || true
 
       # 验证「App 内嵌 WebKit 能不能让 YouTube 网页自己交出可播地址」。
       # runner 在境外，直连 youtube.com，所以这一页能拿到真实结果。
