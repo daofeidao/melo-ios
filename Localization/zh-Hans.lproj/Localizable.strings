@@ -214,3 +214,13 @@
 "Streaming data present but no direct URL (SABR)" = "有 streamingData 但没有直链（SABR）";
 "Step E · Audio CDN" = "步骤 E · 音频节点请求";
 "No googlevideo request seen" = "没有看到 googlevideo 请求";
+"Step 1 · BotGuard challenge" = "步骤 1 · BotGuard 挑战";
+"Step 2 · BotGuard snapshot" = "步骤 2 · BotGuard 快照";
+"Step 3 · Integrity token" = "步骤 3 · integrityToken";
+"Step 4 · PO Token" = "步骤 4 · PO Token";
+"Variant · IOS (no token)" = "对照组 · IOS（不带 token）";
+"Variant · IOS + token" = "实验组 · IOS + token";
+"Variant · ANDROID + token" = "实验组 · ANDROID + token";
+"Run Half Check" = "跑半验证";
+"PO Token Half Check" = "PO Token 半验证";
+"Mints a PO Token inside a hidden WebView, then asks YouTube for a direct audio URL as IOS / ANDROID." = "在隐藏的 WebView 里铸 PO Token，然后以 IOS / ANDROID 身份向 YouTube 要音频直链。";

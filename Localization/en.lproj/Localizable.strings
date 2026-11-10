@@ -214,3 +214,13 @@
 "Streaming data present but no direct URL (SABR)" = "Streaming data present but no direct URL (SABR)";
 "Step E · Audio CDN" = "Step E · Audio CDN";
 "No googlevideo request seen" = "No googlevideo request seen";
+"Step 1 · BotGuard challenge" = "Step 1 · BotGuard challenge";
+"Step 2 · BotGuard snapshot" = "Step 2 · BotGuard snapshot";
+"Step 3 · Integrity token" = "Step 3 · Integrity token";
+"Step 4 · PO Token" = "Step 4 · PO Token";
+"Variant · IOS (no token)" = "Variant · IOS (no token)";
+"Variant · IOS + token" = "Variant · IOS + token";
+"Variant · ANDROID + token" = "Variant · ANDROID + token";
+"Run Half Check" = "Run Half Check";
+"PO Token Half Check" = "PO Token Half Check";
+"Mints a PO Token inside a hidden WebView, then asks YouTube for a direct audio URL as IOS / ANDROID." = "Mints a PO Token inside a hidden WebView, then asks YouTube for a direct audio URL as IOS / ANDROID.";

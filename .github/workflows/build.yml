@@ -146,14 +146,18 @@ jobs:
           xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo \
             -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN \
             -smoke-yt-web -smoke-yt-web-id dQw4w9WgXcQ || true
-          # 页面加载 + 等 ytInitialPlayerResponse，留足 45 秒
-          sleep 45
+          # 页面加载 + 等 player response + 跑半验证，留足 80 秒
+          sleep 80
           xcrun simctl io "$DEVICE_ID" screenshot shots/shot-24-yt-web.png
 
-          echo "--- 探测结果 ---"
-          xcrun simctl spawn "$DEVICE_ID" log show --last 150s --style compact \
+          echo "--- 页面探测 ---"
+          xcrun simctl spawn "$DEVICE_ID" log show --last 200s --style compact \
             --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null \
-            | grep 'SMOKE_YT_WEB' | tail -3 || echo "no yt-web sample"
+            | grep 'SMOKE_YT_WEB' | tail -2 || echo "no yt-web sample"
+          echo "--- PO Token 半验证 ---"
+          xcrun simctl spawn "$DEVICE_ID" log show --last 200s --style compact \
+            --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null \
+            | grep 'SMOKE_YT_POT' | tail -12 || echo "no yt-pot sample"
           echo "--- 进程是否存活 ---"
           if xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -qi melo; then echo alive; else echo "NOT RUNNING (crashed)"; exit 1; fi
 

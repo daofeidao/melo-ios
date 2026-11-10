@@ -23,6 +23,8 @@ final class YouTubeWebProbeModel: NSObject, ObservableObject {
     @Published var busy = false
     @Published var pageLoaded = false
     @Published var lastRaw = ""
+    /// 页面给的 visitorData，铸 PO Token 时当 identifier 用
+    @Published var visitor = ""
 
     let webView: WKWebView
 
@@ -114,6 +116,7 @@ final class YouTubeWebProbeModel: NSObject, ObservableObject {
 
         let hasCfg = json["hasCfg"] as? Bool ?? false
         let visitor = json["visitor"] as? String ?? ""
+        self.visitor = visitor
         lines.append(WebProbeLine(
             title: L("Step C · Page config"),
             detail: hasCfg
@@ -246,6 +249,7 @@ struct YouTubeWebProbeView: View {
     var autoRun: Bool = false
 
     @StateObject private var model = YouTubeWebProbeModel()
+    @StateObject private var po = PoTokenProbe()
     @State private var videoID: String = SmokeTest.webProbeVideoID ?? "dQw4w9WgXcQ"
 
     var body: some View {
@@ -284,6 +288,38 @@ struct YouTubeWebProbeView: View {
                 }
 
                 Section {
+                    Button {
+                        Task { await po.run(videoID: videoID, visitor: model.visitor) }
+                    } label: {
+                        HStack {
+                            Text(L("Run Half Check"))
+                            Spacer()
+                            if po.busy { ProgressView() }
+                        }
+                    }
+                    ForEach(po.lines) { line in
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
+                                Image(systemName: line.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(line.ok ? .green : .red)
+                                Text(line.title)
+                                    .font(.system(size: 13))
+                            }
+                            Text(line.detail)
+                                .font(.system(size: 11))
+                                .foregroundColor(Theme.secondaryLabel)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                } header: {
+                    Text(L("PO Token Half Check"))
+                } footer: {
+                    Text(L("Mints a PO Token inside a hidden WebView, then asks YouTube for a direct audio URL as IOS / ANDROID."))
+                }
+
+                Section {
                     ForEach(model.lines) { line in
                         VStack(alignment: .leading, spacing: 3) {
                             HStack(spacing: 6) {
@@ -317,6 +353,17 @@ struct YouTubeWebProbeView: View {
             // 页面 didFinish 之后 YouTube 还要一会儿才填好 player response
             DispatchQueue.main.asyncAfter(deadline: .now() + 12) {
                 model.runProbe(videoID: videoID)
+            }
+            // 半验证要拿页面给的 visitorData 当 identifier，等它出来再跑
+            Task {
+                for _ in 0..<40 {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    if !model.visitor.isEmpty { break }
+                }
+                await po.run(videoID: videoID, visitor: model.visitor)
+                for line in po.lines {
+                    NSLog("SMOKE_YT_POT \(line.ok ? "OK" : "NO") \(line.title) :: \(line.detail)")
+                }
             }
         }
     }
