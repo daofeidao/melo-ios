@@ -10,13 +10,21 @@ struct MeloBackup: Codable {
     var favorites: [Track]
     var recent: [Track]
     var playlists: [ImportedPlaylist]
+    /// 搜索结果里收藏的歌单 / 专辑。老备份没有这个字段，解码时按空数组处理
+    var collections: [MediaCollection]
 
-    init(formatVersion: Int, exportedAt: Date, favorites: [Track], recent: [Track], playlists: [ImportedPlaylist]) {
+    private enum CodingKeys: String, CodingKey {
+        case formatVersion, exportedAt, favorites, recent, playlists, collections
+    }
+
+    init(formatVersion: Int, exportedAt: Date, favorites: [Track], recent: [Track],
+         playlists: [ImportedPlaylist], collections: [MediaCollection]) {
         self.formatVersion = formatVersion
         self.exportedAt = exportedAt
         self.favorites = favorites
         self.recent = recent
         self.playlists = playlists
+        self.collections = collections
     }
 
     init(from decoder: Decoder) throws {
@@ -26,6 +34,18 @@ struct MeloBackup: Codable {
         favorites = (try? container.decode([Track].self, forKey: .favorites)) ?? []
         recent = (try? container.decode([Track].self, forKey: .recent)) ?? []
         playlists = (try? container.decode([ImportedPlaylist].self, forKey: .playlists)) ?? []
+        collections = (try? container.decode([MediaCollection].self, forKey: .collections)) ?? []
+    }
+
+    /// 写了自定义 init(from:) 之后显式补上编码，避免依赖编译器合成行为
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(formatVersion, forKey: .formatVersion)
+        try container.encode(exportedAt, forKey: .exportedAt)
+        try container.encode(favorites, forKey: .favorites)
+        try container.encode(recent, forKey: .recent)
+        try container.encode(playlists, forKey: .playlists)
+        try container.encode(collections, forKey: .collections)
     }
 }
 
@@ -39,7 +59,8 @@ struct MeloBackup: Codable {
 /// 这条路不需要任何 entitlement，卸载 App 也不会连「文件」里的备份一起删。
 enum BackupService {
 
-    static let currentFormatVersion = 1
+    /// v2：新增 collections（搜索结果收藏的歌单 / 专辑）
+    static let currentFormatVersion = 2
 
     struct Summary {
         var favorites: Int
@@ -58,7 +79,8 @@ enum BackupService {
             exportedAt: Date(),
             favorites: Library.shared.favorites,
             recent: Library.shared.recent,
-            playlists: PlaylistStore.shared.playlists
+            playlists: PlaylistStore.shared.playlists,
+            collections: Library.shared.savedCollections
         )
     }
 
@@ -86,7 +108,11 @@ enum BackupService {
         decoder.dateDecodingStrategy = .iso8601
         let backup = try decoder.decode(MeloBackup.self, from: data)
 
-        Library.shared.replace(favorites: backup.favorites, recent: backup.recent)
+        Library.shared.replace(
+            favorites: backup.favorites,
+            recent: backup.recent,
+            collections: backup.collections
+        )
         PlaylistStore.shared.replaceAll(backup.playlists)
 
         return Summary(

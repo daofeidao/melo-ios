@@ -15,6 +15,7 @@ struct SearchView: View {
     @State private var lastQuery = ""
 
     @EnvironmentObject private var player: PlayerEngine
+    @EnvironmentObject private var library: Library
 
     var body: some View {
         NavigationView {
@@ -144,7 +145,13 @@ struct SearchView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 14) {
                     ForEach(items) { collection in
-                        CarouselCard(item: .collection(collection), width: 132)
+                        VStack(alignment: .leading, spacing: 6) {
+                            CarouselCard(item: .collection(collection), width: 132)
+                            // 收藏按钮放在卡片外面单独一行：放进 NavigationLink 的 label
+                            // 里会被整张卡片的点击区域吞掉
+                            CollectionSaveButton(collection: collection)
+                        }
+                        .frame(width: 132, alignment: .leading)
                     }
                 }
                 .padding(.horizontal, 16)

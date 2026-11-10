@@ -117,9 +117,15 @@ jobs:
           sleep 14
           xcrun simctl io "$DEVICE_ID" screenshot shots/shot-22-charts.png
 
+          echo "=== 收藏的歌单与专辑（现在就听）==="
+          xcrun simctl terminate "$DEVICE_ID" com.daofeidao.melo || true
+          xcrun simctl launch "$DEVICE_ID" com.daofeidao.melo -AppleLanguages '(zh-Hans)' -AppleLocale zh_CN -smoke-seed-collections || true
+          sleep 8
+          xcrun simctl io "$DEVICE_ID" screenshot shots/shot-23-saved-collections.png
+
           echo "--- 关键日志 ---"
           xcrun simctl spawn "$DEVICE_ID" log show --last 90s --style compact \
-            --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null | grep -E 'SMOKE_ABOUT|SMOKE_CHART_CACHE|SMOKE_CHART_COVERS' | tail -10 || echo "no sample"
+            --predicate 'processImagePath CONTAINS "Melo"' 2>/dev/null | grep -E 'SMOKE_ABOUT|SMOKE_CHART_CACHE|SMOKE_CHART_COVERS|SMOKE_COLLECTIONS' | tail -10 || echo "no sample"
           echo "--- 进程是否存活 ---"
           if xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -qi melo; then echo alive; else echo "NOT RUNNING (crashed)"; exit 1; fi
 

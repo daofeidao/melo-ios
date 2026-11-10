@@ -11,6 +11,26 @@ struct ListenNowView: View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 26) {
+                    if !library.savedCollections.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            SectionHeader(title: L("Saved Playlists & Albums"))
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(alignment: .top, spacing: 14) {
+                                    ForEach(library.savedCollections) { collection in
+                                        CarouselCard(item: .collection(collection), width: 132)
+                                            .contextMenu {
+                                                Button {
+                                                    library.toggleSavedCollection(collection)
+                                                } label: {
+                                                    Label(L("Remove"), systemImage: "heart.slash")
+                                                }
+                                            }
+                                    }
+                                }
+                                .padding(.horizontal, 16)
+                            }
+                        }
+                    }
                     if !library.recent.isEmpty {
                         CarouselSection(title: L("Recently Played"), items: library.recent.map { .track($0) })
                     }
@@ -33,7 +53,8 @@ struct ListenNowView: View {
                         }
                     }
 
-                    if !loading, error == nil, shelves.isEmpty, library.recent.isEmpty, library.favorites.isEmpty {
+                    if !loading, error == nil, shelves.isEmpty, library.recent.isEmpty,
+                       library.favorites.isEmpty, library.savedCollections.isEmpty {
                         EmptyHint(
                             symbol: "play.circle",
                             title: L("Start listening"),

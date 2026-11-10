@@ -64,7 +64,7 @@ struct Track: Identifiable, Hashable, Codable {
     }
 }
 
-struct MediaCollection: Identifiable, Hashable {
+struct MediaCollection: Identifiable, Hashable, Codable {
     var browseId: String
     var title: String
     var subtitle: String

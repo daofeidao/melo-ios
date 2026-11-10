@@ -5,6 +5,7 @@ struct CollectionView: View {
     let fallbackTitle: String
 
     @EnvironmentObject private var player: PlayerEngine
+    @EnvironmentObject private var library: Library
 
     @State private var detail: CollectionDetail?
     @State private var loading = true
@@ -48,7 +49,22 @@ struct CollectionView: View {
         }
         .navigationTitle(fallbackTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                CollectionSaveButton(collection: currentCollection, showsLabel: false)
+            }
+        }
         .task { await load() }
+    }
+
+    /// 用详情页拿到的标题 / 封面补全卡片信息，收藏后「现在就听」直接有图有名字
+    private var currentCollection: MediaCollection {
+        MediaCollection(
+            browseId: browseId,
+            title: detail?.title ?? fallbackTitle,
+            subtitle: detail?.subtitle ?? "",
+            artwork: detail?.artwork
+        )
     }
 
     private var header: some View {

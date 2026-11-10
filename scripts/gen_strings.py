@@ -249,6 +249,12 @@ TABLE = [
      "资料库新增「本地音乐」，移除重复的收藏与最近播放入口。"),
     ("Backup and restore to Files, including iCloud Drive.",
      "支持导出 / 恢复备份到「文件」，可存到 iCloud Drive。"),
+
+    # 歌单 / 专辑收藏
+    ("Save", "收藏"),
+    ("Saved", "已收藏"),
+    ("Remove", "移除"),
+    ("Saved Playlists & Albums", "收藏的歌单与专辑"),
 ]
 
 HEADER = """/*

@@ -74,9 +74,13 @@ struct TrackRow: View {
                 if showIndex {
                     Text("\(index)")
                         .font(.system(size: 15))
-                        .foregroundColor(isCurrent ? Theme.accent : Theme.secondaryLabel)
-                        .frame(width: 22, alignment: .center)
                         .monospacedDigit()
+                        .foregroundColor(isCurrent ? Theme.accent : Theme.secondaryLabel)
+                        // 22pt 只够放两位数；100 以后会被挤成两行。
+                        // 放宽到 32pt + 单行 + 轻微缩放，四位数也不会换行。
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .frame(width: 32, alignment: .center)
                 }
                 if showArtwork {
                     ArtworkView(url: track.artwork, size: 48, corner: 5)
@@ -194,6 +198,37 @@ struct CarouselCard: View {
                 .frame(height: 15, alignment: .top)
         }
         .frame(width: width, alignment: .leading)
+    }
+}
+
+/// 歌单 / 专辑收藏按钮。搜索结果卡片下方用带文字版，详情页工具栏用图标版。
+struct CollectionSaveButton: View {
+    let collection: MediaCollection
+    var showsLabel: Bool = true
+
+    @EnvironmentObject private var library: Library
+
+    private var saved: Bool { library.isSavedCollection(collection) }
+
+    var body: some View {
+        Button {
+            library.toggleSavedCollection(collection)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: saved ? "heart.fill" : "heart")
+                    .font(.system(size: showsLabel ? 12 : 14))
+                if showsLabel {
+                    Text(saved ? L("Saved") : L("Save"))
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                }
+            }
+            .foregroundColor(saved ? Theme.accent : Theme.secondaryLabel)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(Color(UIColor.tertiarySystemFill)))
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 

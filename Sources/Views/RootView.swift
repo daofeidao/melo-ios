@@ -68,6 +68,10 @@ struct RootView: View {
         if SmokeTest.seedsFavorites {
             Library.shared.seedFavoritesForSmokeTest()
         }
+        if SmokeTest.seedsCollections {
+            Library.shared.seedCollectionsForSmokeTest()
+            NSLog("SMOKE_COLLECTIONS saved=\(Library.shared.savedCollections.count)")
+        }
         if SmokeTest.runsBackupTest {
             runBackupRoundTrip()
         }

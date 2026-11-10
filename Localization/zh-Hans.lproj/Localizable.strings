@@ -187,3 +187,7 @@
 "Favorites no longer collapse into a single card." = "修复收藏卡片塌成一条的问题。";
 "Library has a Local Music section; duplicate favorites and history were removed." = "资料库新增「本地音乐」，移除重复的收藏与最近播放入口。";
 "Backup and restore to Files, including iCloud Drive." = "支持导出 / 恢复备份到「文件」，可存到 iCloud Drive。";
+"Save" = "收藏";
+"Saved" = "已收藏";
+"Remove" = "移除";
+"Saved Playlists & Albums" = "收藏的歌单与专辑";

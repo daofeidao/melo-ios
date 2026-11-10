@@ -55,6 +55,11 @@ enum SmokeTest {
         ProcessInfo.processInfo.arguments.contains("-smoke-chart-cache")
     }
 
+    /// 预置两个收藏的歌单 / 专辑，验证「现在就听」会渲染这一分区
+    static var seedsCollections: Bool {
+        ProcessInfo.processInfo.arguments.contains("-smoke-seed-collections")
+    }
+
     static var runsPlaybackTest: Bool {
         ProcessInfo.processInfo.arguments.contains("-smoke-playback-test")
     }

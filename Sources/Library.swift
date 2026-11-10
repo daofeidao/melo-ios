@@ -5,13 +5,17 @@ final class Library: ObservableObject {
 
     @Published private(set) var recent: [Track] = []
     @Published private(set) var favorites: [Track] = []
+    /// 搜索结果里收藏的歌单 / 专辑，出现在「现在就听」
+    @Published private(set) var savedCollections: [MediaCollection] = []
 
     private let recentKey = "melo.recent"
     private let favoritesKey = "melo.favorites"
+    private let savedCollectionsKey = "melo.savedCollections"
 
     private init() {
         recent = Self.load(recentKey)
         favorites = Self.load(favoritesKey)
+        savedCollections = Self.loadCollections(savedCollectionsKey)
     }
 
     func addRecent(_ track: Track) {
@@ -41,6 +45,33 @@ final class Library: ObservableObject {
         Self.save(recent, recentKey)
     }
 
+    // MARK: - 歌单 / 专辑收藏
+
+    func toggleSavedCollection(_ collection: MediaCollection) {
+        if let index = savedCollections.firstIndex(where: { $0.browseId == collection.browseId }) {
+            savedCollections.remove(at: index)
+        } else {
+            savedCollections.insert(collection, at: 0)
+        }
+        Self.saveCollections(savedCollections, savedCollectionsKey)
+    }
+
+    func isSavedCollection(_ collection: MediaCollection) -> Bool {
+        savedCollections.contains { $0.browseId == collection.browseId }
+    }
+
+    /// 仅供 CI 截图：验证「现在就听」会渲染收藏的歌单 / 专辑
+    func seedCollectionsForSmokeTest() {
+        guard savedCollections.isEmpty else { return }
+        savedCollections = [
+            MediaCollection(browseId: "netease:playlist:3778678", title: "云村热歌榜",
+                            subtitle: "网易云音乐", artwork: nil),
+            MediaCollection(browseId: "netease:album:32311", title: "叶惠美",
+                            subtitle: "周杰伦", artwork: nil)
+        ]
+        Self.saveCollections(savedCollections, savedCollectionsKey)
+    }
+
     /// 仅供 CI 截图：混合 YouTube 与国内音源各三首（国内源 videoId 是空串，
     /// 正好用来验证列表 id 冲突有没有修好）
     func seedFavoritesForSmokeTest() {
@@ -66,11 +97,14 @@ final class Library: ObservableObject {
     }
 
     /// 从备份恢复：整体替换，不做合并 —— 合并只会让"恢复"变得不可预期
-    func replace(favorites newFavorites: [Track], recent newRecent: [Track]) {
+    func replace(favorites newFavorites: [Track], recent newRecent: [Track],
+                 collections newCollections: [MediaCollection]) {
         favorites = newFavorites
         recent = newRecent
+        savedCollections = newCollections
         Self.save(favorites, favoritesKey)
         Self.save(recent, recentKey)
+        Self.saveCollections(savedCollections, savedCollectionsKey)
     }
 
     private static func load(_ key: String) -> [Track] {
@@ -80,6 +114,16 @@ final class Library: ObservableObject {
 
     private static func save(_ tracks: [Track], _ key: String) {
         guard let data = try? JSONEncoder().encode(tracks) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    private static func loadCollections(_ key: String) -> [MediaCollection] {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
+        return (try? JSONDecoder().decode([MediaCollection].self, from: data)) ?? []
+    }
+
+    private static func saveCollections(_ list: [MediaCollection], _ key: String) {
+        guard let data = try? JSONEncoder().encode(list) else { return }
         UserDefaults.standard.set(data, forKey: key)
     }
 }
