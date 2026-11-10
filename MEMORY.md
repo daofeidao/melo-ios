@@ -13,6 +13,7 @@
 - 推代码不再自动构建。Release tag 仍是 `build-<run_number>`，IPA 名 `Melo-vX.Y.Z.BN.ipa`。
 - CI 里不能发邮件：macOS runner 在 Azure 上，出站 SMTP 被平台封。投递一律本机做。
 - 本机是 Windows，没有 Xcode / Swift 工具链，Swift 代码只能靠 CI 验证编译。
+- **`Info.plist` 的版本号必须用 build setting 变量**：`CFBundleShortVersionString: "$(MARKETING_VERSION)"`、`CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"`。写死会让 IPA 文件名是 1.16.3、装到手机上却显示 1.16.1（B75 就是这么坑的）。CI 的 Fakesign 步骤现在有断言：plist 版本或构建号对不上 `MARKETING_VERSION` / `GITHUB_RUN_NUMBER` 就直接 fail。
 
 ## 容易踩的坑
 
