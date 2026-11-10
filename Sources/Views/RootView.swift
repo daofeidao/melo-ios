@@ -5,6 +5,7 @@ struct RootView: View {
 
     @State private var selection = 0
     @State private var showSettings = false
+    @State private var showWebProbe = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -24,6 +25,13 @@ struct RootView: View {
                 SearchView()
                     .tabItem { Label(L("Search"), systemImage: "magnifyingglass") }
                     .tag(3)
+            }
+            // 冒烟测试专用入口：挂在 TabView 上，避免和播放页的 fullScreenCover 抢同一个宿主
+            .fullScreenCover(isPresented: $showWebProbe) {
+                NavigationView {
+                    YouTubeWebProbeView(autoRun: true)
+                }
+                .navigationViewStyle(StackNavigationViewStyle())
             }
 
             if player.hasTrack {
@@ -56,6 +64,13 @@ struct RootView: View {
 
     private func runSmokeTestIfNeeded() {
         // 各项冒烟动作互相独立，不能用 guard 提前返回
+        if SmokeTest.opensYouTubeWebProbe {
+            // 页面加载 + 等 player response，至少要 10 秒，这里只负责把页面弹出来
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                showWebProbe = true
+            }
+            return
+        }
         if let tab = SmokeTest.initialTab {
             selection = tab
         }

@@ -194,3 +194,17 @@
 "Fixed YouTube playback: the blocked ANDROID_VR client identity was replaced with IOS and ANDROID." = "修复 YouTube 音源播放：改用 IOS / ANDROID 客户端身份，替换已被拦截的 ANDROID_VR。";
 "Playback now sends the User-Agent matching the identity that resolved the stream, so audio CDN links no longer return 403." = "起播时的 UA 与解析身份保持一致，避免音频节点返回 403。";
 "The app remembers which YouTube identity works and switches automatically if it stops working." = "记住可用的 YouTube 客户端身份；失效时自动切换到其他身份。";
+
+"Step A · Page loaded" = "步骤 A · 页面已加载";
+"Step B · Playability" = "步骤 B · 可播状态";
+"Step C · Streaming data" = "步骤 C · 播放数据";
+"Step D · Direct audio URL" = "步骤 D · 音频直链";
+"Step E · Visitor data" = "步骤 E · visitorData";
+"%d formats, %d with URL" = "共 %d 条格式，其中 %d 条带直链";
+"Streaming data missing" = "没有 streamingData";
+"No direct audio URL" = "没有直链（可能只有 SABR）";
+"Video ID" = "视频 ID";
+"Run Check" = "开始自检";
+"Checks whether YouTube's own page, running inside the app, hands back a direct audio URL — no client impersonation." = "检查 YouTube 自己的网页在 App 内运行时，能不能直接交出音频直链——全程不伪装客户端身份。";
+"Result" = "结果";
+"YouTube Web Probe" = "YouTube 网页验证";

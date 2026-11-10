@@ -194,3 +194,17 @@
 "Fixed YouTube playback: the blocked ANDROID_VR client identity was replaced with IOS and ANDROID." = "Fixed YouTube playback: the blocked ANDROID_VR client identity was replaced with IOS and ANDROID.";
 "Playback now sends the User-Agent matching the identity that resolved the stream, so audio CDN links no longer return 403." = "Playback now sends the User-Agent matching the identity that resolved the stream, so audio CDN links no longer return 403.";
 "The app remembers which YouTube identity works and switches automatically if it stops working." = "The app remembers which YouTube identity works and switches automatically if it stops working.";
+
+"Step A · Page loaded" = "Step A · Page loaded";
+"Step B · Playability" = "Step B · Playability";
+"Step C · Streaming data" = "Step C · Streaming data";
+"Step D · Direct audio URL" = "Step D · Direct audio URL";
+"Step E · Visitor data" = "Step E · Visitor data";
+"%d formats, %d with URL" = "%d formats, %d with URL";
+"Streaming data missing" = "Streaming data missing";
+"No direct audio URL" = "No direct audio URL (SABR only?)";
+"Video ID" = "Video ID";
+"Run Check" = "Run Check";
+"Checks whether YouTube's own page, running inside the app, hands back a direct audio URL — no client impersonation." = "Checks whether YouTube's own page, running inside the app, hands back a direct audio URL — no client impersonation.";
+"Result" = "Result";
+"YouTube Web Probe" = "YouTube Web Probe";

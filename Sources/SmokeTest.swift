@@ -134,6 +134,21 @@ enum SmokeTest {
         return args[index + 1]
     }
 
+    /// 打开「YouTube 网页验证」页，验证 App 内嵌 WebKit 能不能拿到可播地址
+    static var opensYouTubeWebProbe: Bool {
+        ProcessInfo.processInfo.arguments.contains("-smoke-yt-web")
+    }
+
+    /// 验证页默认用哪个视频，缺省 dQw4w9WgXcQ
+    static var webProbeVideoID: String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let index = args.firstIndex(of: "-smoke-yt-web-id"), index + 1 < args.count else {
+            return nil
+        }
+        let value = args[index + 1]
+        return value.isEmpty ? nil : value
+    }
+
     static func makeTrack(videoId: String) -> Track {
         Track(
             videoId: videoId,
