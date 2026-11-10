@@ -370,6 +370,26 @@ enum DomesticSource {
         return root
     }
 
+    /// 酷我的文本里混着 HTML 实体（&nbsp; / &apos; / &amp; / &quot; …）。
+    /// 不解码，「Don't」会变成「Don&apos;t」，按歌名匹配直接对不上。
+    private static func decodeEntities(_ raw: String?) -> String {
+        guard var text = raw else { return "" }
+        let entities = [
+            "&nbsp;": " ",
+            "&apos;": "'",
+            "&#39;": "'",
+            "&quot;": "\"",
+            "&lt;": "<",
+            "&gt;": ">",
+            "&hellip;": "…",
+            "&amp;": "&"
+        ]
+        for (entity, value) in entities {
+            text = text.replacingOccurrences(of: entity, with: value)
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// 依次尝试一组镜像地址，谁先回内容用谁。酷我 / 网易云的 CDN 在不同网络下
     /// http 与 https 表现不一致，单押一个地址会偶发「整片源失效」。
     private static func fetchText(_ urls: [String], timeout: TimeInterval,
@@ -401,9 +421,7 @@ enum DomesticSource {
 
         return list.compactMap { raw -> Track? in
             guard let item = JS.dict(raw) else { return nil }
-            let name = (JS.string(item["NAME"]) ?? "")
-                .replacingOccurrences(of: "&nbsp;", with: " ")
-                .trimmingCharacters(in: .whitespaces)
+            let name = decodeEntities(JS.string(item["NAME"]))
             guard !name.isEmpty else { return nil }
 
             // MUSICRID 形如 MUSIC_51685512，取数字部分给 antiserver
@@ -411,16 +429,14 @@ enum DomesticSource {
                 .replacingOccurrences(of: "MUSIC_", with: "")
             guard !rid.isEmpty else { return nil }
 
-            let artist = (JS.string(item["ARTIST"]) ?? "")
-                .replacingOccurrences(of: "&nbsp;", with: " ")
-                .trimmingCharacters(in: .whitespaces)
-            let album = JS.string(item["ALBUM"])?.replacingOccurrences(of: "&nbsp;", with: " ")
+            let artist = decodeEntities(JS.string(item["ARTIST"]))
+            let album = decodeEntities(JS.string(item["ALBUM"]))
 
             return Track(
                 videoId: "",
                 title: name,
                 artist: artist.isEmpty ? L("Unknown Artist") : artist,
-                album: (album?.isEmpty ?? true) ? nil : album,
+                album: album.isEmpty ? nil : album,
                 duration: JS.int(item["DURATION"]) ?? 0,
                 artwork: normalizeArtwork(JS.string(item["web_albumpic_short"])),
                 source: PlaylistPlatform.kuwo.rawValue,
