@@ -46,9 +46,9 @@
 "Playback Test" = "Playback Test";
 "Playback failed" = "Playback failed";
 "Playback failed: %@" = "Playback failed: %@";
-"Step 0 · IP reputation" = "Step 0 · IP reputation";
+"Step 0 · YouTube access" = "Step 0 · YouTube access";
 "Not flagged as a bot" = "Not flagged as a bot";
-"YouTube blocked this network, and no matching version was found on domestic sources. Switch to a non-datacenter proxy node, or play songs imported from a domestic playlist." = "YouTube blocked this network, and no matching version was found on domestic sources. Switch to a non-datacenter proxy node, or play songs imported from a domestic playlist.";
+"YouTube rejected this playback request and no matching version was found on domestic sources. Please retry later or play songs imported from a domestic playlist." = "YouTube rejected this playback request and no matching version was found on domestic sources. Please retry later or play songs imported from a domestic playlist.";
 "Step 1 · Resolve audio URL" = "Step 1 · Resolve audio URL";
 "Step 2 · Audio CDN" = "Step 2 · Audio CDN";
 "Step 3 · AVPlayer" = "Step 3 · AVPlayer";
@@ -191,3 +191,6 @@
 "Saved" = "Saved";
 "Remove" = "Remove";
 "Saved Playlists & Albums" = "Saved Playlists & Albums";
+"Fixed YouTube playback: the blocked ANDROID_VR client identity was replaced with IOS and ANDROID." = "Fixed YouTube playback: the blocked ANDROID_VR client identity was replaced with IOS and ANDROID.";
+"Playback now sends the User-Agent matching the identity that resolved the stream, so audio CDN links no longer return 403." = "Playback now sends the User-Agent matching the identity that resolved the stream, so audio CDN links no longer return 403.";
+"The app remembers which YouTube identity works and switches automatically if it stops working." = "The app remembers which YouTube identity works and switches automatically if it stops working.";

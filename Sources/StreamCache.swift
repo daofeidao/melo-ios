@@ -16,6 +16,7 @@ final class StreamCache {
         let itag: Int
         let bitrate: Int
         let mime: String
+        let userAgent: String?
         let savedAt: Date
     }
 
@@ -42,7 +43,8 @@ final class StreamCache {
             memory.removeValue(forKey: key)
             return nil
         }
-        return AudioStream(url: url, itag: entry.itag, bitrate: entry.bitrate, mime: entry.mime)
+        return AudioStream(url: url, itag: entry.itag, bitrate: entry.bitrate,
+                           mime: entry.mime, userAgent: entry.userAgent)
     }
 
     func store(_ stream: AudioStream, forKey key: String) {
@@ -53,6 +55,7 @@ final class StreamCache {
             itag: stream.itag,
             bitrate: stream.bitrate,
             mime: stream.mime,
+            userAgent: stream.userAgent,
             savedAt: Date()
         )
         let snapshot = memory

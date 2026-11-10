@@ -110,7 +110,10 @@ enum AudioSource {
         }
 
         do {
-            return try await StreamResolver.resolve(videoId: track.videoId, quality: quality)
+            let stream = try await StreamResolver.resolve(videoId: track.videoId, quality: quality)
+            // 解析成功说明 YouTube 这条路已经恢复，清掉上一次失败留下的熔断标记
+            blockedAt = nil
+            return stream
         } catch {
             if let typed = error as? ApiError, case .botCheck = typed {
                 noteYouTubeBlocked()

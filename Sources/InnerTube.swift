@@ -18,7 +18,7 @@ enum ApiError: LocalizedError {
         case .unavailable(let message):
             return message
         case .botCheck:
-            return L("YouTube blocked this network, and no matching version was found on domestic sources. Switch to a non-datacenter proxy node, or play songs imported from a domestic playlist.")
+            return L("YouTube rejected this playback request and no matching version was found on domestic sources. Please retry later or play songs imported from a domestic playlist.")
         }
     }
 }

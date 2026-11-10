@@ -12,6 +12,11 @@ struct ChangelogEntry: Identifiable {
 enum Changelog {
     static var entries: [ChangelogEntry] {
         [
+            ChangelogEntry(version: "1.16.3", date: "2026-11-10", notes: [
+                L("Fixed YouTube playback: the blocked ANDROID_VR client identity was replaced with IOS and ANDROID."),
+                L("Playback now sends the User-Agent matching the identity that resolved the stream, so audio CDN links no longer return 403."),
+                L("The app remembers which YouTube identity works and switches automatically if it stops working.")
+            ]),
             ChangelogEntry(version: "1.16.2", date: "2026-11-10", notes: [
                 L("Kuwo Music added as a third playback source; a failed link now falls back across Kugou, NetEase and Kuwo."),
                 L("NetEase gained a second direct-link API, so fewer songs fall through to a name search."),

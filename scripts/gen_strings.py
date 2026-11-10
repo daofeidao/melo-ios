@@ -63,14 +63,14 @@ TABLE = [
     ("Search songs and artists. Results come from YouTube Music, plus domestic sources that play without a VPN.",
      "可搜索歌曲与艺人。结果来自 YouTube Music，另附无需翻墙即可播放的国内音源。"),
     ("YouTube blocked this network, and no playable song was found on domestic sources either.",
-     "YouTube 拦截了当前网络，国内音源也没找到可播放的版本。"),
+     "YouTube 拒绝了本次播放请求，国内音源也没找到可播放的版本。"),
     ("Playback Test", "播放诊断"),
     ("Playback failed", "播放失败"),
     ("Playback failed: %@", "播放失败：%@"),
-    ("Step 0 · IP reputation", "步骤 0 · IP 信誉"),
+    ("Step 0 · YouTube access", "步骤 0 · YouTube 可用性"),
     ("Not flagged as a bot", "未被判定为机器人"),
-    ("YouTube blocked this network, and no matching version was found on domestic sources. Switch to a non-datacenter proxy node, or play songs imported from a domestic playlist.",
-     "YouTube 拦截了当前网络，国内音源也没找到同一版本。请换一个非机房的代理节点，或播放从国内歌单导入的歌曲。"),
+    ("YouTube rejected this playback request and no matching version was found on domestic sources. Please retry later or play songs imported from a domestic playlist.",
+     "YouTube 拒绝了本次播放请求，国内音源也没找到同一版本。请稍后重试，或播放从国内歌单导入的歌曲。"),
     ("Step 1 · Resolve audio URL", "步骤 1 · 解析播放地址"),
     ("Step 2 · Audio CDN", "步骤 2 · 音频节点"),
     ("Step 3 · AVPlayer", "步骤 3 · 播放器起播"),
@@ -255,6 +255,14 @@ TABLE = [
     ("Saved", "已收藏"),
     ("Remove", "移除"),
     ("Saved Playlists & Albums", "收藏的歌单与专辑"),
+
+    # v1.16.3 · YouTube 客户端身份修复
+    ("Fixed YouTube playback: the blocked ANDROID_VR client identity was replaced with IOS and ANDROID.",
+     "修复 YouTube 音源播放：改用 IOS / ANDROID 客户端身份，替换已被拦截的 ANDROID_VR。"),
+    ("Playback now sends the User-Agent matching the identity that resolved the stream, so audio CDN links no longer return 403.",
+     "起播时的 UA 与解析身份保持一致，避免音频节点返回 403。"),
+    ("The app remembers which YouTube identity works and switches automatically if it stops working.",
+     "记住可用的 YouTube 客户端身份；失效时自动切换到其他身份。"),
 ]
 
 HEADER = """/*

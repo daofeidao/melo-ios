@@ -153,4 +153,7 @@ struct AudioStream: Codable {
     let itag: Int
     let bitrate: Int
     let mime: String
+    /// 解析这条直链时使用的客户端 UA。googlevideo 会校验 UA 与解析身份一致，
+    /// 换了身份却还用旧 UA 会 403；国内直链不校验，留 nil 即可。
+    var userAgent: String? = nil
 }

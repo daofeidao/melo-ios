@@ -502,7 +502,7 @@ final class PlayerEngine: ObservableObject {
 
         let asset = AVURLAsset(
             url: stream.url,
-            options: ["AVURLAssetHTTPHeaderFieldsKey": ["User-Agent": StreamResolver.clientUserAgent]]
+            options: ["AVURLAssetHTTPHeaderFieldsKey": ["User-Agent": stream.userAgent ?? StreamResolver.clientUserAgent]]
         )
         let item = AVPlayerItem(asset: asset)
         // 攒 15 秒才起播在弱网下就是"点了没反应"；4 秒足够扛住抖动，先出声再继续缓冲

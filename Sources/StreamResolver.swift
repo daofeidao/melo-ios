@@ -27,54 +27,88 @@ enum StreamResolver {
     }
 
     private struct Client {
+        let id: String
         let name: String
         let version: String
         let extra: [String: Any]
         let userAgent: String
     }
 
-    /// 播放器起播时也带上同一个 UA，避免个别节点做 UA 校验
     /// 对外只暴露数量，`Client` 是私有类型
     static var clientCount: Int { clients.count }
 
-    static let clientUserAgent = "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
+    private static let winnerKey = "melo.youtubeClientID"
 
-    /// 实测：ANDROID_VR 是当前唯一能稳定返回未加密直链的客户端；
-    /// IOS 返回 400、ANDROID_MUSIC 要求登录、TVHTML5 已停用、WEB 判定不可播。
+    /// 上次成功解析用的身份。正常起播只打这一个请求，身份失效时再并发竞速。
+    private static var winnerID: String? {
+        get { UserDefaults.standard.string(forKey: winnerKey) }
+        set {
+            if let value = newValue {
+                UserDefaults.standard.set(value, forKey: winnerKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: winnerKey)
+            }
+        }
+    }
+
+    /// 起播时的 UA 必须跟着解析身份走，否则 googlevideo 返回 403
+    static var clientUserAgent: String {
+        guard let id = winnerID, let client = clients.first(where: { $0.id == id }) else {
+            return clients[0].userAgent
+        }
+        return client.userAgent
+    }
+
+    /// SABR / UMP 是 protobuf 分帧流，AVPlayer 解不了，不能选进格式池
+    private static func isSABR(_ url: String) -> Bool {
+        let lower = url.lowercased()
+        return lower.contains("/sb/") || lower.contains("sabr") || lower.contains("ump")
+    }
+
+    /// 2026-11-10 在同一 VPN 出口实测（未登录、无 cookie / PO Token / visitorData）：
+    /// ANDROID_VR 两个版本全部 LOGIN_REQUIRED、format=0；
+    /// IOS 与 ANDROID 返回 OK，且是明文 AAC 直链，CDN 实测 206 audio/mp4。
+    /// 请求体只保留最小字段 —— 多带 deviceMake 等反而偶发被判机器人。
     private static let clients: [Client] = [
         Client(
-            name: "ANDROID_VR",
-            version: "1.60.19",
-            extra: [
-                "deviceMake": "Oculus",
-                "deviceModel": "Quest 3",
-                "androidSdkVersion": 32,
-                "osName": "Android",
-                "osVersion": "12L",
-                "hl": "en",
-                "gl": "US"
-            ],
-            userAgent: StreamResolver.clientUserAgent
+            id: "ios-20.10.38",
+            name: "IOS",
+            version: "20.10.38",
+            extra: ["hl": "en", "gl": "US"],
+            userAgent: "com.google.ios.youtube/20.10.38 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)"
         ),
         Client(
+            id: "ios-20.11.6",
+            name: "IOS",
+            version: "20.11.6",
+            extra: ["hl": "en", "gl": "US"],
+            userAgent: "com.google.ios.youtube/20.11.6 (iPhone16,2; U; CPU iOS 18_3 like Mac OS X)"
+        ),
+        Client(
+            id: "android-20.10.38",
+            name: "ANDROID",
+            version: "20.10.38",
+            extra: ["hl": "en", "gl": "US", "androidSdkVersion": 34],
+            userAgent: "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip"
+        ),
+        Client(
+            id: "vr-1.61.48",
             name: "ANDROID_VR",
             version: "1.61.48",
-            extra: [
-                "deviceMake": "Oculus",
-                "deviceModel": "Quest 3",
-                "androidSdkVersion": 32,
-                "osName": "Android",
-                "osVersion": "12L",
-                "hl": "en",
-                "gl": "US"
-            ],
+            extra: ["hl": "en", "gl": "US", "androidSdkVersion": 32],
             userAgent: "com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
         )
     ]
 
     static func resolve(videoId: String, quality: Quality) async throws -> AudioStream {
-        // 这两个身份是同一族的两个版本，谁先回用谁就够了。
-        // 以前串行重试，失败场景要空等两轮；现在并发竞速，失败也是 1 倍耗时。
+        // 正常路径：上次成功的身份先单打一次，命中就不必并发打全部
+        if let id = winnerID, let client = clients.first(where: { $0.id == id }) {
+            if let stream = try? await attempt(videoId: videoId, client: client, quality: quality) {
+                return stream
+            }
+        }
+
+        // 身份失效时并发竞速，谁先回可用流用谁；失败也是 1 倍耗时
         let outcome = await withTaskGroup(
             of: Result<AudioStream, Error>.self
         ) { group -> (stream: AudioStream?, botChecked: Bool, failures: [String]) in
@@ -152,7 +186,8 @@ enum StreamResolver {
             guard let format = JS.dict(raw),
                   let mime = JS.string(format["mimeType"]),
                   mime.hasPrefix("audio/"),
-                  JS.string(format["url"]) != nil else { continue }
+                  let formatURL = JS.string(format["url"]),
+                  !isSABR(formatURL) else { continue }
             if mime.contains("mp4") {
                 aacFormats.append(format)
             } else {
@@ -185,11 +220,14 @@ enum StreamResolver {
             throw ApiError.unavailable(L("Invalid audio URL"))
         }
 
+        // 记下能用的身份：以后起播只打这一个请求
+        winnerID = client.id
         return AudioStream(
             url: url,
             itag: JS.int(chosen["itag"]) ?? 0,
             bitrate: JS.int(chosen["bitrate"]) ?? 0,
-            mime: JS.string(chosen["mimeType"]) ?? ""
+            mime: JS.string(chosen["mimeType"]) ?? "",
+            userAgent: client.userAgent
         )
     }
 }
