@@ -86,7 +86,7 @@ struct DataSourceSettingsView: View {
             } header: {
                 Text(L("Custom Sources"))
             } footer: {
-                Text(L("Template example: https://api.example.com/resolve?title={title}&artist={artist}\nThe endpoint may return a plain URL or JSON with url / data.url / play_url. Custom sources are tried last."))
+                Text(L("Template example: https://api.example.com/resolve?title={title}&artist={artist}. The endpoint may return a plain URL or JSON with url / data.url / play_url. Custom sources are tried last."))
             }
         }
         .listStyle(InsetGroupedListStyle())

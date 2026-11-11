@@ -261,11 +261,17 @@
 "Disabled" = "Disabled";
 "Turned-off sources are skipped in search and fallback. Sources that need a login take a Cookie: sign in in a browser, copy the whole Cookie header, paste it here." = "Turned-off sources are skipped in search and fallback. Sources that need a login take a Cookie: sign in in a browser, copy the whole Cookie header, paste it here.";
 "These services do not offer a public account login API. A Cookie copied from a signed-in browser session is the only credential that works reliably." = "These services do not offer a public account login API. A Cookie copied from a signed-in browser session is the only credential that works reliably.";
-"Template example: https://api.example.com/resolve?title={title}&artist={artist}
-The endpoint may return a plain URL or JSON with url / data.url / play_url. Custom sources are tried last." = "Template example: https://api.example.com/resolve?title={title}&artist={artist}
-The endpoint may return a plain URL or JSON with url / data.url / play_url. Custom sources are tried last.";
+"Template example: https://api.example.com/resolve?title={title}&artist={artist}. The endpoint may return a plain URL or JSON with url / data.url / play_url. Custom sources are tried last." = "Template example: https://api.example.com/resolve?title={title}&artist={artist}. The endpoint may return a plain URL or JSON with url / data.url / play_url. Custom sources are tried last.";
 "Author" = "Author";
 "Project" = "Project";
 "About this build" = "About this build";
 "A third-party client for personal study only." = "A third-party client for personal study only.";
 "%d sources" = "%d sources";
+"Add" = "Add";
+"Cached audio now lives in Local Music: every cached song can be browsed and deleted there." = "Cached audio now lives in Local Music: every cached song can be browsed and deleted there.";
+"Cached files are named title – artist_4min29s_ so the duration is readable at a glance." = "Cached files are named title – artist_4min29s_ so the duration is readable at a glance.";
+"Cache survives app restarts and is only removed when you clear it; when the limit is hit, the songs you have not played for the longest time go first." = "Cache survives app restarts and is only removed when you clear it; when the limit is hit, the songs you have not played for the longest time go first.";
+"The decorative quote icon at the bottom-left of the player is now Play History." = "The decorative quote icon at the bottom-left of the player is now Play History.";
+"Settings gained strict matching: title, artist and duration (±5 s) must all agree, otherwise the song reports no source and offers to switch sources." = "Settings gained strict matching: title, artist and duration (±5 s) must all agree, otherwise the song reports no source and offers to switch sources.";
+"Data Sources can be toggled, signed in with a Cookie, or extended with your own resolve endpoint." = "Data Sources can be toggled, signed in with a Cookie, or extended with your own resolve endpoint.";
+"Connection diagnostics moved to About → Advanced Diagnostics." = "Connection diagnostics moved to About → Advanced Diagnostics.";

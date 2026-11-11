@@ -351,7 +351,7 @@ TABLE = [
      "关掉的源不参与搜索与兜底解析。需要登录的源请录入 Cookie：在浏览器登录后，复制整条 Cookie 粘进来。"),
     ("These services do not offer a public account login API. A Cookie copied from a signed-in browser session is the only credential that works reliably.",
      "这些平台没有公开的账号登录接口，浏览器登录后复制 Cookie 是唯一能稳定走通的凭据。"),
-    ("Template example: https://api.example.com/resolve?title={title}&artist={artist}\nThe endpoint may return a plain URL or JSON with url / data.url / play_url. Custom sources are tried last.",
+    ("Template example: https://api.example.com/resolve?title={title}&artist={artist}. The endpoint may return a plain URL or JSON with url / data.url / play_url. Custom sources are tried last.",
      "模板示例：https://api.example.com/resolve?title={title}&artist={artist}\n接口返回纯文本直链，或 JSON 里带 url / data.url / play_url 都行。自定义源排在兜底最后。"),
 
     # 版本页置顶
@@ -360,6 +360,21 @@ TABLE = [
     ("About this build", "关于这个版本"),
     ("A third-party client for personal study only.", "第三方客户端，仅供个人学习。"),
     ("%d sources", "%d 个音源"),
+    ("Add", "添加"),
+    ("Cached audio now lives in Local Music: every cached song can be browsed and deleted there.",
+     "缓存的歌现在直接进「本地音乐」，可以在那里逐首查看和删除。"),
+    ("Cached files are named title – artist_4min29s_ so the duration is readable at a glance.",
+     "缓存文件名是「歌名 – 音乐家_4min29s_」，时长一眼可见。"),
+    ("Cache survives app restarts and is only removed when you clear it; when the limit is hit, the songs you have not played for the longest time go first.",
+     "缓存关闭 App 不会丢，只有手动清理才删除；达到上限时先删最久没有播放的。"),
+    ("The decorative quote icon at the bottom-left of the player is now Play History.",
+     "播放页左下角原来的装饰引号，现在是播放历史。"),
+    ("Settings gained strict matching: title, artist and duration (±5 s) must all agree, otherwise the song reports no source and offers to switch sources.",
+     "设置新增严格匹配：歌名、艺人、时长（±5 秒）三项都对上才用；对不上会提示无音源并可切换音源。"),
+    ("Data Sources can be toggled, signed in with a Cookie, or extended with your own resolve endpoint.",
+     "数据来源可以开关、录入 Cookie 登录，也可以添加自己的解析接口。"),
+    ("Connection diagnostics moved to About → Advanced Diagnostics.",
+     "连接测试已移到「关于 → 高级诊断」。"),
 ]
 
 HEADER = """/*
