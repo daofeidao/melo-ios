@@ -40,6 +40,16 @@ enum AudioSource {
     private static var attemptedFallbacks: [String: Set<String>] = [:]
     private static let stateLock = NSLock()
 
+    /// 严格模式下被拒的同名版本，播放失败后由播放页读取做「切换音源」
+    private static var pendingAlternatives: [Track] = []
+
+    static func takeAlternatives() -> [Track] {
+        stateLock.lock(); defer { stateLock.unlock() }
+        let list = pendingAlternatives
+        pendingAlternatives = []
+        return list
+    }
+
     static func notePlaybackFailure(_ track: Track) {
         stateLock.lock(); defer { stateLock.unlock() }
         failedTracks.insert(track.id)
@@ -80,6 +90,12 @@ enum AudioSource {
     }
 
     static func resolve(track: Track, quality: StreamResolver.Quality) async throws -> AudioStream {
+        stateLock.lock()
+        pendingAlternatives = []
+        stateLock.unlock()
+        // 手动切换音源的那一首，只对本次解析生效
+        defer { DomesticSource.forceLooseOnce = false }
+
         // 本地导入的音频：直接给 file URL，不联网、不解析
         if track.source == LocalMusicStore.sourceTag {
             guard let url = LocalMusicStore.fileURL(for: track) else {
@@ -114,6 +130,15 @@ enum AudioSource {
             }
         } else if youtubeLikelyBlocked, let fallback = await domesticFallback(for: track) {
             return fallback
+        }
+
+        // 用户自己在「关于 → 数据来源」里添加的音源：排在所有内置源之后
+        let customSources = SourcePrefs.shared.customSources
+        if !customSources.isEmpty {
+            for source in customSources {
+                guard let raw = await SourcePrefs.shared.resolveCustom(source, track: track) else { continue }
+                if let stream = await probe(raw, timeout: 4) { return stream }
+            }
         }
 
         do {
@@ -170,6 +195,18 @@ enum AudioSource {
             // 先记下来：拿不到直链的候选下次不必再问
             rememberFallback(candidate, for: track.id)
             if let stream = await verifiedDomesticStream(for: candidate) { return stream }
+        }
+
+        // 严格模式下这里通常是「同名但时长对不上」：把那些版本交给播放页手动切换
+        if DomesticSource.isStrictMatch {
+            let near = await DomesticSource.nearMatches(
+                title: track.title,
+                artist: track.artist,
+                duration: track.duration
+            )
+            stateLock.lock()
+            pendingAlternatives = Array(near.prefix(6))
+            stateLock.unlock()
         }
         return nil
     }

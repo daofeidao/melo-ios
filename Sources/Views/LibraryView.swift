@@ -113,14 +113,11 @@ struct SettingsView: View {
     @AppStorage("melo.appearance") private var appearance: String = AppearanceMode.system.rawValue
     @AppStorage(AudioCache.enabledKey) private var cacheAudio = true
     @AppStorage(AudioCache.limitKey) private var cacheLimitMB = AudioCache.defaultLimitMB
+    @AppStorage(DomesticSource.strictMatchKey) private var strictMatch = false
     @State private var cacheBytes: Int64 = 0
     @State private var showClearCacheConfirm = false
 
     @State private var showClearConfirm = false
-    @State private var probing = false
-    @State private var probes: [InnerTube.HostProbe] = []
-    @State private var playbackTesting = false
-    @State private var playbackLines: [DiagnosticLine] = []
 
     // 备份 / 恢复
     @State private var exporting = false
@@ -151,6 +148,14 @@ struct SettingsView: View {
             }
 
             Section {
+                Toggle(L("Strict matching"), isOn: $strictMatch)
+            } header: {
+                Text(L("Fallback Matching"))
+            } footer: {
+                Text(L("When a direct link fails, Melo searches other sources for the same song. Strict mode requires the same title, artist and duration (±5 s). Turning it off may pick covers or live versions."))
+            }
+
+            Section {
                 Toggle(L("Cache played audio"), isOn: $cacheAudio)
                 Picker(L("Cache limit"), selection: $cacheLimitMB) {
                     Text("200 MB").tag(200)
@@ -177,7 +182,7 @@ struct SettingsView: View {
             } header: {
                 Text(L("Storage"))
             } footer: {
-                Text(L("Cached audio lives in the app's cache folder. Old files are removed when the limit is reached, and iOS may clear the folder when storage is low."))
+                Text(L("Cached audio is kept until you clear it here. When the limit is reached, the songs you have not played for the longest time are removed first."))
             }
 
             Section {
@@ -192,68 +197,6 @@ struct SettingsView: View {
                 Text(L("Appearance"))
             } footer: {
                 Text(L("Appearance follows the system by default. Pick Light or Dark to override it for this app only."))
-            }
-
-            Section {
-                Button {
-                    Task { await runDiagnose() }
-                } label: {
-                    HStack {
-                        Text(L("Connection Test"))
-                        Spacer()
-                        if probing {
-                            ProgressView()
-                        }
-                    }
-                }
-                ForEach(probes, id: \.host) { probe in
-                    HStack {
-                        Text(probe.host)
-                            .font(.system(size: 13))
-                            .foregroundColor(Theme.secondaryLabel)
-                        Spacer()
-                        if let ms = probe.milliseconds {
-                            Text("\(ms) ms").font(.system(size: 13)).foregroundColor(.green)
-                        } else {
-                            Text(probe.failure ?? "—")
-                                .font(.system(size: 12))
-                                .foregroundColor(.red)
-                                .lineLimit(1)
-                        }
-                    }
-                }
-                Button {
-                    Task { await runPlaybackTest() }
-                } label: {
-                    HStack {
-                        Text(L("Playback Test"))
-                        Spacer()
-                        if playbackTesting {
-                            ProgressView()
-                        }
-                    }
-                }
-                ForEach(playbackLines) { line in
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 6) {
-                            Image(systemName: line.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .font(.system(size: 12))
-                                .foregroundColor(line.ok ? .green : .red)
-                            Text(line.title)
-                                .font(.system(size: 13))
-                        }
-                        Text(line.detail)
-                            .font(.system(size: 11))
-                            .foregroundColor(Theme.secondaryLabel)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.vertical, 2)
-                }
-            } header: {
-                Text(L("Network"))
-            } footer: {
-                Text(L("Both hosts serve the same API. If only one responds, adjust your proxy rules."))
-                Text(L("If step 1 fails, this IP is likely flagged as a bot; if step 2 fails, your proxy probably does not forward googlevideo.com."))
             }
 
             Section {
@@ -304,16 +247,17 @@ struct SettingsView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { registerVersionTap() }
 
-                NavigationLink(destination: DataSourcesView()) {
+                NavigationLink(destination: DataSourceSettingsView()) {
                     HStack {
                         Text(L("Data Sources"))
                         Spacer()
-                        Text(L("6 sources"))
+                        Text(String(format: L("%d sources"),
+                                    SourcePrefs.shared.builtIn.count + SourcePrefs.shared.customSources.count))
                             .foregroundColor(Theme.secondaryLabel)
                     }
                 }
 
-                NavigationLink(destination: YouTubeWebProbeView()) {
+                NavigationLink(destination: AdvancedDiagnosticsView()) {
                     HStack {
                         Text(L("Advanced Diagnostics"))
                         Spacer()
@@ -337,8 +281,8 @@ struct SettingsView: View {
             if SmokeTest.showsChangelog || SmokeTest.showsDataSources {
                 NSLog("SMOKE_ABOUT changelog=\(SmokeTest.showsChangelog) sources=\(SmokeTest.showsDataSources)")
             }
-            guard SmokeTest.runsPlaybackTest, playbackLines.isEmpty, !playbackTesting else { return }
-            Task { await runPlaybackTest() }
+            guard SmokeTest.runsPlaybackTest, DiagnosticsModel.shared.playbackLines.isEmpty else { return }
+            Task { await DiagnosticsModel.shared.runPlaybackTest() }
         }
         .onChange(of: cacheLimitMB) { _ in
             // 上限调小后立刻淘汰，不能等下次下载才生效
@@ -458,29 +402,5 @@ struct SettingsView: View {
         alertTitle = title
         alertText = message
         showAlert = true
-    }
-
-    private func runPlaybackTest() async {
-        await MainActor.run {
-            playbackTesting = true
-            playbackLines = []
-        }
-        let lines = await PlaybackDiagnostics.run()
-        await MainActor.run {
-            playbackLines = lines
-            playbackTesting = false
-        }
-    }
-
-    private func runDiagnose() async {
-        await MainActor.run {
-            probing = true
-            probes = []
-        }
-        let result = await InnerTube.shared.diagnose()
-        await MainActor.run {
-            probes = result
-            probing = false
-        }
     }
 }

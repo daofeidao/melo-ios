@@ -35,6 +35,8 @@ final class PlayerEngine: ObservableObject {
     @Published private(set) var elapsed: Double = 0
     @Published private(set) var duration: Double = 0
     @Published private(set) var errorText: String?
+    /// 严格模式下被拒的同名版本，播放页用「切换音源」列出来
+    @Published private(set) var alternatives: [Track] = []
     @Published var repeatMode: RepeatMode = .off
     @Published var isShuffle = false
     /// 点歌后是否直接展开全屏播放页（Apple Music 的行为）
@@ -343,6 +345,17 @@ final class PlayerEngine: ObservableObject {
         errorText = nil
     }
 
+    /// 用户在「切换音源」里选了某个同名版本：直接单曲播放
+    func playAlternative(_ track: Track) {
+        DomesticSource.forceLooseOnce = true
+        retryBudget = 1
+        errorText = nil
+        alternatives = []
+        queue = [track]
+        index = 0
+        loadCurrent(autoPlay: true)
+    }
+
     /// 用户点「重试」时重置重试预算，允许再解析一次
     func retryCurrent() {
         retryBudget = 1
@@ -399,6 +412,7 @@ final class PlayerEngine: ObservableObject {
         loadToken = token
         isLoading = true
         if !keepError { errorText = nil }
+        alternatives = []
         elapsed = 0
         duration = Double(track.duration)
         updateNowPlaying()
@@ -433,7 +447,11 @@ final class PlayerEngine: ObservableObject {
                     self.isLoading = false
                     self.isPlaying = false
                     self.player.replaceCurrentItem(with: nil)
-                    self.errorText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    let near = AudioSource.takeAlternatives()
+                    self.alternatives = near
+                    let base = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    self.errorText = near.isEmpty ? base
+                        : L("Strict matching found no track with the same duration. Pick another source below.")
                     self.updateNowPlaying()
                 }
             }
@@ -514,6 +532,7 @@ final class PlayerEngine: ObservableObject {
         errorText = nil
 
         Library.shared.addRecent(track)
+        PlayHistory.shared.record(track)
         loadArtworkIfNeeded()
 
         if autoPlay {

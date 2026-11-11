@@ -26,13 +26,22 @@ enum DomesticSource {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
+        // 设置里关掉的源直接不发请求
+        let prefs = SourcePrefs.shared
+        let kugouOn = prefs.isEnabled("kugou")
+        let neteaseOn = prefs.isEnabled("netease")
+        let kuwoOn = prefs.isEnabled("kuwo")
+
         // 同上：不用 async let（会踩 asyncLet_finish_after_task_completion 的坑）
-        let kugouJob = Task { await kugouSearch(query: trimmed, limit: limit) }
-        let neteaseJob: Task<[Track], Never>? = kugouFirst
+        let kugouJob = Task { () -> [Track] in
+            guard kugouOn else { return [] }
+            return await kugouSearch(query: trimmed, limit: limit)
+        }
+        let neteaseJob: Task<[Track], Never>? = (kugouFirst || !neteaseOn)
             ? nil
             : Task { await neteaseSearch(query: trimmed, limit: limit) }
         // 酷我当第三路：直链最容易拿，兜底用
-        let kuwoJob: Task<[Track], Never>? = kugouFirst
+        let kuwoJob: Task<[Track], Never>? = (kugouFirst || !kuwoOn)
             ? nil
             : Task { await kuwoSearch(query: trimmed, limit: min(limit, 10)) }
 
@@ -69,6 +78,7 @@ enum DomesticSource {
         request.timeoutInterval = 6
         request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
         request.setValue("https://www.kugou.com/", forHTTPHeaderField: "Referer")
+        request.meloCookie(for: "kugou")
 
         guard let (data, _) = try? await URLSession.shared.data(for: request),
               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -110,6 +120,7 @@ enum DomesticSource {
         // 实测 playInfo 74~284ms，5 秒足够；失败要快速暴露
         request.timeoutInterval = 5
         request.setValue(mobileUA, forHTTPHeaderField: "User-Agent")
+        request.meloCookie(for: "kugou")
 
         guard let (data, _) = try? await URLSession.shared.data(for: request),
               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -131,6 +142,7 @@ enum DomesticSource {
         request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
         request.setValue("https://music.163.com/", forHTTPHeaderField: "Referer")
         request.setValue(declaredIP, forHTTPHeaderField: "X-Real-IP")
+        request.meloCookie(for: "netease")
 
         guard let (data, _) = try? await URLSession.shared.data(for: request),
               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -186,6 +198,7 @@ enum DomesticSource {
         request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
         request.setValue("https://music.163.com/", forHTTPHeaderField: "Referer")
         request.setValue(declaredIP, forHTTPHeaderField: "X-Real-IP")
+        request.meloCookie(for: "netease")
 
         guard let (data, _) = try? await URLSession.shared.data(for: request),
               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -260,6 +273,19 @@ enum DomesticSource {
 
     // MARK: - 按歌名匹配（播放失败时的保底）
 
+    /// 严格匹配开关（设置 → 播放 → 严格匹配）。
+    /// 开着时「歌名 + 艺人 + 时长」三项必须都对上，时长允许 ±5 秒；
+    /// 关掉是原来的打分制，找不到严格命中的也会退而求其次。
+    static let strictMatchKey = "melo.matchStrict"
+
+    /// 用户手动「切换音源」时置 true：那一首不套严格匹配，否则点了也播不出来
+    static var forceLooseOnce = false
+
+    static var isStrictMatch: Bool {
+        if forceLooseOnce { return false }
+        return UserDefaults.standard.bool(forKey: strictMatchKey)
+    }
+
     /// 快路径：只问酷狗（一次请求），取最可信的一条。
     static func match(title: String, artist: String, duration: Int) async -> Track? {
         let query = titleArtistQuery(title: title, artist: artist)
@@ -281,6 +307,24 @@ enum DomesticSource {
         return Array(picked.prefix(limit).map { $0.track })
     }
 
+    /// 严格模式下用来「切换音源」的候选：同名、艺人能对上，但时长不在 ±5 秒内。
+    /// 只给用户手动选择，不参与自动播放。
+    static func nearMatches(title: String, artist: String, duration: Int,
+                            limit: Int = 6) async -> [Track] {
+        let query = titleArtistQuery(title: title, artist: artist)
+        guard !query.isEmpty else { return [] }
+        let found = await search(query: query, limit: 30)
+        let wanted = normalize(title)
+        guard !wanted.isEmpty else { return [] }
+        let sameTitle = found.filter {
+            let candidate = normalize($0.title)
+            return candidate == wanted || candidate.contains(wanted) || wanted.contains(candidate)
+        }
+        let rankedLoose = ranked(title: title, artist: artist, duration: duration,
+                                 tracks: sameTitle, forceLoose: true)
+        return Array(rankedLoose.prefix(limit).map { $0.track })
+    }
+
     private static func titleArtistQuery(title: String, artist: String) -> String {
         [title, artist].filter { !$0.isEmpty }.joined(separator: " ")
     }
@@ -288,12 +332,44 @@ enum DomesticSource {
     /// 宁可找不到，也不播翻唱：标题必须同名或包含，艺人必须对得上。
     /// 另外按实测可播率给音源加权：酷狗 > 酷我 > 网易云，VIP 曲目降权。
     private static func ranked(title: String, artist: String, duration: Int,
-                               tracks: [Track]) -> [(track: Track, score: Int)] {
+                               tracks: [Track],
+                               forceLoose: Bool = false) -> [(track: Track, score: Int)] {
         let wantedTitle = normalize(title)
         let wantedArtist = normalize(artist)
         guard !wantedTitle.isEmpty else { return [] }
 
         var scored: [(track: Track, score: Int)] = []
+
+        // 严格模式：歌名、艺人、时长三项都必须对上，时长允许 ±5 秒。
+        // 宁可这首播不出来，也不播成翻唱 / 现场版 / 他人改编。
+        if isStrictMatch && !forceLoose {
+            for candidate in tracks {
+                guard normalize(candidate.title) == wantedTitle else { continue }
+
+                if !wantedArtist.isEmpty {
+                    let candidateArtist = normalize(candidate.artist)
+                    guard !candidateArtist.isEmpty,
+                          candidateArtist == wantedArtist
+                            || candidateArtist.contains(wantedArtist)
+                            || wantedArtist.contains(candidateArtist) else { continue }
+                }
+
+                // 时长是严格模式的硬条件：两边都得有值，且差值不超过 5 秒
+                guard duration > 0, candidate.duration > 0,
+                      abs(candidate.duration - duration) <= 5 else { continue }
+
+                var score = 190
+                switch candidate.source ?? "" {
+                case PlaylistPlatform.kugou.rawValue: score += 12
+                case PlaylistPlatform.kuwo.rawValue: score += 10
+                case PlaylistPlatform.netease.rawValue: score += 4
+                default: break
+                }
+                if candidate.isVip { score -= 8 }
+                scored.append((candidate, score))
+            }
+            return scored.sorted { $0.score > $1.score }
+        }
 
         for candidate in tracks {
             let candidateTitle = normalize(candidate.title)
@@ -406,6 +482,13 @@ enum DomesticSource {
         return nil
     }
 
+    /// 酷我的请求头：浏览器 UA + 设置里录入的 Cookie（有才加）
+    private static var kuwoHeaders: [String: String] {
+        var headers = ["User-Agent": browserUA]
+        if let cookie = SourcePrefs.shared.cookie("kuwo") { headers["Cookie"] = cookie }
+        return headers
+    }
+
     static func kuwoSearch(query: String, limit: Int = 20) async -> [Track] {
         guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .alphanumerics)
         else { return [] }
@@ -414,7 +497,7 @@ enum DomesticSource {
         guard let text = await fetchText(
             ["https://search.kuwo.cn/" + path, "http://search.kuwo.cn/" + path],
             timeout: 6,
-            headers: ["User-Agent": browserUA]
+            headers: kuwoHeaders
         ),
               let root = kuwoJSON(text),
               let list = JS.array(root["abslist"]) else { return [] }
@@ -452,7 +535,7 @@ enum DomesticSource {
         guard let text = await fetchText(
             ["https://antiserver.kuwo.cn/" + path, "http://antiserver.kuwo.cn/" + path],
             timeout: 5,
-            headers: ["User-Agent": browserUA]
+            headers: kuwoHeaders
         ) else { return nil }
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -531,6 +614,7 @@ enum DomesticSource {
         request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
         request.setValue("https://music.163.com/", forHTTPHeaderField: "Referer")
         request.setValue(declaredIP, forHTTPHeaderField: "X-Real-IP")
+        request.meloCookie(for: "netease")
 
         guard let (data, _) = try? await URLSession.shared.data(for: request),
               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -582,6 +666,7 @@ enum DomesticSource {
         request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
         request.setValue("https://music.163.com/", forHTTPHeaderField: "Referer")
         request.setValue(declaredIP, forHTTPHeaderField: "X-Real-IP")
+        request.meloCookie(for: "netease")
 
         guard let (data, _) = try? await URLSession.shared.data(for: request),
               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],

@@ -51,19 +51,43 @@ final class LocalMusicStore: ObservableObject {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
+    /// 缓存文件名的时长标记，例如「晴天 - 周杰伦_4min29s_」
+    private static let cacheStamp = try! NSRegularExpression(pattern: "_([0-9]+)min([0-9]+)s_$")
+
     private static func makeTrack(url: URL) -> Track {
-        // 文件名多为「艺人 - 歌名」，和导入歌单时的约定保持一致
         let base = url.deletingPathExtension().lastPathComponent
         var title = base
         var artist = L("Unknown Artist")
+        var cachedDuration = 0
 
-        let parts = base.components(separatedBy: " - ")
-        if parts.count >= 2 {
-            let head = parts[0].trimmingCharacters(in: .whitespaces)
-            let tail = parts.dropFirst().joined(separator: " - ").trimmingCharacters(in: .whitespaces)
-            if !head.isEmpty, !tail.isEmpty {
-                artist = head
-                title = tail
+        // 缓存文件：歌名 - 音乐家_4min29s_，标记里就是时长
+        let fullRange = NSRange(base.startIndex..<base.endIndex, in: base)
+        if let match = cacheStamp.firstMatch(in: base, range: fullRange),
+           let headRange = Range(NSRange(location: 0, length: match.range.location), in: base),
+           let minuteRange = Range(match.range(at: 1), in: base),
+           let secondRange = Range(match.range(at: 2), in: base) {
+            let head = String(base[headRange])
+            let parts = head.components(separatedBy: " - ")
+            if let first = parts.first?.trimmingCharacters(in: .whitespaces), !first.isEmpty {
+                title = first
+            }
+            if parts.count >= 2 {
+                let rest = parts.dropFirst().joined(separator: " - ").trimmingCharacters(in: .whitespaces)
+                if !rest.isEmpty { artist = rest }
+            }
+            let minutes = Int(base[minuteRange]) ?? 0
+            let seconds = Int(base[secondRange]) ?? 0
+            cachedDuration = minutes * 60 + seconds
+        } else {
+            // 用户导入的老文件：按「艺人 - 歌名」的约定拆
+            let parts = base.components(separatedBy: " - ")
+            if parts.count >= 2 {
+                let head = parts[0].trimmingCharacters(in: .whitespaces)
+                let tail = parts.dropFirst().joined(separator: " - ").trimmingCharacters(in: .whitespaces)
+                if !head.isEmpty, !tail.isEmpty {
+                    artist = head
+                    title = tail
+                }
             }
         }
 
@@ -72,7 +96,8 @@ final class LocalMusicStore: ObservableObject {
             title: title,
             artist: artist,
             album: nil,
-            duration: 0,
+            // 缓存文件的时长直接来自文件名，先给上，后面 fillDurations 会再校准
+            duration: cachedDuration,
             artwork: nil,
             source: sourceTag,
             sourceID: url.lastPathComponent
@@ -144,6 +169,8 @@ final class LocalMusicStore: ObservableObject {
     func delete(_ track: Track) {
         guard let url = Self.fileURL(for: track) else { return }
         try? FileManager.default.removeItem(at: url)
+        // 删的可能是缓存下来的曲子，索引要跟着清，否则设置页占用会一直虚高
+        AudioCache.shared.forget(fileName: url.lastPathComponent)
         reload()
     }
 }

@@ -8,8 +8,16 @@ struct PlayerView: View {
 
     @State private var artwork: UIImage?
     @State private var offset: CGFloat = 0
-    @State private var showQueue = false
+    /// iOS 15 上同一视图叠两个 .sheet 会互相顶掉，统一用一个 enum 驱动
+    @State private var activeSheet: PlayerSheet?
     @State private var showLyrics = false
+
+    private enum PlayerSheet: String, Identifiable {
+        case queue
+        case history
+
+        var id: String { rawValue }
+    }
     @State private var lyrics: [LyricLine] = []
     @State private var lyricsLoading = false
 
@@ -88,9 +96,15 @@ struct PlayerView: View {
                     }
                 }
         )
-        .sheet(isPresented: $showQueue) {
-            QueueView()
-                .environmentObject(player)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .queue:
+                QueueView()
+                    .environmentObject(player)
+            case .history:
+                PlayHistoryView()
+                    .environmentObject(player)
+            }
         }
         .task(id: player.currentTrack?.id) {
             await loadArtwork()
@@ -360,6 +374,40 @@ struct PlayerView: View {
                     .background(Capsule().fill(Color.white.opacity(0.18)))
             }
             .buttonStyle(PlainButtonStyle())
+
+            // 严格模式找不到时长一致的正版时，把同名版本列出来手动选
+            if !player.alternatives.isEmpty {
+                Divider().background(Color.white.opacity(0.14)).padding(.vertical, 6)
+                Text(L("Switch Source"))
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.6))
+                ForEach(player.alternatives) { candidate in
+                    Button {
+                        player.playAlternative(candidate)
+                    } label: {
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(candidate.title)
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.white)
+                                    .lineLimit(1)
+                                Text(candidate.artist)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.white.opacity(0.5))
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: 4)
+                            Text("\(candidate.source ?? "?") · \(candidate.durationText)")
+                                .font(.system(size: 11))
+                                .foregroundColor(.white.opacity(0.55))
+                                .monospacedDigit()
+                        }
+                        .contentShape(Rectangle())
+                        .padding(.vertical, 4)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity)
@@ -373,14 +421,22 @@ struct PlayerView: View {
     private var bottomBar: some View {
         VStack(spacing: 8) {
             HStack {
-                Image(systemName: "text.quote")
-                    .font(.system(size: 17))
-                    .foregroundColor(.white.opacity(0.4))
+                // 左下角：原来是装饰性的 text.quote（静态 Image，点了没反应），
+                // 现在改成播放历史入口，和中间的待播清单配成一对
+                Button {
+                    activeSheet = .history
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 17))
+                        .foregroundColor(.white.opacity(0.85))
+                        .frame(width: 44, height: 32)
+                }
+                .buttonStyle(PlainButtonStyle())
 
                 Spacer()
 
                 Button {
-                    showQueue = true
+                    activeSheet = .queue
                 } label: {
                     Image(systemName: "list.bullet")
                         .font(.system(size: 18))

@@ -12,6 +12,15 @@ struct ChangelogEntry: Identifiable {
 enum Changelog {
     static var entries: [ChangelogEntry] {
         [
+            ChangelogEntry(version: "1.16.4", date: "2026-11-11", notes: [
+                L("Cached audio now lives in Local Music: every cached song can be browsed and deleted there."),
+                L("Cached files are named title – artist_4min29s_ so the duration is readable at a glance."),
+                L("Cache survives app restarts and is only removed when you clear it; when the limit is hit, the songs you have not played for the longest time go first."),
+                L("The decorative quote icon at the bottom-left of the player is now Play History."),
+                L("Settings gained strict matching: title, artist and duration (±5 s) must all agree, otherwise the song reports no source and offers to switch sources."),
+                L("Data Sources can be toggled, signed in with a Cookie, or extended with your own resolve endpoint."),
+                L("Connection diagnostics moved to About → Advanced Diagnostics.")
+            ]),
             ChangelogEntry(version: "1.16.3", date: "2026-11-10", notes: [
                 L("Fixed YouTube playback: the blocked ANDROID_VR client identity was replaced with IOS and ANDROID."),
                 L("Playback now sends the User-Agent matching the identity that resolved the stream, so audio CDN links no longer return 403."),
@@ -50,6 +59,30 @@ struct ChangelogView: View {
     var body: some View {
         NavigationView {
             List {
+                // 置顶：作者与项目地址（用户 2026-11-11 要求）
+                Section {
+                    HStack {
+                        Text(L("Author"))
+                        Spacer()
+                        Text("张宏亮")
+                            .foregroundColor(Theme.secondaryLabel)
+                    }
+                    Link(destination: URL(string: "https://github.com/daofeidao/melo-ios")!) {
+                        HStack {
+                            Text(L("Project"))
+                            Spacer()
+                            Text("github.com/daofeidao/melo-ios")
+                                .font(.system(size: 13))
+                                .foregroundColor(Theme.accent)
+                                .lineLimit(1)
+                        }
+                    }
+                } header: {
+                    Text(L("About this build"))
+                } footer: {
+                    Text(L("A third-party client for personal study only."))
+                }
+
                 ForEach(Changelog.entries) { entry in
                     Section {
                         ForEach(entry.notes, id: \.self) { note in

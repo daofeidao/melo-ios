@@ -109,6 +109,18 @@
 "This playlist could not be loaded. Pull back and open it again." = "这个歌单没能加载出来，返回再进一次试试。";
 "Clear Recently Played" = "清空最近播放";
 "Clear recently played?" = "确定清空最近播放？";
+"Play History" = "播放历史";
+"No play history yet" = "还没有播放记录";
+"Clear play history?" = "确定清空播放历史？";
+"This only clears the history list. Favorites and playlists are untouched." = "只清空历史列表，收藏和歌单不受影响。";
+"Today" = "今天";
+"Yesterday" = "昨天";
+"Opens YouTube inside the app to check whether this network can play video at all." = "在应用内打开 YouTube，验证当前网络能否正常播放视频。";
+"Fallback Matching" = "兜底匹配";
+"Switch Source" = "切换音源";
+"Strict matching found no track with the same duration. Pick another source below." = "严格模式下没有时长一致的版本，可在下面切换其他音源。";
+"Strict matching" = "严格匹配";
+"When a direct link fails, Melo searches other sources for the same song. Strict mode requires the same title, artist and duration (±5 s). Turning it off may pick covers or live versions." = "直链失败时，Melo 会去其他音源找同一首。严格模式要求歌名、艺人、时长（±5 秒）三项都对上；关闭后可能选中翻唱或现场版。";
 "Backup & Restore" = "备份与恢复";
 "Export Backup" = "导出备份";
 "Restore from Backup" = "从备份恢复";
@@ -167,7 +179,7 @@
 "Audio cache" = "音频缓存";
 "Clear audio cache" = "清理音频缓存";
 "Clear audio cache?" = "清空音频缓存？";
-"Cached audio lives in the app's cache folder. Old files are removed when the limit is reached, and iOS may clear the folder when storage is low." = "缓存的音频存在 App 缓存目录。超过上限会按最近播放时间清理旧文件；系统存储紧张时也可能清空该目录。";
+"Cached audio is kept until you clear it here. When the limit is reached, the songs you have not played for the longest time are removed first." = "缓存会一直保留，只有在这里手动清理才会删除。达到上限时，先删掉最久没有播放的歌曲缓存。";
 "Read-only" = "只读";
 "Diagnostic only — this page does not affect playback." = "仅用于诊断，不影响正常播放。";
 "Verified on 2026-11-10: the YouTube page returns no direct audio URL (all SABR), and the PO Token half-check does not complete. Kept for reference." = "2026-11-10 实测：网页端不返回音频直链（全为 SABR），PO Token 半验证也未跑通。此页仅留档。";
@@ -235,3 +247,25 @@
 "Fixed YouTube playback: the blocked ANDROID_VR client identity was replaced with IOS and ANDROID." = "修复 YouTube 音源播放：改用 IOS / ANDROID 客户端身份，替换已被拦截的 ANDROID_VR。";
 "Playback now sends the User-Agent matching the identity that resolved the stream, so audio CDN links no longer return 403." = "起播时的 UA 与解析身份保持一致，避免音频节点返回 403。";
 "The app remembers which YouTube identity works and switches automatically if it stops working." = "记住可用的 YouTube 客户端身份；失效时自动切换到其他身份。";
+"Built-in Sources" = "内置音源";
+"Custom Sources" = "自定义音源";
+"Add Source" = "添加音源";
+"Name" = "名称";
+"Resolve template URL" = "解析模板 URL";
+"Placeholders: {title} {artist} {duration}" = "占位符：{title} {artist} {duration}";
+"Sign In" = "登录";
+"Replace" = "更换";
+"Signed in" = "已登录";
+"Not signed in" = "未登录";
+"No sign-in needed" = "无需登录";
+"Disabled" = "已停用";
+"Turned-off sources are skipped in search and fallback. Sources that need a login take a Cookie: sign in in a browser, copy the whole Cookie header, paste it here." = "关掉的源不参与搜索与兜底解析。需要登录的源请录入 Cookie：在浏览器登录后，复制整条 Cookie 粘进来。";
+"These services do not offer a public account login API. A Cookie copied from a signed-in browser session is the only credential that works reliably." = "这些平台没有公开的账号登录接口，浏览器登录后复制 Cookie 是唯一能稳定走通的凭据。";
+"Template example: https://api.example.com/resolve?title={title}&artist={artist}
+The endpoint may return a plain URL or JSON with url / data.url / play_url. Custom sources are tried last." = "模板示例：https://api.example.com/resolve?title={title}&artist={artist}
+接口返回纯文本直链，或 JSON 里带 url / data.url / play_url 都行。自定义源排在兜底最后。";
+"Author" = "作者";
+"Project" = "项目";
+"About this build" = "关于这个版本";
+"A third-party client for personal study only." = "第三方客户端，仅供个人学习。";
+"%d sources" = "%d 个音源";

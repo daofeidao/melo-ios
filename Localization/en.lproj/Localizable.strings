@@ -109,6 +109,18 @@
 "This playlist could not be loaded. Pull back and open it again." = "This playlist could not be loaded. Pull back and open it again.";
 "Clear Recently Played" = "Clear Recently Played";
 "Clear recently played?" = "Clear recently played?";
+"Play History" = "Play History";
+"No play history yet" = "No play history yet";
+"Clear play history?" = "Clear play history?";
+"This only clears the history list. Favorites and playlists are untouched." = "This only clears the history list. Favorites and playlists are untouched.";
+"Today" = "Today";
+"Yesterday" = "Yesterday";
+"Opens YouTube inside the app to check whether this network can play video at all." = "Opens YouTube inside the app to check whether this network can play video at all.";
+"Fallback Matching" = "Fallback Matching";
+"Switch Source" = "Switch Source";
+"Strict matching found no track with the same duration. Pick another source below." = "Strict matching found no track with the same duration. Pick another source below.";
+"Strict matching" = "Strict matching";
+"When a direct link fails, Melo searches other sources for the same song. Strict mode requires the same title, artist and duration (±5 s). Turning it off may pick covers or live versions." = "When a direct link fails, Melo searches other sources for the same song. Strict mode requires the same title, artist and duration (±5 s). Turning it off may pick covers or live versions.";
 "Backup & Restore" = "Backup & Restore";
 "Export Backup" = "Export Backup";
 "Restore from Backup" = "Restore from Backup";
@@ -167,7 +179,7 @@
 "Audio cache" = "Audio cache";
 "Clear audio cache" = "Clear audio cache";
 "Clear audio cache?" = "Clear audio cache?";
-"Cached audio lives in the app's cache folder. Old files are removed when the limit is reached, and iOS may clear the folder when storage is low." = "Cached audio lives in the app's cache folder. Old files are removed when the limit is reached, and iOS may clear the folder when storage is low.";
+"Cached audio is kept until you clear it here. When the limit is reached, the songs you have not played for the longest time are removed first." = "Cached audio is kept until you clear it here. When the limit is reached, the songs you have not played for the longest time are removed first.";
 "Read-only" = "Read-only";
 "Diagnostic only — this page does not affect playback." = "Diagnostic only — this page does not affect playback.";
 "Verified on 2026-11-10: the YouTube page returns no direct audio URL (all SABR), and the PO Token half-check does not complete. Kept for reference." = "Verified on 2026-11-10: the YouTube page returns no direct audio URL (all SABR), and the PO Token half-check does not complete. Kept for reference.";
@@ -235,3 +247,25 @@
 "Fixed YouTube playback: the blocked ANDROID_VR client identity was replaced with IOS and ANDROID." = "Fixed YouTube playback: the blocked ANDROID_VR client identity was replaced with IOS and ANDROID.";
 "Playback now sends the User-Agent matching the identity that resolved the stream, so audio CDN links no longer return 403." = "Playback now sends the User-Agent matching the identity that resolved the stream, so audio CDN links no longer return 403.";
 "The app remembers which YouTube identity works and switches automatically if it stops working." = "The app remembers which YouTube identity works and switches automatically if it stops working.";
+"Built-in Sources" = "Built-in Sources";
+"Custom Sources" = "Custom Sources";
+"Add Source" = "Add Source";
+"Name" = "Name";
+"Resolve template URL" = "Resolve template URL";
+"Placeholders: {title} {artist} {duration}" = "Placeholders: {title} {artist} {duration}";
+"Sign In" = "Sign In";
+"Replace" = "Replace";
+"Signed in" = "Signed in";
+"Not signed in" = "Not signed in";
+"No sign-in needed" = "No sign-in needed";
+"Disabled" = "Disabled";
+"Turned-off sources are skipped in search and fallback. Sources that need a login take a Cookie: sign in in a browser, copy the whole Cookie header, paste it here." = "Turned-off sources are skipped in search and fallback. Sources that need a login take a Cookie: sign in in a browser, copy the whole Cookie header, paste it here.";
+"These services do not offer a public account login API. A Cookie copied from a signed-in browser session is the only credential that works reliably." = "These services do not offer a public account login API. A Cookie copied from a signed-in browser session is the only credential that works reliably.";
+"Template example: https://api.example.com/resolve?title={title}&artist={artist}
+The endpoint may return a plain URL or JSON with url / data.url / play_url. Custom sources are tried last." = "Template example: https://api.example.com/resolve?title={title}&artist={artist}
+The endpoint may return a plain URL or JSON with url / data.url / play_url. Custom sources are tried last.";
+"Author" = "Author";
+"Project" = "Project";
+"About this build" = "About this build";
+"A third-party client for personal study only." = "A third-party client for personal study only.";
+"%d sources" = "%d sources";
