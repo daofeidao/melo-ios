@@ -262,6 +262,16 @@ struct YouTubeWebProbeView: View {
 
             List {
                 Section {
+                    Text(L("Diagnostic only — this page does not affect playback."))
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.secondaryLabel)
+                    Text(L("Verified on 2026-11-10: the YouTube page returns no direct audio URL (all SABR), and the PO Token half-check does not complete. Kept for reference."))
+                        .font(.system(size: 11))
+                        .foregroundColor(Theme.secondaryLabel)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Section {
                     HStack {
                         Text(L("Video ID"))
                             .font(.system(size: 13))
@@ -342,7 +352,7 @@ struct YouTubeWebProbeView: View {
             }
             .listStyle(InsetGroupedListStyle())
         }
-        .navigationTitle(L("YouTube Web Probe"))
+        .navigationTitle(L("Advanced Diagnostics"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             model.onResult = { raw in

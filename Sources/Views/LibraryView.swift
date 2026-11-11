@@ -215,14 +215,6 @@ struct SettingsView: View {
                     }
                     .padding(.vertical, 2)
                 }
-                NavigationLink(destination: YouTubeWebProbeView()) {
-                    HStack {
-                        Text(L("YouTube Web Probe"))
-                        Spacer()
-                        Image(systemName: "globe")
-                            .foregroundColor(Theme.secondaryLabel)
-                    }
-                }
             } header: {
                 Text(L("Network"))
             } footer: {
@@ -283,6 +275,15 @@ struct SettingsView: View {
                         Text(L("Data Sources"))
                         Spacer()
                         Text(L("6 sources"))
+                            .foregroundColor(Theme.secondaryLabel)
+                    }
+                }
+
+                NavigationLink(destination: YouTubeWebProbeView()) {
+                    HStack {
+                        Text(L("Advanced Diagnostics"))
+                        Spacer()
+                        Text(L("Read-only"))
                             .foregroundColor(Theme.secondaryLabel)
                     }
                 }
