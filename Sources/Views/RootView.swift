@@ -11,6 +11,16 @@ struct RootView: View {
         ZStack(alignment: .bottom) {
             TabView(selection: $selection) {
                 ListenNowView()
+                    // 固定条，不悬浮：safeAreaInset 会让内容自己让位，不再盖住列表。
+                    // 只挂在「现在就听」上，其他栏目不再出现。
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        if player.hasTrack {
+                            MiniPlayerBar(showPlayer: $player.opensFullPlayer)
+                                .padding(.horizontal, 8)
+                                .padding(.bottom, 6)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                    }
                     .tabItem { Label(L("Listen Now"), systemImage: "play.circle.fill") }
                     .tag(0)
 
@@ -32,13 +42,6 @@ struct RootView: View {
                     YouTubeWebProbeView(autoRun: true)
                 }
                 .navigationViewStyle(StackNavigationViewStyle())
-            }
-
-            if player.hasTrack {
-                MiniPlayerBar(showPlayer: $player.opensFullPlayer)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, Layout.tabBarHeight + 6)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .fullScreenCover(isPresented: $player.opensFullPlayer) {

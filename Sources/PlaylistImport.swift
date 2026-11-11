@@ -39,6 +39,8 @@ struct RemoteSong {
     var sourceID: String
     /// 原平台封面（能拿到就用，拿不到界面上是占位图）
     var artwork: String? = nil
+    /// 网易云 VIP / 付费专辑曲目：外链必然拿不到直链，列表上要标出来
+    var isVip: Bool = false
 }
 
 struct RemotePlaylist {
@@ -46,6 +48,8 @@ struct RemotePlaylist {
     var platform: PlaylistPlatform
     var cover: String?
     var songs: [RemoteSong]
+    /// 补齐失败、没能拿回来的曲目数。>0 时界面要提示，不能静默吞掉。
+    var failedCount: Int = 0
 }
 
 enum PlaylistImportError: LocalizedError {
@@ -260,7 +264,9 @@ enum PlaylistFetcher {
     private static func fetchNetEase(id: String) async throws -> RemotePlaylist {
         let headers = [
             "Referer": "https://music.163.com/",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            // 境外出口不带这个头会拿到加密体 {"result":"<hex>"}，整单解析失败
+            "X-Real-IP": DomesticSource.declaredIP
         ]
 
         // v6 详情接口在未登录时只返回前 10 首曲目（trackIds 却是完整的），
@@ -281,13 +287,16 @@ enum PlaylistFetcher {
                 .compactMap(netEaseSong)
 
             // 超过 1000 首时 trackIds 仍比 tracks 多：按缺失的 ID 补齐，再按歌单顺序还原
+            var failed = 0
             if trackIds.count > songs.count {
                 var byID: [String: RemoteSong] = [:]
                 for song in songs where !song.sourceID.isEmpty {
                     byID[song.sourceID] = song
                 }
                 let missing = trackIds.filter { byID[$0] == nil }
-                for song in await netEaseSongs(ids: missing, headers: headers) {
+                let outcome = await netEaseSongs(ids: missing, headers: headers)
+                failed = outcome.failed
+                for song in outcome.songs {
                     byID[song.sourceID] = song
                 }
                 let ordered = trackIds.compactMap { byID[$0] }
@@ -295,7 +304,13 @@ enum PlaylistFetcher {
             }
 
             guard !songs.isEmpty else { throw PlaylistImportError.empty }
-            return RemotePlaylist(name: name, platform: .netease, cover: cover, songs: songs)
+            return RemotePlaylist(
+                name: name,
+                platform: .netease,
+                cover: cover,
+                songs: songs,
+                failedCount: failed
+            )
         }
 
         guard let root = try await getJSON("https://music.163.com/api/playlist/detail?id=\(id)", headers: headers) else {
@@ -312,11 +327,13 @@ enum PlaylistFetcher {
         )
     }
 
-    /// 按 ID 批量取曲目（每批 100），用于补齐超过 1000 首的歌单
-    private static func netEaseSongs(ids: [String], headers: [String: String]) async -> [RemoteSong] {
-        guard !ids.isEmpty else { return [] }
+    /// 按 ID 批量取曲目（每批 100），用于补齐超过 1000 首的歌单。
+    /// 返回补到的曲目和失败条数：以前用 `try?` 静默跳过，一批失败就永久少一批歌。
+    private static func netEaseSongs(ids: [String], headers: [String: String]) async -> (songs: [RemoteSong], failed: Int) {
+        guard !ids.isEmpty else { return ([], 0) }
 
         var result: [RemoteSong] = []
+        var failed = 0
         var index = 0
         while index < ids.count {
             let upper = min(index + 100, ids.count)
@@ -326,10 +343,12 @@ enum PlaylistFetcher {
             if let root = try? await getJSON("https://music.163.com/api/song/detail?ids=\(encoded)", headers: headers),
                let raw = JS.array(root["songs"]) {
                 result.append(contentsOf: raw.compactMap { JS.dict($0) }.compactMap(netEaseSong))
+            } else {
+                failed += upper - index
             }
             index = upper
         }
-        return result
+        return (result, failed)
     }
 
     /// 字段名两套都要认：v6 详情用 ar/al/dt，song/detail 用 artists/album/duration。
@@ -351,13 +370,14 @@ enum PlaylistFetcher {
             .first { !$0.isEmpty }
         let ms = JS.int(raw["duration"]) ?? JS.int(raw["dt"]) ?? 0
         let songID = JS.int(raw["id"]).map(String.init) ?? ""
+        let fee = JS.int(raw["fee"]) ?? 0
         let cover = [JS.dict(raw["al"]), JS.dict(raw["album"])]
             .compactMap { $0.flatMap { JS.string($0["picUrl"]) } }
             .first { !$0.isEmpty }
         return RemoteSong(
             title: title, artist: artists, album: album,
             duration: max(0, ms / 1000), source: .netease, sourceID: songID,
-            artwork: cover
+            artwork: cover, isVip: fee == 1 || fee == 4
         )
     }
 
@@ -577,7 +597,8 @@ enum PlaylistMatcher {
                 duration: song.duration,
                 artwork: song.artwork,
                 source: song.source.rawValue,
-                sourceID: song.sourceID
+                sourceID: song.sourceID,
+                isVip: song.isVip
             )
         }
     }
@@ -637,7 +658,8 @@ enum PlaylistMatcher {
                 duration: song.duration,
                 artwork: song.artwork,
                 source: song.source.rawValue,
-                sourceID: song.sourceID
+                sourceID: song.sourceID,
+                isVip: song.isVip
             )
         }
 

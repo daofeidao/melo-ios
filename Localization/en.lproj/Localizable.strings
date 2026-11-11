@@ -160,6 +160,7 @@
 "6 sources" = "6 sources";
 "What's New" = "What's New";
 "Advanced Diagnostics" = "Advanced Diagnostics";
+"%d tracks could not be loaded" = "%d tracks could not be loaded";
 "Read-only" = "Read-only";
 "Diagnostic only — this page does not affect playback." = "Diagnostic only — this page does not affect playback.";
 "Verified on 2026-11-10: the YouTube page returns no direct audio URL (all SABR), and the PO Token half-check does not complete. Kept for reference." = "Verified on 2026-11-10: the YouTube page returns no direct audio URL (all SABR), and the PO Token half-check does not complete. Kept for reference.";

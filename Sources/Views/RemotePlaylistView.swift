@@ -13,6 +13,7 @@ struct RemotePlaylistView: View {
     @State private var tracks: [Track] = []
     @State private var loading = true
     @State private var error: String?
+    @State private var failedCount = 0
 
     private var saved: Bool {
         store.playlists.contains { $0.platform == platform && $0.sourceID == playlistID }
@@ -34,9 +35,30 @@ struct RemotePlaylistView: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 16)
                 } else {
+                    if failedCount > 0 {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 11))
+                            Text(String(format: L("%d tracks could not be loaded"), failedCount))
+                                .font(.system(size: 12))
+                            Spacer()
+                            Button(L("Retry")) {
+                                Task { await load() }
+                            }
+                            .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundColor(.orange)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 4)
+                    }
                     LazyVStack(spacing: 0) {
                         ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in
-                            TrackRow(track: track, showIndex: true, index: index + 1) {
+                            TrackRow(
+                                track: track,
+                                showIndex: true,
+                                index: index + 1,
+                                badge: track.isVip ? "VIP" : nil
+                            ) {
                                 player.play(tracks: tracks, startAt: index)
                             }
                             .padding(.horizontal, 16)
@@ -136,6 +158,7 @@ struct RemotePlaylistView: View {
             let converted = PlaylistMatcher.direct(songs: remote.songs)
             await MainActor.run {
                 tracks = converted
+                failedCount = remote.failedCount
                 loading = false
                 if converted.isEmpty { error = L("Nothing here yet") }
             }

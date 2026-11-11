@@ -205,6 +205,7 @@ TABLE = [
     ("6 sources", "6 个来源"),
     ("What's New", "版本更新记录"),
     ("Advanced Diagnostics", "高级诊断"),
+    ("%d tracks could not be loaded", "有 %d 首未能加载"),
     ("Read-only", "只读"),
     ("Diagnostic only — this page does not affect playback.", "仅用于诊断，不影响正常播放。"),
     ("Verified on 2026-11-10: the YouTube page returns no direct audio URL (all SABR), and the PO Token half-check does not complete. Kept for reference.",

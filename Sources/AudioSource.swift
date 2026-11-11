@@ -89,7 +89,9 @@ enum AudioSource {
         }
 
         // 直链能拿到就直接播（probe 已经移出关键路径）
-        if !hasFailed(track.id), let domestic = await domesticStream(for: track) {
+        // VIP / 付费专辑曲目例外：实测 player/url 固定返回 -110，outer/url 固定 302 到 /404，
+        // 再问一次只是白等，直接按歌名去其他音源找。
+        if !track.isVip, !hasFailed(track.id), let domestic = await domesticStream(for: track) {
             return domestic
         }
 
@@ -136,16 +138,21 @@ enum AudioSource {
     /// 歌单里最容易失败的是 QQ 曲目和网易云 VIP —— 以前只问一次酷狗就判失败。
     private static func domesticFallback(for track: Track) async -> AudioStream? {
         let tried = triedCandidates(for: track.id)
+        // 兜底是「尽力而为」，不能无限试：VIP 曲目必然走到这里，
+        // 以前两次搜索 + 四个候选串起来最坏能拖到 60 秒。整条链给 12 秒预算。
+        let deadline = Date().addingTimeInterval(12)
 
-        if let quick = await DomesticSource.match(
+        if Date() < deadline,
+           let quick = await DomesticSource.match(
             title: track.title,
             artist: track.artist,
             duration: track.duration
-        ), !hasFailed(quick.id), !tried.contains(quick.id) {
+           ), !hasFailed(quick.id), !tried.contains(quick.id) {
             rememberFallback(quick, for: track.id)
             if let stream = await verifiedDomesticStream(for: quick) { return stream }
         }
 
+        guard Date() < deadline else { return nil }
         let picks = await DomesticSource.fallbackCandidates(
             title: track.title,
             artist: track.artist,
@@ -153,6 +160,7 @@ enum AudioSource {
             limit: 4
         )
         for candidate in picks {
+            guard Date() < deadline else { break }
             guard !hasFailed(candidate.id), !tried.contains(candidate.id) else { continue }
             // 先记下来：拿不到直链的候选下次不必再问
             rememberFallback(candidate, for: track.id)

@@ -32,7 +32,7 @@ enum Layout {
     static var miniPlayerHeight: CGFloat { 64 }
 
     /// 滚动内容需要预留的底部空间
-    static var contentBottomInset: CGFloat { tabBarHeight + miniPlayerHeight + 12 }
+    static var contentBottomInset: CGFloat { tabBarHeight + 12 }
 }
 
 extension Color {
