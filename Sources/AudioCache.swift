@@ -16,7 +16,17 @@ final class AudioCache {
     /// `@AppStorage` 用的键；关闭后不再下载，但已缓存的文件仍然可播。
     static let enabledKey = "melo.cacheAudio"
 
-    private let limitBytes: Int64 = 2 * 1024 * 1024 * 1024
+    /// 缓存上限（MB）。默认 1 GB：约 250 首 128 kbps AAC，占 128 GB 手机不到 1%。
+    static let limitKey = "melo.audioCacheLimitMB"
+    static let defaultLimitMB = 1024
+
+    /// 允许范围 200 MB ~ 5 GB，越界值会被夹住，避免手改 UserDefaults 写出个 0。
+    var limitBytes: Int64 {
+        let stored = UserDefaults.standard.object(forKey: Self.limitKey) as? Int
+        let mb = min(5120, max(200, stored ?? Self.defaultLimitMB))
+        return Int64(mb) * 1024 * 1024
+    }
+
     private let lock = NSLock()
     private var inFlight = Set<String>()
     private let io = DispatchQueue(label: "melo.audio-cache", qos: .utility)
@@ -127,6 +137,13 @@ final class AudioCache {
 
     func clear() {
         try? FileManager.default.removeItem(at: directory)
+    }
+
+    /// 用户改完上限后立刻淘汰一次，不必等到下次下载才生效
+    func enforceLimit() {
+        io.async { [weak self] in
+            self?.trimIfNeeded()
+        }
     }
 
     // MARK: - 内部

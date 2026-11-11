@@ -163,10 +163,11 @@
 "%d tracks could not be loaded" = "有 %d 首未能加载";
 "Storage" = "存储";
 "Cache played audio" = "播放时缓存音频";
+"Cache limit" = "缓存上限";
 "Audio cache" = "音频缓存";
 "Clear audio cache" = "清理音频缓存";
 "Clear audio cache?" = "清空音频缓存？";
-"Cached audio lives in the app's cache folder. iOS may clear it when storage is low." = "缓存的音频存在 App 缓存目录，系统存储紧张时可能被清理。";
+"Cached audio lives in the app's cache folder. Old files are removed when the limit is reached, and iOS may clear the folder when storage is low." = "缓存的音频存在 App 缓存目录。超过上限会按最近播放时间清理旧文件；系统存储紧张时也可能清空该目录。";
 "Read-only" = "只读";
 "Diagnostic only — this page does not affect playback." = "仅用于诊断，不影响正常播放。";
 "Verified on 2026-11-10: the YouTube page returns no direct audio URL (all SABR), and the PO Token half-check does not complete. Kept for reference." = "2026-11-10 实测：网页端不返回音频直链（全为 SABR），PO Token 半验证也未跑通。此页仅留档。";

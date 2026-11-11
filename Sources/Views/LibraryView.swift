@@ -112,6 +112,7 @@ struct SettingsView: View {
     @AppStorage("melo.quality") private var quality: String = StreamResolver.Quality.high.rawValue
     @AppStorage("melo.appearance") private var appearance: String = AppearanceMode.system.rawValue
     @AppStorage(AudioCache.enabledKey) private var cacheAudio = true
+    @AppStorage(AudioCache.limitKey) private var cacheLimitMB = AudioCache.defaultLimitMB
     @State private var cacheBytes: Int64 = 0
     @State private var showClearCacheConfirm = false
 
@@ -151,6 +152,14 @@ struct SettingsView: View {
 
             Section {
                 Toggle(L("Cache played audio"), isOn: $cacheAudio)
+                Picker(L("Cache limit"), selection: $cacheLimitMB) {
+                    Text("200 MB").tag(200)
+                    Text("500 MB").tag(500)
+                    Text("1 GB").tag(1024)
+                    Text("2 GB").tag(2048)
+                    Text("3 GB").tag(3072)
+                    Text("5 GB").tag(5120)
+                }
                 HStack {
                     Text(L("Audio cache"))
                     Spacer()
@@ -168,7 +177,7 @@ struct SettingsView: View {
             } header: {
                 Text(L("Storage"))
             } footer: {
-                Text(L("Cached audio lives in the app's cache folder. iOS may clear it when storage is low."))
+                Text(L("Cached audio lives in the app's cache folder. Old files are removed when the limit is reached, and iOS may clear the folder when storage is low."))
             }
 
             Section {
@@ -330,6 +339,11 @@ struct SettingsView: View {
             }
             guard SmokeTest.runsPlaybackTest, playbackLines.isEmpty, !playbackTesting else { return }
             Task { await runPlaybackTest() }
+        }
+        .onChange(of: cacheLimitMB) { _ in
+            // 上限调小后立刻淘汰，不能等下次下载才生效
+            AudioCache.shared.enforceLimit()
+            refreshCacheSize()
         }
         .confirmationDialog(
             L("Clear recently played?"),

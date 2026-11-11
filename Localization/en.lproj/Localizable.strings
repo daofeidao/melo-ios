@@ -163,10 +163,11 @@
 "%d tracks could not be loaded" = "%d tracks could not be loaded";
 "Storage" = "Storage";
 "Cache played audio" = "Cache played audio";
+"Cache limit" = "Cache limit";
 "Audio cache" = "Audio cache";
 "Clear audio cache" = "Clear audio cache";
 "Clear audio cache?" = "Clear audio cache?";
-"Cached audio lives in the app's cache folder. iOS may clear it when storage is low." = "Cached audio lives in the app's cache folder. iOS may clear it when storage is low.";
+"Cached audio lives in the app's cache folder. Old files are removed when the limit is reached, and iOS may clear the folder when storage is low." = "Cached audio lives in the app's cache folder. Old files are removed when the limit is reached, and iOS may clear the folder when storage is low.";
 "Read-only" = "Read-only";
 "Diagnostic only — this page does not affect playback." = "Diagnostic only — this page does not affect playback.";
 "Verified on 2026-11-10: the YouTube page returns no direct audio URL (all SABR), and the PO Token half-check does not complete. Kept for reference." = "Verified on 2026-11-10: the YouTube page returns no direct audio URL (all SABR), and the PO Token half-check does not complete. Kept for reference.";
