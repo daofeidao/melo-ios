@@ -88,6 +88,11 @@ enum AudioSource {
             return AudioStream(url: url, itag: -1, bitrate: 0, mime: "audio/mpeg")
         }
 
+        // 音频本体已缓存：直接读本地文件，不联网、也不受直链过期影响
+        if let cached = AudioCache.shared.cachedURL(for: track) {
+            return AudioStream(url: cached, itag: -1, bitrate: 0, mime: "audio/mpeg")
+        }
+
         // 直链能拿到就直接播（probe 已经移出关键路径）
         // VIP / 付费专辑曲目例外：实测 player/url 固定返回 -110，outer/url 固定 302 到 /404，
         // 再问一次只是白等，直接按歌名去其他音源找。

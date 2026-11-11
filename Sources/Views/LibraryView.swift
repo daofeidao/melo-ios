@@ -111,6 +111,9 @@ struct SettingsView: View {
 
     @AppStorage("melo.quality") private var quality: String = StreamResolver.Quality.high.rawValue
     @AppStorage("melo.appearance") private var appearance: String = AppearanceMode.system.rawValue
+    @AppStorage(AudioCache.enabledKey) private var cacheAudio = true
+    @State private var cacheBytes: Int64 = 0
+    @State private var showClearCacheConfirm = false
 
     @State private var showClearConfirm = false
     @State private var probing = false
@@ -144,6 +147,28 @@ struct SettingsView: View {
                 Text(L("Playback"))
             } footer: {
                 Text(L("High quality is AAC 128 kbps. YouTube Music does not offer lossless."))
+            }
+
+            Section {
+                Toggle(L("Cache played audio"), isOn: $cacheAudio)
+                HStack {
+                    Text(L("Audio cache"))
+                    Spacer()
+                    Text(cacheBytes > 0
+                         ? ByteCountFormatter.string(fromByteCount: cacheBytes, countStyle: .file)
+                         : "—")
+                        .foregroundColor(Theme.secondaryLabel)
+                }
+                Button {
+                    showClearCacheConfirm = true
+                } label: {
+                    Text(L("Clear audio cache"))
+                        .foregroundColor(.red)
+                }
+            } header: {
+                Text(L("Storage"))
+            } footer: {
+                Text(L("Cached audio lives in the app's cache folder. iOS may clear it when storage is low."))
             }
 
             Section {
@@ -297,6 +322,7 @@ struct SettingsView: View {
         .navigationTitle(L("Settings"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            refreshCacheSize()
             if SmokeTest.showsChangelog { aboutPage = .changelog }
             if SmokeTest.showsDataSources { aboutPage = .dataSources }
             if SmokeTest.showsChangelog || SmokeTest.showsDataSources {
@@ -312,6 +338,17 @@ struct SettingsView: View {
         ) {
             Button(L("Clear"), role: .destructive) {
                 library.clearRecent()
+            }
+            Button(L("Cancel"), role: .cancel) {}
+        }
+        .confirmationDialog(
+            L("Clear audio cache?"),
+            isPresented: $showClearCacheConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(L("Clear"), role: .destructive) {
+                AudioCache.shared.clear()
+                cacheBytes = 0
             }
             Button(L("Cancel"), role: .cancel) {}
         }
@@ -360,10 +397,16 @@ struct SettingsView: View {
         }
     }
 
+    private func refreshCacheSize() {
+        DispatchQueue.global(qos: .utility).async {
+            let bytes = AudioCache.shared.size()
+            DispatchQueue.main.async { cacheBytes = bytes }
+        }
+    }
+
     /// 连点 7 次才打开更新记录。中间停顿超过 2.5 秒就重新计数，
     /// 免得平时误触把页面弹出来。
-    private func registerVersionTap() {
-        let now = Date()
+    private func registerVersionTap() {        let now = Date()
         if now.timeIntervalSince(lastVersionTap) > 2.5 { versionTaps = 0 }
         lastVersionTap = now
         versionTaps += 1

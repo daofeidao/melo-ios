@@ -521,6 +521,13 @@ final class PlayerEngine: ObservableObject {
             player.play()
         }
         updateNowPlaying()
+        // 起播后顺手把音频落盘，下次直接读本地。后台任务，失败不影响当前播放。
+        AudioCache.shared.store(
+            from: stream.url,
+            for: track,
+            mime: stream.mime,
+            userAgent: stream.userAgent ?? StreamResolver.clientUserAgent
+        )
         prefetchUpcoming()
     }
 
