@@ -12,6 +12,12 @@ struct ChangelogEntry: Identifiable {
 enum Changelog {
     static var entries: [ChangelogEntry] {
         [
+            ChangelogEntry(version: "1.16.7", date: "2026-11-12", notes: [
+                L("Hi·FLAC added as a built-in source: it can serve 320 kbps and real FLAC lossless."),
+                L("The source sheet no longer pushes its last rows off the screen."),
+                L("Local files can now be played through an online source instead of the file on the device."),
+                L("QQ Music sign-in opens the mobile login page instead of the desktop home page.")
+            ]),
             ChangelogEntry(version: "1.16.4", date: "2026-11-11", notes: [
                 L("Cached audio now lives in Local Music: every cached song can be browsed and deleted there."),
                 L("Cached files are named title – artist_4min29s_ so the duration is readable at a glance."),

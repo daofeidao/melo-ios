@@ -105,6 +105,17 @@ enum AudioSource {
         // 手动切换音源的那一首，只对本次解析生效
         defer { DomesticSource.forceLooseOnce = false }
 
+        // 用户手动锁定了音源：只走这一条，拿不到就明确失败，不偷偷换源。
+        // 刻意放在本地文件 / 缓存之前——用户选了「酷我」就是要走网络，
+        // 不能因为这首歌正好有本地缓存或本地文件就悄悄读本地。
+        if let pinned = pinnedSource {
+            if let stream = await pinnedStream(for: track, source: pinned, quality: quality) {
+                lastResolvedSource = pinned
+                return stream
+            }
+            throw ApiError.unavailable(L("This source has no playable version of this song."))
+        }
+
         // 本地导入的音频：直接给 file URL，不联网、不解析
         if track.source == LocalMusicStore.sourceTag {
             guard let url = LocalMusicStore.fileURL(for: track) else {
@@ -118,15 +129,6 @@ enum AudioSource {
         if let cached = AudioCache.shared.cachedURL(for: track) {
             lastResolvedSource = "cache"
             return AudioStream(url: cached, itag: -1, bitrate: 0, mime: "audio/mpeg")
-        }
-
-        // 用户手动锁定了音源：只走这一条，拿不到就明确失败，不偷偷换源
-        if let pinned = pinnedSource {
-            if let stream = await pinnedStream(for: track, source: pinned, quality: quality) {
-                lastResolvedSource = pinned
-                return stream
-            }
-            throw ApiError.unavailable(L("This source has no playable version of this song."))
         }
 
         // 直链能拿到就直接播（probe 已经移出关键路径）
@@ -153,9 +155,25 @@ enum AudioSource {
             return fallback
         }
 
+        // 国内源都没兜住（QQ 会员曲 / 网易云 VIP）：Hi·FLAC 用它自己的凭据还能给一条直链。
+        // 排在 YouTube 之前，但只在这首本来就有国内来源、或 YouTube 已被判定拦截时才试，
+        // 免得多花一两个 RTT 拖慢普通 YouTube 曲目的起播。
+        if track.source != nil || youtubeLikelyBlocked,
+           SourcePrefs.shared.isEnabled("flachi"),
+           let url = await FlacHiSource.streamURL(
+            title: track.title,
+            artist: track.artist,
+            quality: quality,
+            preferredID: track.source == "flachi" ? track.sourceID : nil,
+            duration: track.duration
+           ),
+           let stream = await probe(url.absoluteString, timeout: 4) {
+            lastResolvedSource = "flachi"
+            return stream
+        }
+
         // 用户自己在「关于 → 数据来源」里添加的音源：排在所有内置源之后
-        let customSources = SourcePrefs.shared.customSources
-        if !customSources.isEmpty {
+        let customSources = SourcePrefs.shared.customSources        if !customSources.isEmpty {
             for source in customSources {
                 guard let raw = await SourcePrefs.shared.resolveCustom(source, track: track) else { continue }
                 if let stream = await probe(raw, timeout: 4) { return stream }
@@ -200,6 +218,18 @@ enum AudioSource {
                 return stream
             }
             return nil
+        }
+
+        // Hi·FLAC 自带搜索 + 签名，一次调用就能给直链，不用走下面的通用搜索循环
+        if source == "flachi" {
+            guard let url = await FlacHiSource.streamURL(
+                title: track.title,
+                artist: track.artist,
+                quality: quality,
+                preferredID: track.source == "flachi" ? track.sourceID : nil,
+                duration: track.duration
+            ) else { return nil }
+            return AudioStream(url: url, itag: -1, bitrate: 0, mime: "audio/mpeg")
         }
 
         if track.source == source, !track.isVip, let id = track.sourceID, !id.isEmpty,

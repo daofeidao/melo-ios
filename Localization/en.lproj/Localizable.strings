@@ -296,9 +296,14 @@
 "Currently in use" = "Currently in use";
 "Resolve again from this source" = "Resolve again from this source";
 "Turned off in Data Sources" = "Turned off in Data Sources";
-"Local files need no network source" = "Local files need no network source";
+"Play online from this source" = "Play online from this source";
+"This source has no %@ — it will still try, and may fall back or fail." = "This source has no %@ — it will still try, and may fall back or fail.";
+"Hi·FLAC added as a built-in source: it can serve 320 kbps and real FLAC lossless." = "Hi·FLAC added as a built-in source: it can serve 320 kbps and real FLAC lossless.";
+"The source sheet no longer pushes its last rows off the screen." = "The source sheet no longer pushes its last rows off the screen.";
+"Local files can now be played through an online source instead of the file on the device." = "Local files can now be played through an online source instead of the file on the device.";
+"QQ Music sign-in opens the mobile login page instead of the desktop home page." = "QQ Music sign-in opens the mobile login page instead of the desktop home page.";
 "Custom resolve endpoint" = "Custom resolve endpoint";
-"This is a local file, played straight from the device, so there is no source to switch." = "This is a local file, played straight from the device, so there is no source to switch.";
+"This is a local file. Pick an online source to stream it instead; Auto plays the local file again." = "This is a local file. Pick an online source to stream it instead; Auto plays the local file again.";
 "A manually picked source stays pinned to this song. If it cannot serve the track the app tells you instead of silently switching back." = "A manually picked source stays pinned to this song. If it cannot serve the track the app tells you instead of silently switching back.";
 "Playback Source" = "Playback Source";
 "Local cache" = "Local cache";

@@ -89,6 +89,13 @@ private struct LoginWebView: UIViewRepresentable {
         web.allowsBackForwardNavigationGestures = true
         web.scrollView.keyboardDismissMode = .interactive
 
+        // QQ 音乐没有移动版登录页（i.y.qq.com 那几个路径全是空白错误页），
+        // 只有 PC 版 y.qq.com 右上角提供登录入口；用桌面 UA 打开才能点到。
+        if urlString.contains("y.qq.com") {
+            web.customUserAgent = Self.desktopUA
+            web.scrollView.minimumZoomScale = 0.5
+        }
+
         if let url = URL(string: urlString) {
             web.load(URLRequest(url: url))
         }
@@ -96,6 +103,9 @@ private struct LoginWebView: UIViewRepresentable {
         context.coordinator.start(domain: domain, hint: hint, onFound: onCookieFound)
         return web
     }
+
+    private static let desktopUA =
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 

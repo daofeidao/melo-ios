@@ -92,10 +92,14 @@ struct PlayerSourceSheet: View {
                             player.selectSource(info.id)
                             dismiss()
                         } label: {
-                            row(id: info.id, name: info.name, detail: detail(for: info))
+                            row(
+                                id: info.id,
+                                name: info.name,
+                                detail: detail(for: info),
+                                dimmed: !prefs.supports(info.id, quality: quality)
+                            )
                         }
                         .buttonStyle(PlainButtonStyle())
-                        .disabled(isLocalFile)
                     }
 
                     ForEach(prefs.customSources) { source in
@@ -106,17 +110,16 @@ struct PlayerSourceSheet: View {
                             row(
                                 id: source.id,
                                 name: source.name,
-                                detail: isLocalFile ? L("Local files need no network source") : L("Custom resolve endpoint")
+                                detail: isLocalFile ? L("Play online from this source") : L("Custom resolve endpoint")
                             )
                         }
                         .buttonStyle(PlainButtonStyle())
-                        .disabled(isLocalFile)
                     }
                 } header: {
                     Text(L("Source"))
                 } footer: {
                     Text(isLocalFile
-                         ? L("This is a local file, played straight from the device, so there is no source to switch.")
+                         ? L("This is a local file. Pick an online source to stream it instead; Auto plays the local file again.")
                          : L("A manually picked source stays pinned to this song. If it cannot serve the track the app tells you instead of silently switching back."))
                 }
             }
@@ -151,22 +154,26 @@ struct PlayerSourceSheet: View {
     }
 
     private func detail(for info: SourcePrefs.SourceInfo) -> String {
-        if isLocalFile { return L("Local files need no network source") }
+        // 灰 ≠ 不可点：这一档它给不了，只提示，用户照样可以点
+        if !prefs.supports(info.id, quality: quality) {
+            return String(format: L("This source has no %@ — it will still try, and may fall back or fail."), quality.label)
+        }
+        if isLocalFile { return L("Play online from this source") }
         if player.activeSource == info.id { return L("Currently in use") }
         if !prefs.isEnabled(info.id) { return L("Turned off in Data Sources") }
         return L("Resolve again from this source")
     }
 
-    private func row(id: String?, name: String, detail: String) -> some View {
+    private func row(id: String?, name: String, detail: String, dimmed: Bool = false) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
                     .font(.system(size: 15))
-                    .foregroundColor(.primary)
+                    .foregroundColor(dimmed ? Theme.secondaryLabel : .primary)
                 Text(detail)
                     .font(.system(size: 11))
-                    .foregroundColor(Theme.secondaryLabel)
-                    .lineLimit(1)
+                    .foregroundColor(dimmed ? Theme.secondaryLabel.opacity(0.75) : Theme.secondaryLabel)
+                    .lineLimit(2)
             }
             Spacer(minLength: 4)
             if player.preferredSource == id {
@@ -184,6 +191,7 @@ struct PlayerSourceSheet: View {
         case "cache": return L("Local cache")
         case "kugou": return "酷狗音乐"
         case "kuwo": return "酷我音乐"
+        case "flachi": return "Hi·FLAC"
         case "netease": return "网易云音乐"
         case "qq": return "QQ 音乐"
         case "youtube": return "YouTube Music"

@@ -26,6 +26,8 @@ final class SourcePrefs: ObservableObject {
     let builtIn: [SourceInfo] = [
         SourceInfo(id: "kugou", name: "酷狗音乐", needsLogin: false),
         SourceInfo(id: "kuwo", name: "酷我音乐", needsLogin: false),
+        // 排在酷我之后：它其实也是拿酷我的资源，但能补上 320 / flac 两档
+        SourceInfo(id: "flachi", name: "Hi·FLAC 无损", needsLogin: false),
         SourceInfo(id: "netease", name: "网易云音乐", needsLogin: true),
         SourceInfo(id: "qq", name: "QQ 音乐", needsLogin: true),
         SourceInfo(id: "youtube", name: "YouTube Music", needsLogin: false)
@@ -65,6 +67,8 @@ final class SourcePrefs: ObservableObject {
     func loginURL(_ id: String) -> String {
         switch id {
         case "netease": return "https://y.music.163.com/m/login"
+        // QQ 音乐的移动版网页没有登录入口，只有 PC 版首页右上角能登录；
+        // WebLoginView 检测到 y.qq.com 会换成桌面 UA
         case "qq": return "https://y.qq.com/"
         case "kuwo": return "https://m.kuwo.cn/newh5app/"
         case "kugou": return "https://www.kugou.com/"
@@ -96,6 +100,30 @@ final class SourcePrefs: ObservableObject {
     }
 
     func isEnabled(_ id: String) -> Bool { enabled[id] ?? true }
+
+    /// 这个源在给定音质档位上有没有把握。
+    ///
+    /// 只用来「灰显提示」，不用来禁用：用户可能就是想试一下，
+    /// 或者接受它自动降到低一档。所以面板里照样可以点，只是文案说明清楚。
+    ///
+    /// 档位能力是按实测结论定的：酷狗/酷我匿名只到 320；Hi·FLAC 用它的会员凭据
+    /// 代取，能出 flac；网易云 320 与无损都要 Cookie；QQ 的无损要会员态。
+    func supports(_ id: String, quality: StreamResolver.Quality) -> Bool {
+        let signedIn = cookie(id) != nil
+        switch id {
+        case "kugou", "kuwo":
+            return quality != .lossless
+        case "flachi":
+            return true
+        case "netease":
+            return quality == .normal || quality == .low || signedIn
+        case "qq":
+            return quality != .lossless || signedIn
+        default:
+            // 自定义源面向用户自己的接口，能力未知，不做假设
+            return true
+        }
+    }
 
     func setEnabled(_ id: String, _ value: Bool) {
         enabled[id] = value
