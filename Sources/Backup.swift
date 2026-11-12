@@ -140,6 +140,21 @@ enum BackupService {
     /// 解码：优先 ISO8601（现在的导出格式），失败再用默认策略兜一次
     /// （老版本或别处导出的文件里，日期可能是秒数）。
     private static func decode(_ data: Data) throws -> MeloBackup {
+        // Android 版备份的字段名和这边不完全一样，先转换一遍
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let patched = normalizeAndroidFields(object)
+            if let patchedData = try? JSONSerialization.data(withJSONObject: patched) {
+                let iso = JSONDecoder()
+                iso.dateDecodingStrategy = .iso8601
+                if let backup = try? iso.decode(MeloBackup.self, from: patchedData) {
+                    return backup
+                }
+                let plain = JSONDecoder()
+                plain.dateDecodingStrategy = .deferredToDate
+                return try plain.decode(MeloBackup.self, from: patchedData)
+            }
+        }
+
         let iso = JSONDecoder()
         iso.dateDecodingStrategy = .iso8601
         if let backup = try? iso.decode(MeloBackup.self, from: data) {
@@ -148,6 +163,57 @@ enum BackupService {
         let plain = JSONDecoder()
         plain.dateDecodingStrategy = .deferredToDate
         return try plain.decode(MeloBackup.self, from: data)
+    }
+
+    /// Android 版备份 → 这边的字段名：
+    /// - 平台 id 写作 `sourceId`（这边是 `sourceID`）
+    /// - 曲目没有 `videoId`，只有算出来的 `id`（形如 "netease:123"）
+    /// - 歌单没有 `id`（UUID）和 `createdAt`
+    private static func normalizeAndroidFields(_ root: [String: Any]) -> [String: Any] {
+        var root = root
+        if let favorites = root["favorites"] as? [[String: Any]] {
+            root["favorites"] = favorites.map(normalizeTrack)
+        }
+        if let recent = root["recent"] as? [[String: Any]] {
+            root["recent"] = recent.map(normalizeTrack)
+        }
+        if let playlists = root["playlists"] as? [[String: Any]] {
+            root["playlists"] = playlists.map { item -> [String: Any] in
+                var item = item
+                if let sid = item["sourceId"] as? String, item["sourceID"] == nil {
+                    item["sourceID"] = sid
+                }
+                if item["id"] == nil {
+                    item["id"] = UUID().uuidString
+                }
+                if item["createdAt"] == nil {
+                    item["createdAt"] = ISO8601DateFormatter().string(from: Date())
+                }
+                if let tracks = item["tracks"] as? [[String: Any]] {
+                    item["tracks"] = tracks.map(normalizeTrack)
+                }
+                return item
+            }
+        }
+        return root
+    }
+
+    private static func normalizeTrack(_ item: [String: Any]) -> [String: Any] {
+        var item = item
+        if let sid = item["sourceId"] as? String, item["sourceID"] == nil {
+            item["sourceID"] = sid
+        }
+        let videoId = (item["videoId"] as? String) ?? ""
+        if videoId.isEmpty, let rawID = item["id"] as? String, !rawID.isEmpty {
+            let parts = rawID.split(separator: ":", maxSplits: 1).map(String.init)
+            if parts.count == 2 {
+                if item["source"] == nil { item["source"] = parts[0] }
+                if item["sourceID"] == nil { item["sourceID"] = parts[1] }
+            } else {
+                item["videoId"] = rawID
+            }
+        }
+        return item
     }
 }
 

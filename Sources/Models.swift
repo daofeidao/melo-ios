@@ -18,8 +18,9 @@ struct Track: Identifiable, Hashable, Codable {
     /// 手写解码：新增字段要能读老数据（收藏、最近播放都存在 UserDefaults 里），
     /// 合成解码遇到缺字段会直接抛错，用户的收藏就整个没了。
     ///
-    /// 同时兼容 Android 版导出的备份：那边字段名是 `sourceId` / `id`，
-    /// 而且 Track 里没有 videoId 这个概念（id 是 "源:id" 或平台 id）。
+    /// Android 版导出的备份（字段名 sourceId / id）由 BackupService 在解码前
+    /// 先做一次字段名转换，不在这里处理 —— 那两个键没有同名存储属性，
+    /// 塞进 CodingKeys 会让合成编码报错。
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         videoId = try container.decodeIfPresent(String.self, forKey: .videoId) ?? ""
@@ -29,36 +30,8 @@ struct Track: Identifiable, Hashable, Codable {
         duration = try container.decodeIfPresent(Int.self, forKey: .duration) ?? 0
         artwork = try container.decodeIfPresent(String.self, forKey: .artwork)
         source = try container.decodeIfPresent(String.self, forKey: .source)
+        sourceID = try container.decodeIfPresent(String.self, forKey: .sourceID)
         isVip = try container.decodeIfPresent(Bool.self, forKey: .isVip) ?? false
-
-        // Android 写的是 sourceId（小写 d），这里两个键都认
-        var resolvedSourceID = try container.decodeIfPresent(String.self, forKey: .sourceID)
-        if resolvedSourceID == nil, let legacy = try container.decodeIfPresent(String.self, forKey: BackupKey("sourceId")) {
-            resolvedSourceID = legacy
-        }
-
-        // Android 的 id 可能是 "源:平台 id" 形式，拆成 source + sourceID 才能取流；
-        // 不是冒号形式的（YouTube 11 位 id）就当 videoId 用
-        if let rawID = try container.decodeIfPresent(String.self, forKey: BackupKey("id")),
-           !rawID.isEmpty {
-            let parts = rawID.split(separator: ":", maxSplits: 1).map(String.init)
-            if parts.count == 2 {
-                if source == nil { source = parts[0] }
-                if resolvedSourceID == nil { resolvedSourceID = parts[1] }
-            } else if videoId.isEmpty {
-                videoId = rawID
-            }
-        }
-        sourceID = resolvedSourceID
-    }
-
-    /// 只为读 Android 备份里的额外键
-    private struct BackupKey: CodingKey {
-        var stringValue: String
-        var intValue: Int? { nil }
-        init(_ value: String) { stringValue = value }
-        init?(stringValue: String) { self.stringValue = stringValue }
-        init?(intValue: Int) { nil }
     }
 
     init(
