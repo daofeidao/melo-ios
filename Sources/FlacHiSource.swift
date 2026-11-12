@@ -82,6 +82,26 @@ enum FlacHiSource {
         }
     }
 
+    /// 搜索结果转 Track，给搜索页用。
+    ///
+    /// 每条都带 `platform:id`，点播时按 id 精确取流，不会走歌名模糊匹配，
+    /// 所以「周杰伦在这个站没有原版」只影响列表里有没有，不会串到翻唱。
+    static func searchTracks(query: String, limit: Int = 20) async -> [Track] {
+        let hits = await search(keyword: query, limit: limit, platform: "kuwo")
+        return hits.map { hit in
+            Track(
+                videoId: "",
+                title: hit.title,
+                artist: hit.artist.isEmpty ? L("Unknown Artist") : hit.artist,
+                album: hit.album,
+                duration: hit.duration,
+                artwork: hit.artwork,
+                source: "flachi",
+                sourceID: hit.sourceID
+            )
+        }
+    }
+
     // MARK: - 取流
 
     /// 按当前音质档位排出要依次尝试的 (format, bitrate)

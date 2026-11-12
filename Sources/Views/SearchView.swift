@@ -8,6 +8,9 @@ struct SearchView: View {
     @State private var error: String?
     @State private var pending: Task<Void, Never>?
     @State private var recentSearches: [String] = []
+    /// 空态显示内置 + 搜过的艺人；搜索结果页显示本次命中的那几位
+    @State private var artists: [String] = ArtistStore.all()
+    @State private var matchedArtists: [String] = []
     @State private var youtubeLoaded = false
     @State private var youtubeLoading = false
     @State private var youtubeNote: String?
@@ -31,7 +34,7 @@ struct SearchView: View {
                         Task { await performSearch(query) }
                     }
                     Spacer()
-                } else if hasSearched, results.tracks.isEmpty, results.collections.isEmpty, results.domestic.isEmpty, results.domesticCollections.isEmpty {
+                } else if hasSearched, results.tracks.isEmpty, results.collections.isEmpty, results.domestic.isEmpty, results.domesticCollections.isEmpty, matchedArtists.isEmpty {
                     EmptyHint(
                         symbol: "magnifyingglass",
                         title: L("No results"),
@@ -48,6 +51,7 @@ struct SearchView: View {
             .navigationBarTitleDisplayMode(.large)
             .onAppear {
                 loadRecentSearches()
+                artists = ArtistStore.all()
                 guard let preset = SmokeTest.searchQuery, query.isEmpty else { return }
                 query = preset
             }
@@ -99,6 +103,11 @@ struct SearchView: View {
     private var resultList: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
+                // 搜索时也把「艺人」放在最上面，和 Apple Music 的结果页一致
+                if !matchedArtists.isEmpty {
+                    artistSection(matchedArtists)
+                }
+
                 if !playlistCollections.isEmpty {
                     collectionSection(title: L("Playlists"), items: playlistCollections)
                 }
@@ -112,7 +121,7 @@ struct SearchView: View {
                         SectionHeader(title: L("Songs"))
                         LazyVStack(spacing: 0) {
                             ForEach(Array(results.domestic.enumerated()), id: \.offset) { index, track in
-                                TrackRow(track: track, badge: track.isVip ? "VIP" : nil) {
+                                TrackRow(track: track, badge: sourceBadge(track)) {
                                     player.play(tracks: results.domestic, startAt: index)
                                 }
                                 .padding(.horizontal, 16)
@@ -171,7 +180,7 @@ struct SearchView: View {
                     SectionHeader(title: L("Songs"))
                     LazyVStack(spacing: 0) {
                         ForEach(Array(results.tracks.enumerated()), id: \.offset) { index, track in
-                            TrackRow(track: track) {
+                            TrackRow(track: track, badge: "YT") {
                                 player.play(tracks: results.tracks, startAt: index)
                             }
                             .padding(.horizontal, 16)
@@ -265,6 +274,8 @@ struct SearchView: View {
                     .padding(.horizontal, 16)
                 }
 
+                artistSection(artists)
+
                 VStack(alignment: .leading, spacing: 10) {
                     SectionHeader(title: L("Browse by Genre"))
                     LazyVGrid(
@@ -284,6 +295,47 @@ struct SearchView: View {
             .padding(.top, 6)
             .padding(.bottom, Layout.contentBottomInset)
         }
+    }
+
+    /// Apple Music 式「艺人」区：圆形头像卡片横排、名字居中。空态和结果页共用。
+    private func artistSection(_ names: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(title: L("Artists"))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 14) {
+                    ForEach(names, id: \.self) { name in
+                        NavigationLink(destination: ArtistDetailView(name: name)) {
+                            artistChip(name)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+        }
+    }
+
+    private func artistChip(_ name: String) -> some View {
+        let colors: [Color] = [
+            Color(hex: 0xE0455E), Color(hex: 0x2E7BE0), Color(hex: 0xE08A2E),
+            Color(hex: 0x2EA98A), Color(hex: 0x7B5BD6), Color(hex: 0xC24E8F),
+            Color(hex: 0x3C6FA8)
+        ]
+        let index = abs(name.hashValue % colors.count)
+        return VStack(spacing: 7) {
+            ZStack {
+                Circle().fill(colors[index])
+                Text(String(name.prefix(1)).uppercased())
+                    .font(.system(size: 32, weight: .semibold))
+                    .foregroundColor(.white)
+            }
+            .frame(width: 88, height: 88)
+            Text(name)
+                .font(.system(size: 13))
+                .foregroundColor(Theme.secondaryLabel)
+                .lineLimit(1)
+        }
+        .frame(width: 96)
     }
 
     private func genreCard(_ genre: PlaylistGenre, index: Int) -> some View {
@@ -320,6 +372,18 @@ struct SearchView: View {
         UserDefaults.standard.set(list, forKey: recentSearchesKey)
     }
 
+    private func dedup(_ tracks: [Track]) -> [Track] {
+        var seen = Set<String>()
+        return tracks.filter { track in
+            let key = normalize(track.title) + "|" + normalize(track.artist)
+            return seen.insert(key).inserted
+        }
+    }
+
+    private func normalize(_ value: String) -> String {
+        value.lowercased().replacingOccurrences(of: " ", with: "")
+    }
+
     private func performSearch(_ raw: String) async {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -339,12 +403,18 @@ struct SearchView: View {
 
         let started = Date()
 
-        // 三路并发，全部国内源。YouTube 不在这里：没有代理时它固定白等 12 秒，
-        // 而国内三路实测 0.2~1 秒就全回来了。
+        // Hi·FLAC 单独一路，不动 DomesticSource.search（那条链路还被播放取流用着）。
+        // 它的结果自带 platform:id，点播时按 id 精确取流，不会走歌名模糊匹配。
+        // 四路并发；YouTube 仍不在这里，没有代理时它固定白等 12 秒。
+        let flacJob = Task { () -> [Track] in
+            guard SourcePrefs.shared.isEnabled("flachi") else { return [] }
+            return await FlacHiSource.searchTracks(query: trimmed, limit: 20)
+        }
         let songsJob = Task { await DomesticSource.search(query: trimmed) }
         let albumsJob = Task { await DomesticSource.neteaseAlbumSearch(query: trimmed) }
         let playlistsJob = Task { await DomesticSource.neteasePlaylistSearch(query: trimmed) }
 
+        let flac = await flacJob.value
         let songs = await songsJob.value
         let albums = await albumsJob.value
         let playlists = await playlistsJob.value
@@ -352,10 +422,12 @@ struct SearchView: View {
         guard generation == searchGeneration else { return }
 
         let ms = Int(Date().timeIntervalSince(started) * 1000)
-        NSLog("SMOKE_SEARCH domestic=\(songs.count) albums=\(albums.count) playlists=\(playlists.count) ms=\(ms)")
+        NSLog("SMOKE_SEARCH flac=\(flac.count) domestic=\(songs.count) albums=\(albums.count) playlists=\(playlists.count) ms=\(ms)")
 
+        // Hi·FLAC 排最前，其余国内源补充；去重保留先出现的那条（带精确 id，播放最稳）。
+        let merged = dedup(flac + songs)
         // 可播排前面、VIP 排后面；同组内保持接口原顺序
-        let ordered = songs.filter { !$0.isVip } + songs.filter { $0.isVip }
+        let ordered = merged.filter { !$0.isVip } + merged.filter { $0.isVip }
 
         var merged = SearchResults()
         merged.domestic = ordered
@@ -381,9 +453,14 @@ struct SearchView: View {
             loading = false
             hasSearched = true
             rememberSearch(trimmed)
+            matchedArtists = extractArtists(term: trimmed, tracks: ordered)
+            if let hit = matchedArtists.first, artistMatches(term: trimmed, artist: hit) {
+                ArtistStore.remember(hit)
+                artists = ArtistStore.all()
+            }
             // 只预热免费曲目：VIP 会白等一次匹配
             player.prewarm(tracks: ordered.filter { !$0.isVip }, limit: 5)
-            if ordered.isEmpty, merged.domesticCollections.isEmpty {
+            if ordered.isEmpty, merged.domesticCollections.isEmpty, matchedArtists.isEmpty {
                 error = L("Nothing found on domestic sources. Open “More results” to try YouTube.")
             } else {
                 error = nil
