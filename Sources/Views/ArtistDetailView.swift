@@ -215,14 +215,16 @@ struct ArtistDetailView: View {
         let a = await albumTask.value
         let f = await flacTask.value
         let s = await songTask.value
-        let merged = dedup(f + s)
+        // 只认这位艺人本人的作品，别把同名合辑 / 翻唱 / 别人专辑里收录的曲子混进来
+        let merged = dedup(f + s).filter { artistMatches(term: name, artist: $0.artist) }
+        let ownAlbums = a.filter { $0.artist.isEmpty || artistMatches(term: name, artist: $0.artist) }
 
         await MainActor.run {
             profile = p
-            albums = a
+            albums = ownAlbums
             tracks = merged
             loading = false
-            if a.isEmpty, merged.isEmpty, p == nil {
+            if ownAlbums.isEmpty, merged.isEmpty, p == nil {
                 errorText = L("No artist info found. Try another name.")
             }
         }
