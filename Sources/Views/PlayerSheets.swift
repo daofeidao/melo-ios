@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 播放页左下角入口：播放历史与待播清单合成一个浮层，顶部用分段切换。
 /// 两者都是「这一轮播放的上下文」，分开放会白占一个按钮位。
@@ -143,7 +144,7 @@ struct PlayerSourceSheet: View {
                 .foregroundColor(active ? Theme.accent : Color.primary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
-                .background(active ? Theme.accent.opacity(0.16) : Theme.tertiaryFill)
+                .background(active ? Theme.accent.opacity(0.16) : Color(UIColor.tertiarySystemFill))
                 .clipShape(RoundedRectangle(cornerRadius: 9))
         }
         .buttonStyle(PlainButtonStyle())
