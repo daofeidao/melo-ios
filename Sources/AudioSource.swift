@@ -166,6 +166,7 @@ enum AudioSource {
             let stream = try await StreamResolver.resolve(videoId: track.videoId, quality: quality)
             // 解析成功说明 YouTube 这条路已经恢复，清掉上一次失败留下的熔断标记
             blockedAt = nil
+            lastResolvedSource = "youtube"
             return stream
         } catch {
             if let typed = error as? ApiError, case .botCheck = typed {
@@ -264,7 +265,11 @@ enum AudioSource {
             guard !hasFailed(candidate.id), !tried.contains(candidate.id) else { continue }
             // 先记下来：拿不到直链的候选下次不必再问
             rememberFallback(candidate, for: track.id)
-            if let stream = await verifiedDomesticStream(for: candidate) { return stream }
+            if let stream = await verifiedDomesticStream(for: candidate) {
+                // 记下实际命中的源，播放页的「播放源」面板要显示「当前：酷我」这类信息
+                lastResolvedSource = candidate.source
+                return stream
+            }
         }
 
         // 严格模式下这里通常是「同名但时长对不上」：把那些版本交给播放页手动切换
