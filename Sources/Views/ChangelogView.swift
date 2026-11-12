@@ -12,6 +12,14 @@ struct ChangelogEntry: Identifiable {
 enum Changelog {
     static var entries: [ChangelogEntry] {
         [
+            ChangelogEntry(version: "1.16.10", date: "2026-11-12", notes: [
+                L("Hi·FLAC now checks title, artist and duration before accepting a match, so covers, live takes and DJ edits are no longer played as the original."),
+                L("Hi·FLAC searches by song title only: adding the artist made the site return no results at all."),
+                L("A stream found by name search is no longer written to the local audio cache."),
+                L("Cached audio now records its source and quality. Turning a source off, switching sources or changing quality invalidates that file instead of replaying it."),
+                L("Wrong cached files left by older versions are removed automatically on upgrade."),
+                L("Playback errors now name the sources you turned off.")
+            ]),
             ChangelogEntry(version: "1.16.9", date: "2026-11-12", notes: [
                 L("Picking a source in the player now really switches the source: the previous stream is no longer reused from cache."),
                 L("Turning a source off in Data Sources now takes effect immediately; picking a disabled source reports it instead of silently playing the old one."),

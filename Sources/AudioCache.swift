@@ -389,7 +389,21 @@ final class AudioCache {
            let decoded = try? JSONDecoder().decode([String: Entry].self, from: data) {
             loaded = decoded
         }
+
+        // 1.16.9 之前的缓存没有来源 / 可信标记，那批里就有「按歌名错配」的音频。
+        // 升级后一次性清掉，别让它们继续躺在「本地音乐」里顶着这些歌。
+        let stale = loaded.filter { !$0.value.verified || $0.value.source.isEmpty }
+        if !stale.isEmpty {
+            for (key, entry) in stale {
+                loaded.removeValue(forKey: key)
+                try? FileManager.default.removeItem(
+                    at: directory.appendingPathComponent(entry.file)
+                )
+            }
+            DispatchQueue.main.async { LocalMusicStore.shared.reload() }
+        }
         index = loaded
+        if !stale.isEmpty { saveIndexLocked() }
 
         // 旧版本把缓存放在 Caches/Audio，文件是 hash 名、不在本地音乐里，
         // 留着只会白占空间，这里一次性清掉
