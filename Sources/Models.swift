@@ -12,6 +12,10 @@ struct Track: Identifiable, Hashable, Codable {
     var sourceID: String? = nil
     /// 网易云的 VIP / 付费曲目：搜出来能看见，但外链大概率拿不到直链
     var isVip: Bool = false
+    /// 专辑曲目表里保留、但当前没有可播版本的一首：列表灰显、不可点
+    var isUnavailable: Bool = false
+    /// 只能用曲目自带的平台 id 取流，不许按歌名去别的源兜底（专辑曲目专用）
+    var strictSource: Bool = false
 
     var id: String { videoId.isEmpty ? (source ?? "") + ":" + (sourceID ?? "") : videoId }
 
@@ -32,6 +36,8 @@ struct Track: Identifiable, Hashable, Codable {
         source = try container.decodeIfPresent(String.self, forKey: .source)
         sourceID = try container.decodeIfPresent(String.self, forKey: .sourceID)
         isVip = try container.decodeIfPresent(Bool.self, forKey: .isVip) ?? false
+        isUnavailable = try container.decodeIfPresent(Bool.self, forKey: .isUnavailable) ?? false
+        strictSource = try container.decodeIfPresent(Bool.self, forKey: .strictSource) ?? false
     }
 
     init(
@@ -43,7 +49,9 @@ struct Track: Identifiable, Hashable, Codable {
         artwork: String? = nil,
         source: String? = nil,
         sourceID: String? = nil,
-        isVip: Bool = false
+        isVip: Bool = false,
+        isUnavailable: Bool = false,
+        strictSource: Bool = false
     ) {
         self.videoId = videoId
         self.title = title
@@ -54,6 +62,8 @@ struct Track: Identifiable, Hashable, Codable {
         self.source = source
         self.sourceID = sourceID
         self.isVip = isVip
+        self.isUnavailable = isUnavailable
+        self.strictSource = strictSource
     }
 
     var durationText: String {

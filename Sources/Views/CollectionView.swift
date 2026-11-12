@@ -17,7 +17,10 @@ struct CollectionView: View {
                 header
 
                 if let detail = detail, !detail.tracks.isEmpty {
-                    actionButtons(detail.tracks)
+                    // 播放队列只放有可播版本的曲目；灰显项仍完整占一行，
+                    // 但不会被排进队列，免得切到它时去乱匹配别的版本。
+                    let playable = detail.tracks.filter { !$0.isUnavailable }
+                    actionButtons(playable)
                         .padding(.top, 22)
                         .padding(.bottom, 10)
 
@@ -27,10 +30,14 @@ struct CollectionView: View {
                                 track: track,
                                 showArtwork: false,
                                 showIndex: true,
-                                index: index + 1
+                                index: index + 1,
+                                badge: track.isUnavailable ? L("No source") : nil
                             ) {
-                                player.play(tracks: detail.tracks, startAt: index)
+                                guard !track.isUnavailable else { return }
+                                let playIndex = playable.firstIndex { $0.id == track.id } ?? 0
+                                player.play(tracks: playable, startAt: playIndex)
                             }
+                            .opacity(track.isUnavailable ? 0.42 : 1)
                             .padding(.horizontal, 16)
 
                             Divider().padding(.leading, 54)

@@ -16,7 +16,8 @@ enum Changelog {
                 L("Search now shows Hi·FLAC results first, with a source badge on every song."),
                 L("A new Artists section with circular cards appears both on the search page and in search results, like Apple Music."),
                 L("Artists you search for are saved automatically."),
-                L("Tapping an artist opens a page with representative works, albums, top songs and a biography.")
+                L("Tapping an artist opens a page with representative works, albums, top songs and a biography."),
+                L("Album track lists are now complete: songs without a playable version stay in the list, greyed out, and are never replaced by a cover or live take.")
             ]),
             ChangelogEntry(version: "1.16.10", date: "2026-11-12", notes: [
                 L("Hi·FLAC now checks title, artist and duration before accepting a match, so covers, live takes and DJ edits are no longer played as the original."),

@@ -425,9 +425,9 @@ struct SearchView: View {
         NSLog("SMOKE_SEARCH flac=\(flac.count) domestic=\(songs.count) albums=\(albums.count) playlists=\(playlists.count) ms=\(ms)")
 
         // Hi·FLAC 排最前，其余国内源补充；去重保留先出现的那条（带精确 id，播放最稳）。
-        let merged = dedup(flac + songs)
+        let combined = dedup(flac + songs)
         // 可播排前面、VIP 排后面；同组内保持接口原顺序
-        let ordered = merged.filter { !$0.isVip } + merged.filter { $0.isVip }
+        let ordered = combined.filter { !$0.isVip } + combined.filter { $0.isVip }
 
         var merged = SearchResults()
         merged.domestic = ordered

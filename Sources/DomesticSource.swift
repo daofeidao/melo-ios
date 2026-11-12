@@ -700,13 +700,15 @@ enum DomesticSource {
             .compactMap { JS.string($0["name"]) }
             .joined(separator: ", ")
 
-        let songs = (JS.array(album["songs"]) ?? []).compactMap { raw -> Track? in
+        // 专辑曲目表要完整：没有平台 id、或需要付费的曲目照样占一行，
+        // 只是标成灰显不可播。绝不拿同名翻唱 / Live / 别的版本来补位。
+        let songs = (JS.array(album["songs"]) ?? []).enumerated().compactMap { index, raw -> Track? in
             guard let song = JS.dict(raw),
-                  let sid = JS.int(song["id"]).map(String.init),
                   let title = JS.string(song["name"]), !title.isEmpty else { return nil }
-
+            let sid = JS.int(song["id"]).map(String.init)
             let fee = JS.int(song["fee"]) ?? 0
             let seconds = (JS.int(song["duration"]) ?? JS.int(song["dt"]) ?? 0) / 1000
+            let paid = fee == 1 || fee == 4
             return Track(
                 videoId: "",
                 title: title,
@@ -715,8 +717,10 @@ enum DomesticSource {
                 duration: seconds,
                 artwork: normalizeArtwork(JS.string(album["picUrl"])),
                 source: PlaylistPlatform.netease.rawValue,
-                sourceID: sid,
-                isVip: fee == 1 || fee == 4
+                sourceID: sid ?? "unavailable:\(id):\(index)",
+                isVip: paid,
+                isUnavailable: sid == nil || paid,
+                strictSource: true
             )
         }
 

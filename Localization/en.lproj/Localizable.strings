@@ -136,6 +136,9 @@
 "A new Artists section with circular cards appears both on the search page and in search results, like Apple Music." = "A new Artists section with circular cards appears both on the search page and in search results, like Apple Music.";
 "Artists you search for are saved automatically." = "Artists you search for are saved automatically.";
 "Tapping an artist opens a page with representative works, albums, top songs and a biography." = "Tapping an artist opens a page with representative works, albums, top songs and a biography.";
+"Album track lists are now complete: songs without a playable version stay in the list, greyed out, and are never replaced by a cover or live take." = "Album track lists are now complete: songs without a playable version stay in the list, greyed out, and are never replaced by a cover or live take.";
+"No source" = "No source";
+"This track has no playable version yet." = "This track has no playable version yet.";
 "Artists" = "Artists";
 "Artist" = "Artist";
 "Representative Works" = "Representative Works";

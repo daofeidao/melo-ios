@@ -136,6 +136,9 @@
 "A new Artists section with circular cards appears both on the search page and in search results, like Apple Music." = "新增「艺人」模块：圆形头像卡片，搜索页和搜索结果里都会出现，参照 Apple Music 设计。";
 "Artists you search for are saved automatically." = "搜过的艺人会自动保存。";
 "Tapping an artist opens a page with representative works, albums, top songs and a biography." = "点艺人进去可以看到代表作、专辑、歌曲排行和简介。";
+"Album track lists are now complete: songs without a playable version stay in the list, greyed out, and are never replaced by a cover or live take." = "专辑曲目表现在是完整的：没有可播版本的曲目仍留在列表里并灰显，绝不会拿翻唱或现场版顶替。";
+"No source" = "无音源";
+"This track has no playable version yet." = "这首暂时没有可播放的版本。";
 "Artists" = "艺人";
 "Artist" = "艺人";
 "Representative Works" = "代表作";

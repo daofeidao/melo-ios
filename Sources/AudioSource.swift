@@ -119,6 +119,11 @@ enum AudioSource {
         stateLock.unlock()
         lastResolvedSource = nil
         lastResolveTrusted = false
+
+        // 专辑曲目表里灰显的曲目：没有可播版本，不解析、更不去按歌名找替身
+        if track.isUnavailable {
+            throw ApiError.unavailable(L("This track has no playable version yet."))
+        }
         // 手动切换音源的那一首，只对本次解析生效
         defer { DomesticSource.forceLooseOnce = false }
 
@@ -152,7 +157,8 @@ enum AudioSource {
         // 默认首选 Hi·FLAC：它的会员凭据能给出 320 / flac，其余国内源匿名基本只到 128。
         // 严格匹配（艺人 + 标题 + 时长）对不上就返回 nil 降级，绝不硬选翻唱 / Live 版。
         // 这一路是「按歌名搜出来的」，标记不可信，不落盘缓存。
-        if SourcePrefs.shared.isEnabled("flachi"),
+        // 专辑曲目必须按自带的平台 id 取原曲，不能让按歌名搜索的源插队
+        if SourcePrefs.shared.isEnabled("flachi"), !track.strictSource,
            let url = await FlacHiSource.streamURL(
             title: track.title,
             artist: track.artist,
@@ -172,6 +178,12 @@ enum AudioSource {
             // 曲目自带的平台 id 换直链，能确定就是这首歌，允许落盘缓存
             lastResolveTrusted = true
             return domestic
+        }
+
+        // 专辑曲目：只允许用自带的平台 id 取原曲。原生直链拿不到就明确失败，
+        // 绝不按歌名去别的源兜底（那样会拿到翻唱 / Live / 同名曲）。
+        if track.strictSource {
+            throw ApiError.unavailable(L("This source has no playable version of this song."))
         }
 
         // 有国内来源但拿不到直链（网易云 VIP / QQ 要登录）：
