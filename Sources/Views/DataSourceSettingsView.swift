@@ -189,6 +189,8 @@ struct DataSourceSettingsView: View {
 
     private func statusText(_ info: SourcePrefs.SourceInfo) -> String {
         if !prefs.isEnabled(info.id) { return L("Disabled") }
+        // 这一项是自己后端代取的聚合源，把域名写出来，用户才知道它是什么
+        if info.id == "flachi" { return "flac.music.hi.cn · " + L("No sign-in needed") }
         if info.needsLogin {
             return prefs.cookie(info.id) == nil ? L("Not signed in") : L("Signed in")
         }
