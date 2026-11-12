@@ -37,6 +37,11 @@ final class PlayerEngine: ObservableObject {
     @Published private(set) var errorText: String?
     /// 严格模式下被拒的同名版本，播放页用「切换音源」列出来
     @Published private(set) var alternatives: [Track] = []
+
+    /// 这一首实际用的是哪个源（local / cache / kugou / kuwo / netease / qq / youtube）
+    @Published private(set) var activeSource: String?
+    /// 用户手动锁定的源；nil 表示按默认顺序自动兜底
+    @Published private(set) var preferredSource: String?
     @Published var repeatMode: RepeatMode = .off
     @Published var isShuffle = false
     /// 点歌后是否直接展开全屏播放页（Apple Music 的行为）
@@ -240,6 +245,8 @@ final class PlayerEngine: ObservableObject {
 
     func play(tracks: [Track], startAt startIndex: Int) {
         guard !tracks.isEmpty else { return }
+        // 从列表主动点播：回到自动选源，不沿用上一首的手动锁定
+        preferredSource = nil
         queue = tracks
         index = min(max(0, startIndex), tracks.count - 1)
         loadCurrent(autoPlay: true)
@@ -345,6 +352,28 @@ final class PlayerEngine: ObservableObject {
         errorText = nil
     }
 
+    /**
+     * 播放页「播放源」面板：锁定到某个源重新解析，传 nil 回到自动兜底。
+     *
+     * 手动选源本身已经表达了「就要这个版本」的意图，顺带绕过严格匹配，
+     * 否则用户点了却发现还是不放，比不给选更糟。
+     */
+    func selectSource(_ source: String?) {
+        preferredSource = source
+        DomesticSource.forceLooseOnce = source != nil
+        retryBudget = 1
+        errorText = nil
+        alternatives = []
+        loadCurrent(autoPlay: true)
+    }
+
+    /// 换了音质：缓存键里带 quality，所以这里的 loadCurrent 会真的重新取流
+    func reloadForQuality() {
+        retryBudget = 1
+        errorText = nil
+        loadCurrent(autoPlay: true)
+    }
+
     /// 用户在「切换音源」里选了某个同名版本：直接单曲播放
     func playAlternative(_ track: Track) {
         DomesticSource.forceLooseOnce = true
@@ -435,9 +464,15 @@ final class PlayerEngine: ObservableObject {
 
         Task { [weak self] in
             do {
-                let stream = try await AudioSource.resolve(track: track, quality: quality)
+                let stream = try await AudioSource.resolve(
+                    track: track,
+                    quality: quality,
+                    pinnedSource: preferredSource
+                )
+                let resolvedFrom = AudioSource.lastResolvedSource
                 DispatchQueue.main.async {
                     guard let self = self, self.loadToken == token else { return }
+                    self.activeSource = resolvedFrom
                     StreamCache.shared.store(stream, forKey: key)
                     self.start(stream: stream, autoPlay: autoPlay, token: token)
                 }

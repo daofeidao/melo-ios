@@ -43,6 +43,10 @@ enum AudioSource {
     /// 严格模式下被拒的同名版本，播放失败后由播放页读取做「切换音源」
     private static var pendingAlternatives: [Track] = []
 
+    /// 上一次解析实际命中的音源（local / cache / kugou / kuwo / netease / qq / youtube）。
+    /// 播放页的「播放源」面板用它标出「正在使用」。
+    private(set) static var lastResolvedSource: String?
+
     static func takeAlternatives() -> [Track] {
         stateLock.lock(); defer { stateLock.unlock() }
         let list = pendingAlternatives
@@ -89,10 +93,15 @@ enum AudioSource {
         }
     }
 
-    static func resolve(track: Track, quality: StreamResolver.Quality) async throws -> AudioStream {
+    static func resolve(
+        track: Track,
+        quality: StreamResolver.Quality,
+        pinnedSource: String? = nil
+    ) async throws -> AudioStream {
         stateLock.lock()
         pendingAlternatives = []
         stateLock.unlock()
+        lastResolvedSource = nil
         // 手动切换音源的那一首，只对本次解析生效
         defer { DomesticSource.forceLooseOnce = false }
 
@@ -101,18 +110,30 @@ enum AudioSource {
             guard let url = LocalMusicStore.fileURL(for: track) else {
                 throw ApiError.unavailable(L("This local file is no longer on the device."))
             }
+            lastResolvedSource = "local"
             return AudioStream(url: url, itag: -1, bitrate: 0, mime: "audio/mpeg")
         }
 
         // 音频本体已缓存：直接读本地文件，不联网、也不受直链过期影响
         if let cached = AudioCache.shared.cachedURL(for: track) {
+            lastResolvedSource = "cache"
             return AudioStream(url: cached, itag: -1, bitrate: 0, mime: "audio/mpeg")
+        }
+
+        // 用户手动锁定了音源：只走这一条，拿不到就明确失败，不偷偷换源
+        if let pinned = pinnedSource {
+            if let stream = await pinnedStream(for: track, source: pinned, quality: quality) {
+                lastResolvedSource = pinned
+                return stream
+            }
+            throw ApiError.unavailable(L("This source has no playable version of this song."))
         }
 
         // 直链能拿到就直接播（probe 已经移出关键路径）
         // VIP / 付费专辑曲目例外：实测 player/url 固定返回 -110，outer/url 固定 302 到 /404，
         // 再问一次只是白等，直接按歌名去其他音源找。
-        if !track.isVip, !hasFailed(track.id), let domestic = await domesticStream(for: track) {
+        if !track.isVip, !hasFailed(track.id), let domestic = await domesticStream(for: track, quality: quality) {
+            lastResolvedSource = track.source
             return domestic
         }
 
@@ -166,6 +187,55 @@ enum AudioSource {
 
     /// 多源兜底：先走酷狗快路径，再把酷狗 / 网易云 / 酷我的候选逐个试到能播为止。
     /// 歌单里最容易失败的是 QQ 曲目和网易云 VIP —— 以前只问一次酷狗就判失败。
+    /// 在指定音源里为这首歌找一条直链。先用曲目自带的 id，再按歌名在该源里搜。
+    private static func pinnedStream(
+        for track: Track,
+        source: String,
+        quality: StreamResolver.Quality
+    ) async -> AudioStream? {
+        if source == "youtube" {
+            if !track.videoId.isEmpty,
+               let stream = try? await StreamResolver.resolve(videoId: track.videoId, quality: quality) {
+                return stream
+            }
+            return nil
+        }
+
+        if track.source == source, !track.isVip, let id = track.sourceID, !id.isEmpty,
+           let url = await nativeURL(source: source, id: id, quality: quality) {
+            return AudioStream(url: url, itag: -1, bitrate: 0, mime: "audio/mpeg")
+        }
+
+        let keyword = "\(track.title) \(track.artist)".trimmingCharacters(in: .whitespaces)
+        guard !keyword.isEmpty else { return nil }
+        let hits = await DomesticSource.search(query: keyword, limit: 12)
+        let prefix = String(track.title.prefix(4))
+
+        for hit in hits where (hit.source ?? "") == source {
+            guard let id = hit.sourceID, !id.isEmpty else { continue }
+            if !prefix.isEmpty, !hit.title.contains(prefix) { continue }
+            if let url = await nativeURL(source: source, id: id, quality: quality) {
+                return AudioStream(url: url, itag: -1, bitrate: 0, mime: "audio/mpeg")
+            }
+        }
+        return nil
+    }
+
+    /// 单源的「自带 id 换直链」，不涉及搜索
+    private static func nativeURL(
+        source: String,
+        id: String,
+        quality: StreamResolver.Quality
+    ) async -> URL? {
+        switch source {
+        case "netease": return await DomesticSource.neteaseStreamURL(id: id, quality: quality)
+        case "kugou": return await DomesticSource.kugouStreamURL(hash: id)
+        case "kuwo": return await DomesticSource.kuwoStreamURL(id: id, quality: quality)
+        case "qq": return await DomesticSource.qqStreamURL(mid: id, quality: quality)
+        default: return nil
+        }
+    }
+
     private static func domesticFallback(for track: Track) async -> AudioStream? {
         let tried = triedCandidates(for: track.id)
         // 兜底是「尽力而为」，不能无限试：VIP 曲目必然走到这里，
@@ -224,7 +294,10 @@ enum AudioSource {
         return PlaylistPlatform(rawValue: source) != nil
     }
 
-    static func domesticStream(for track: Track) async -> AudioStream? {
+    static func domesticStream(
+        for track: Track,
+        quality: StreamResolver.Quality = .high
+    ) async -> AudioStream? {
         guard let source = track.source,
               let id = track.sourceID,
               !id.isEmpty,
@@ -234,14 +307,14 @@ enum AudioSource {
         switch platform {
         case .netease:
             // 网易云「外链」：不需要签名，302 到 CDN 的 mp3；VIP/无版权会跳到 404 网页
-            resolved = await DomesticSource.neteaseStreamURL(id: id)
+            resolved = await DomesticSource.neteaseStreamURL(id: id, quality: quality)
         case .kugou:
             resolved = await DomesticSource.kugouStreamURL(hash: id)
         case .qq:
-            // QQ 需要 vkey，公开请求拿不到 purl，只能回落 YouTube
-            resolved = nil
+            // vkey 接口能拿到匿名直链（128/320），付费曲目会自动降级
+            resolved = await DomesticSource.qqStreamURL(mid: id, quality: quality)
         case .kuwo:
-            resolved = await DomesticSource.kuwoStreamURL(id: id)
+            resolved = await DomesticSource.kuwoStreamURL(id: id, quality: quality)
         }
 
         guard let url = resolved else { return nil }

@@ -61,6 +61,40 @@ final class SourcePrefs: ObservableObject {
         }
     }
 
+    /// 各平台的网页登录入口。用它们自己的登录页，凭据只输在平台页面里，我们只取 Cookie。
+    func loginURL(_ id: String) -> String {
+        switch id {
+        case "netease": return "https://y.music.163.com/m/login"
+        case "qq": return "https://y.qq.com/"
+        case "kuwo": return "https://m.kuwo.cn/newh5app/"
+        case "kugou": return "https://www.kugou.com/"
+        default: return "https://y.music.163.com/m/login"
+        }
+    }
+
+    /// 判定「已登录」的关键 Cookie 名。只用来做自动收起的提示，
+    /// 判不出来也不影响用户点「完成」手动保存。
+    func cookieHint(_ id: String) -> String? {
+        switch id {
+        case "netease": return "MUSIC_U="
+        case "qq": return "qm_keyst="
+        case "kuwo": return "kw_token="
+        case "kugou": return "KuGoo="
+        default: return nil
+        }
+    }
+
+    /// 收集 Cookie 时按域名过滤，别把其他平台的凭据混进同一个 header
+    func cookieDomain(_ id: String) -> String {
+        switch id {
+        case "netease": return "163.com"
+        case "qq": return "qq.com"
+        case "kuwo": return "kuwo.cn"
+        case "kugou": return "kugou.com"
+        default: return ""
+        }
+    }
+
     func isEnabled(_ id: String) -> Bool { enabled[id] ?? true }
 
     func setEnabled(_ id: String, _ value: Bool) {

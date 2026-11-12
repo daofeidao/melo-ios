@@ -13,8 +13,10 @@ struct PlayerView: View {
     @State private var showLyrics = false
 
     private enum PlayerSheet: String, Identifiable {
-        case queue
-        case history
+        /// 播放历史 + 待播清单，同一个浮层里分段切换
+        case library
+        /// 音源与音质
+        case sources
 
         var id: String { rawValue }
     }
@@ -98,11 +100,11 @@ struct PlayerView: View {
         )
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
-            case .queue:
-                QueueView()
+            case .library:
+                PlayerLibrarySheet()
                     .environmentObject(player)
-            case .history:
-                PlayHistoryView()
+            case .sources:
+                PlayerSourceSheet()
                     .environmentObject(player)
             }
         }
@@ -424,7 +426,7 @@ struct PlayerView: View {
                 // 左下角：原来是装饰性的 text.quote（静态 Image，点了没反应），
                 // 现在改成播放历史入口，和中间的待播清单配成一对
                 Button {
-                    activeSheet = .history
+                    activeSheet = .library
                 } label: {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 17))
@@ -435,12 +437,14 @@ struct PlayerView: View {
 
                 Spacer()
 
+                // 位置与图标都沿用原来的列表图标，内容改成音源切换；
+                // 手动锁定音源时变红，提示当前不是自动模式
                 Button {
-                    activeSheet = .queue
+                    activeSheet = .sources
                 } label: {
                     Image(systemName: "list.bullet")
                         .font(.system(size: 18))
-                        .foregroundColor(.white.opacity(0.85))
+                        .foregroundColor(player.preferredSource == nil ? .white.opacity(0.85) : Theme.accent)
                         .frame(width: 44, height: 32)
                 }
                 .buttonStyle(PlainButtonStyle())

@@ -3,6 +3,7 @@ import Foundation
 enum StreamResolver {
 
     enum Quality: String, CaseIterable, Identifiable {
+        case lossless
         case high
         case normal
         case low
@@ -11,6 +12,7 @@ enum StreamResolver {
 
         var label: String {
             switch self {
+            case .lossless: return L("Lossless")
             case .high: return L("High")
             case .normal: return L("Standard")
             case .low: return L("Data Saver")
@@ -19,9 +21,36 @@ enum StreamResolver {
 
         var detail: String {
             switch self {
-            case .high: return L("About 128 kbps AAC")
-            case .normal: return L("About 128 kbps AAC")
-            case .low: return L("About 48 kbps AAC")
+            case .lossless: return L("FLAC where the source has it. Needs a signed-in membership account.")
+            case .high: return L("Up to 320 kbps")
+            case .normal: return L("About 128 kbps")
+            case .low: return L("About 64 kbps")
+            }
+        }
+
+        /// 国内源要码率数字：网易云按 br、腾讯按文件名前缀、酷我按 query
+        var neteaseBitrates: [Int] {
+            switch self {
+            case .lossless: return [999_000, 320_000, 128_000]
+            case .high: return [320_000, 128_000]
+            case .normal, .low: return [128_000]
+            }
+        }
+
+        var kuwoVariants: [String] {
+            switch self {
+            case .lossless: return ["format=flac&br=2000kflac", "format=mp3&br=320kmp3", "format=mp3&br=128kmp3"]
+            case .high: return ["format=mp3&br=320kmp3", "format=mp3&br=128kmp3"]
+            case .normal, .low: return ["format=mp3&br=128kmp3"]
+            }
+        }
+
+        /// 文件名前缀即码率：C400=m4a 128、M500=mp3 320、F000=flac（付费）
+        var qqTiers: [(String, String)] {
+            switch self {
+            case .lossless: return [("F000", "flac"), ("M500", "mp3"), ("C400", "m4a")]
+            case .high: return [("M500", "mp3"), ("C400", "m4a")]
+            case .normal, .low: return [("C400", "m4a")]
             }
         }
     }
@@ -205,7 +234,7 @@ enum StreamResolver {
         let chosen: [String: Any]
 
         switch quality {
-        case .high:
+        case .lossless, .high:
             chosen = sorted[sorted.count - 1]
         case .low:
             chosen = sorted[0]

@@ -7,11 +7,13 @@ struct DataSourceSettingsView: View {
 
     /// iOS 15 同一视图只允许挂一个 .sheet，所以用枚举区分
     private enum ActiveSheet: Identifiable {
+        case webLogin(SourcePrefs.SourceInfo)
         case login(SourcePrefs.SourceInfo)
         case newCustom
 
         var id: String {
             switch self {
+            case .webLogin(let info): return "web-\(info.id)"
             case .login(let info): return "login-\(info.id)"
             case .newCustom: return "new-custom"
             }
@@ -19,6 +21,8 @@ struct DataSourceSettingsView: View {
     }
 
     @State private var activeSheet: ActiveSheet?
+    /// 点「登录」先问用哪种方式，选中后才决定弹哪个 sheet
+    @State private var loginChooser: SourcePrefs.SourceInfo?
     @State private var loginText = ""
     @State private var customName = ""
     @State private var customTemplate = ""
@@ -38,8 +42,7 @@ struct DataSourceSettingsView: View {
                         Spacer(minLength: 8)
                         if info.needsLogin {
                             Button(prefs.cookie(info.id) == nil ? L("Sign In") : L("Replace")) {
-                                loginText = prefs.cookie(info.id) ?? ""
-                                activeSheet = .login(info)
+                                loginChooser = info
                             }
                             .font(.system(size: 14))
                             .buttonStyle(PlainButtonStyle())
@@ -54,7 +57,7 @@ struct DataSourceSettingsView: View {
             } header: {
                 Text(L("Built-in Sources"))
             } footer: {
-                Text(L("Turned-off sources are skipped in search and fallback. Sources that need a login take a Cookie: sign in in a browser, copy the whole Cookie header, paste it here."))
+                Text(L("Turned-off sources are skipped in search and fallback. Tap Sign In to open the platform's own login page inside the app; the Cookie is captured automatically. Sign in with a membership account to unlock 320 kbps and lossless."))
             }
 
             Section {
@@ -92,8 +95,31 @@ struct DataSourceSettingsView: View {
         .listStyle(InsetGroupedListStyle())
         .navigationTitle(L("Data Sources"))
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog(
+            L("Sign In"),
+            isPresented: Binding(
+                get: { loginChooser != nil },
+                set: { if !$0 { loginChooser = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button(L("Sign in with the web page")) {
+                if let info = loginChooser { activeSheet = .webLogin(info) }
+                loginChooser = nil
+            }
+            Button(L("Paste Cookie")) {
+                if let info = loginChooser {
+                    loginText = prefs.cookie(info.id) ?? ""
+                    activeSheet = .login(info)
+                }
+                loginChooser = nil
+            }
+            Button(L("Cancel"), role: .cancel) { loginChooser = nil }
+        }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
+            case .webLogin(let info):
+                WebLoginView(platform: info)
             case .login(let info):
                 loginSheet(info)
             case .newCustom:
@@ -112,7 +138,7 @@ struct DataSourceSettingsView: View {
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
                 } footer: {
-                    Text(L("These services do not offer a public account login API. A Cookie copied from a signed-in browser session is the only credential that works reliably."))
+                    Text(L("Use the web page sign-in unless you already have a Cookie header at hand. The app never sees your password - only the resulting Cookie is stored, on this device."))
                 }
             }
             .navigationTitle(L("Sign In"))

@@ -181,16 +181,23 @@ enum DomesticSource {
         }
     }
 
-    static func neteaseStreamURL(id: String) async -> URL? {
+    /// 按音质档位逐级取流。匿名只给 128，320 / 无损要 Cookie 里的 MUSIC_U（会员），
+    /// 所以必须从高往低试：选了无损但没会员时自动落到 320 / 128，而不是整首放不出来。
+    static func neteaseStreamURL(
+        id: String,
+        quality: StreamResolver.Quality = .high
+    ) async -> URL? {
         // player/url 直接回 CDN 地址（实测 ~150ms），比 outer/url 的 302 + Range 探测快
-        if let direct = await neteasePlayerURL(id: id) { return direct }
+        for br in quality.neteaseBitrates {
+            if let direct = await neteasePlayerURL(id: id, br: br) { return direct }
+        }
         return await resolveURL("https://music.163.com/song/media/outer/url?id=\(id).mp3")
     }
 
     /// 网易云第二条取流路径：API 直接给带签名的 mp3 地址，不用跟 302。
     /// 实测 http / https 都返回 206 audio/mpeg，这里统一升成 https。
-    private static func neteasePlayerURL(id: String) async -> URL? {
-        guard let url = URL(string: "https://music.163.com/api/song/enhance/player/url?id=\(id)&ids=%5B\(id)%5D&br=128000")
+    private static func neteasePlayerURL(id: String, br: Int) async -> URL? {
+        guard let url = URL(string: "https://music.163.com/api/song/enhance/player/url?id=\(id)&ids=%5B\(id)%5D&br=\(br)")
         else { return nil }
 
         var request = URLRequest(url: url)
@@ -243,9 +250,9 @@ enum DomesticSource {
             // playInfo 直接给出直链，能取到就说明可播
             return await kugouStreamURL(hash: id) != nil
         case .netease:
-            return await neteaseStreamURL(id: id) != nil
+            return await neteaseStreamURL(id: id, quality: .high) != nil
         case .kuwo:
-            return await kuwoStreamURL(id: id) != nil
+            return await kuwoStreamURL(id: id, quality: .high) != nil
         case .qq:
             return false
         }
@@ -530,17 +537,84 @@ enum DomesticSource {
 
     /// antiserver 直接回一个 mp3 地址，不需要签名、不需要 cookie。
     /// 实测 http / https 都可用，直链本身 206 audio/mpeg。
-    static func kuwoStreamURL(id: String) async -> URL? {
-        let path = "anti.s?type=convert_url&format=mp3&response=url&rid=MUSIC_\(id)"
-        guard let text = await fetchText(
-            ["https://antiserver.kuwo.cn/" + path, "http://antiserver.kuwo.cn/" + path],
-            timeout: 5,
-            headers: kuwoHeaders
-        ) else { return nil }
+    /// 酷我：`br=320kmp3` 匿名可用，`format=flac` 会被拒（"refuse request!"），
+    /// 需要账号 Cookie。所以无损档位从高往低试。
+    static func kuwoStreamURL(
+        id: String,
+        quality: StreamResolver.Quality = .high
+    ) async -> URL? {
+        for variant in quality.kuwoVariants {
+            let path = "anti.s?type=convert_url&response=url&rid=MUSIC_\(id)&\(variant)"
+            guard let text = await fetchText(
+                ["https://antiserver.kuwo.cn/" + path, "http://antiserver.kuwo.cn/" + path],
+                timeout: 5,
+                headers: kuwoHeaders
+            ) else { continue }
 
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("http"), let resolved = URL(string: trimmed) else { return nil }
-        return resolved
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("http"), let resolved = URL(string: trimmed) { return resolved }
+        }
+        return nil
+    }
+
+    // MARK: - QQ 音乐直链（vkey）
+
+    /// QQ 的 vkey 接口用 songmid 换签名直链。文件名前缀决定码率，
+    /// 匿名能拿 C400(128) 与 M500(320)，F000(flac) 会回 result=104003。
+    static func qqStreamURL(
+        mid: String,
+        quality: StreamResolver.Quality = .high
+    ) async -> URL? {
+        for (prefix, ext) in quality.qqTiers {
+            if let url = await requestVkey(mid: mid, filename: "\(prefix)\(mid).\(ext)") {
+                return url
+            }
+        }
+        return nil
+    }
+
+    private static func requestVkey(mid: String, filename: String) async -> URL? {
+        guard let endpoint = URL(string: "https://u.y.qq.com/cgi-bin/musicu.fcg") else { return nil }
+        let payload: [String: Any] = [
+            "req_0": [
+                "module": "vkey.GetVkeyServer",
+                "method": "CgiGetVkey",
+                "param": [
+                    "guid": "10000",
+                    "songmid": [mid],
+                    "songtype": [0],
+                    "filename": [filename],
+                    "uin": "0",
+                    "loginflag": 1,
+                    "platform": "20",
+                ],
+            ],
+        ]
+        guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 6
+        request.httpBody = body
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
+        request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
+        request.meloCookie(for: "qq")
+
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let block = JS.dict(root["req_0"]),
+              let info = JS.dict(block["data"]),
+              let list = info["midurlinfo"] as? [[String: Any]],
+              let first = list.first else { return nil }
+
+        if (JS.int(first["result"]) ?? 0) != 0 { return nil }
+        let sip = (info["sip"] as? [String])?.first ?? ""
+        guard !sip.isEmpty, let purl = JS.string(first["purl"]), !purl.isEmpty else { return nil }
+
+        var joined = sip + purl
+        if joined.hasPrefix("http://") { joined = "https://" + joined.dropFirst("http://".count) }
+        return URL(string: joined)
     }
 
     // MARK: - 网易云专辑 / 歌单搜索

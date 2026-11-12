@@ -144,7 +144,7 @@ struct SettingsView: View {
             } header: {
                 Text(L("Playback"))
             } footer: {
-                Text(L("High quality is AAC 128 kbps. YouTube Music does not offer lossless."))
+                Text(L("Lossless needs a membership login. Without one the app automatically falls back to 320 kbps, then 128 kbps."))
             }
 
             Section {
