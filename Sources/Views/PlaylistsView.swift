@@ -298,16 +298,11 @@ struct ImportPlaylistView: View {
         task = Task {
             do {
                 let target = try await resolveTarget(text)
-                let remote = try await PlaylistFetcher.fetch(platform: target.platform, id: target.id)
-                guard !remote.songs.isEmpty else { throw PlaylistImportError.empty }
-
-                await MainActor.run {
-                    total = remote.songs.count
-                    status = String(format: L("Matching %d of %d"), 0, remote.songs.count)
-                }
 
                 // 冒烟：只验证抓到了多少首，跳过耗时的逐首匹配
                 if SmokeTest.countsOnly {
+                    let remote = try await PlaylistFetcher.fetch(platform: target.platform, id: target.id)
+                    guard !remote.songs.isEmpty else { throw PlaylistImportError.empty }
                     for song in remote.songs.prefix(3) {
                         NSLog("SMOKE_FETCH title=%@ artist=%@ dur=%d", song.title, song.artist, song.duration)
                     }
@@ -319,27 +314,19 @@ struct ImportPlaylistView: View {
                     return
                 }
 
-                let tracks = await PlaylistMatcher.match(songs: remote.songs) { finished, count in
-                    done = finished
-                    total = count
-                    status = String(format: L("Matching %d of %d"), finished, count)
-                }
-
+                // 拉歌单、落库都交给后台任务：这里只做「认链接」这一件快事，
+                // 做完立刻收工，用户可以回去继续干别的
+                ImportCoordinator.shared.start(
+                    platform: target.platform,
+                    id: target.id,
+                    isRank: false,
+                    fallbackTitle: L("Playlist")
+                )
                 guard !Task.isCancelled else { return }
-                guard !tracks.isEmpty else { throw PlaylistImportError.empty }
-
                 await MainActor.run {
-                    store.save(
-                        name: remote.name,
-                        platform: remote.platform,
-                        cover: remote.cover,
-                        tracks: tracks,
-                        totalCount: remote.songs.count,
-                        sourceID: target.id
-                    )
-                    resultText = String(format: L("Imported %d of %d songs"), tracks.count, remote.songs.count)
-                    status = nil
                     working = false
+                    status = nil
+                    dismiss()
                 }
             } catch {
                 guard !Task.isCancelled else { return }

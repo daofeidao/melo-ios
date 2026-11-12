@@ -131,6 +131,20 @@ enum AudioSource {
             return AudioStream(url: cached, itag: -1, bitrate: 0, mime: "audio/mpeg")
         }
 
+        // 默认首选 Hi·FLAC：它的会员凭据能给出 320 / flac，其余国内源匿名基本只到 128。
+        // 拿不到就交给下面的源。请求本身有 7 秒超时，不会拖住起播。
+        if SourcePrefs.shared.isEnabled("flachi"),
+           let url = await FlacHiSource.streamURL(
+            title: track.title,
+            artist: track.artist,
+            quality: quality,
+            preferredID: track.source == "flachi" ? track.sourceID : nil,
+            duration: track.duration
+           ) {
+            lastResolvedSource = "flachi"
+            return AudioStream(url: url, itag: -1, bitrate: 0, mime: "audio/mpeg")
+        }
+
         // 直链能拿到就直接播（probe 已经移出关键路径）
         // VIP / 付费专辑曲目例外：实测 player/url 固定返回 -110，outer/url 固定 302 到 /404，
         // 再问一次只是白等，直接按歌名去其他音源找。
@@ -155,23 +169,6 @@ enum AudioSource {
             return fallback
         }
 
-        // 国内源都没兜住（QQ 会员曲 / 网易云 VIP）：Hi·FLAC 用它自己的凭据还能给一条直链。
-        // 排在 YouTube 之前，但只在这首本来就有国内来源、或 YouTube 已被判定拦截时才试，
-        // 免得多花一两个 RTT 拖慢普通 YouTube 曲目的起播。
-        if track.source != nil || youtubeLikelyBlocked,
-           SourcePrefs.shared.isEnabled("flachi"),
-           let url = await FlacHiSource.streamURL(
-            title: track.title,
-            artist: track.artist,
-            quality: quality,
-            preferredID: track.source == "flachi" ? track.sourceID : nil,
-            duration: track.duration
-           ),
-           let stream = await probe(url.absoluteString, timeout: 4) {
-            lastResolvedSource = "flachi"
-            return stream
-        }
-
         // 用户自己在「关于 → 数据来源」里添加的音源：排在所有内置源之后
         let customSources = SourcePrefs.shared.customSources
         if !customSources.isEmpty {
@@ -179,6 +176,11 @@ enum AudioSource {
                 guard let raw = await SourcePrefs.shared.resolveCustom(source, track: track) else { continue }
                 if let stream = await probe(raw, timeout: 4) { return stream }
             }
+        }
+
+        // YouTube 也是在「数据来源」里可以关掉的；关掉就不要再走这一步
+        guard SourcePrefs.shared.isEnabled("youtube") else {
+            throw ApiError.unavailable(L("This song is not available on domestic sources right now."))
         }
 
         do {
@@ -213,6 +215,9 @@ enum AudioSource {
         source: String,
         quality: StreamResolver.Quality
     ) async -> AudioStream? {
+        // 手动锁定的源同样要尊重「数据来源」里的开关，关掉就是关掉
+        if !SourcePrefs.shared.isEnabled(source) { return nil }
+
         if source == "youtube" {
             if !track.videoId.isEmpty,
                let stream = try? await StreamResolver.resolve(videoId: track.videoId, quality: quality) {
@@ -338,6 +343,9 @@ enum AudioSource {
               let id = track.sourceID,
               !id.isEmpty,
               let platform = PlaylistPlatform(rawValue: source) else { return nil }
+
+        // 设置里关掉的源不该再被取流。以前这里不看开关，用户关了酷狗照样从酷狗出声。
+        guard SourcePrefs.shared.isEnabled(source) else { return nil }
 
         let resolved: URL?
         switch platform {

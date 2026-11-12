@@ -9,6 +9,7 @@ struct ExternalPlaylistView: View {
 
     @State private var tracks: [Track] = []
     @State private var loading = true
+    @State private var hint: String?
 
     private var saved: Bool {
         store.playlists.contains { $0.platform == item.platform && $0.sourceID == item.playlistID }
@@ -88,6 +89,14 @@ struct ExternalPlaylistView: View {
                 .buttonStyle(PlainButtonStyle())
             }
             .padding(.top, 2)
+
+            if let hint = hint {
+                Text(hint)
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.accent)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.bottom, 6)
@@ -112,14 +121,14 @@ struct ExternalPlaylistView: View {
         if saved {
             PlaylistStore.shared.delete(platform: item.platform, sourceID: item.playlistID)
         } else {
-            PlaylistStore.shared.save(
-                name: item.name,
+            // 后台导入：点完就能走开，不用守在这个页面上等它翻完所有分页
+            ImportCoordinator.shared.start(
                 platform: item.platform,
-                cover: item.cover,
-                tracks: tracks,
-                totalCount: tracks.count,
-                sourceID: item.playlistID
+                id: item.playlistID,
+                isRank: item.isRank,
+                fallbackTitle: item.name
             )
+            hint = L("Importing in the background. You can keep using the app.")
         }
     }
 

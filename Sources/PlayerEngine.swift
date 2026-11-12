@@ -364,14 +364,21 @@ final class PlayerEngine: ObservableObject {
         retryBudget = 1
         errorText = nil
         alternatives = []
-        loadCurrent(autoPlay: true)
+        // 切源必须重新解析：否则会命中 StreamCache 里上一条直链，点了等于没点
+        if let track = currentTrack {
+            StreamCache.shared.remove(forKey: cacheKey(for: track))
+        }
+        loadCurrent(autoPlay: true, bypassStreamCache: true)
     }
 
     /// 换了音质：缓存键里带 quality，所以这里的 loadCurrent 会真的重新取流
     func reloadForQuality() {
         retryBudget = 1
         errorText = nil
-        loadCurrent(autoPlay: true)
+        if let track = currentTrack {
+            StreamCache.shared.remove(forKey: cacheKey(for: track))
+        }
+        loadCurrent(autoPlay: true, bypassStreamCache: true)
     }
 
     /// 用户在「切换音源」里选了某个同名版本：直接单曲播放
@@ -418,8 +425,8 @@ final class PlayerEngine: ObservableObject {
 
     // MARK: - Loading
 
-    func loadCurrent(autoPlay: Bool) {
-        load(autoPlay: autoPlay, resetBudget: true)
+    func loadCurrent(autoPlay: Bool, bypassStreamCache: Bool = false) {
+        load(autoPlay: autoPlay, resetBudget: true, bypassStreamCache: bypassStreamCache)
     }
 
     private func quality() -> StreamResolver.Quality {
@@ -433,7 +440,7 @@ final class PlayerEngine: ObservableObject {
         track.id + "|" + quality().rawValue
     }
 
-    private func load(autoPlay: Bool, resetBudget: Bool, keepError: Bool = false) {
+    private func load(autoPlay: Bool, resetBudget: Bool, keepError: Bool = false, bypassStreamCache: Bool = false) {
         if resetBudget { retryBudget = 1 }
         guard let track = currentTrack else { return }
 
@@ -456,8 +463,11 @@ final class PlayerEngine: ObservableObject {
         let quality = self.quality()
         let key = cacheKey(for: track)
 
-        // 命中缓存（内存或上次落盘）就直接起播，0 网络等待
-        if let cached = StreamCache.shared.stream(forKey: key) {
+        // 命中缓存（内存或上次落盘）就直接起播，0 网络等待。
+        // 但手动切源 / 换音质时必须跳过：StreamCache 的键是 track.id|quality，
+        // 它记的是"上次解析出来的那条直链"，照它播就等于把用户的选择吞掉
+        // —— 以前切了源实际还在放老源，就是这个原因。
+        if !bypassStreamCache, let cached = StreamCache.shared.stream(forKey: key) {
             start(stream: cached, autoPlay: autoPlay, token: token)
             return
         }

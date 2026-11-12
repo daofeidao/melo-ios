@@ -326,7 +326,9 @@ struct SettingsView: View {
                 )
             }
         }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
+        // 允许类型放宽一点：有些机器上导出的文件没有 .json 扩展名，
+        // 只给 .json 的话它在文件选择器里是灰的，看起来就像「没法恢复」
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.json, .data, .plainText]) { result in
             switch result {
             case .success(let url):
                 restore(from: url)

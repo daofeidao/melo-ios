@@ -91,12 +91,15 @@ enum BackupService {
         return try encoder.encode(snapshot())
     }
 
-    /// 导出文件名：Melo-Backup-2026-11-10
+    /// 导出文件名：Melo-Backup-2026-11-12.json
+    ///
+    /// 必须带 .json 后缀：SwiftUI 不会替我们补扩展名，文件没有扩展名时
+    /// 「文件」App 会把它当未知类型，恢复时在文件选择器里是灰的，根本选不中。
     static func defaultFileName() -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
-        return "Melo-Backup-" + formatter.string(from: Date())
+        return "Melo-Backup-" + formatter.string(from: Date()) + ".json"
     }
 
     static func restore(from url: URL) throws -> Summary {
@@ -104,9 +107,13 @@ enum BackupService {
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
 
         let data = try Data(contentsOf: url)
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let backup = try decoder.decode(MeloBackup.self, from: data)
+        let backup = try decode(data)
+
+        // 一个都没解出来时不要装作成功：多半是选错了文件或格式被改过
+        if backup.favorites.isEmpty && backup.recent.isEmpty
+            && backup.playlists.isEmpty && backup.collections.isEmpty {
+            throw BackupError.unreadable
+        }
 
         Library.shared.replace(
             favorites: backup.favorites,
@@ -120,6 +127,27 @@ enum BackupService {
             recent: backup.recent.count,
             playlists: backup.playlists.count
         )
+    }
+
+    enum BackupError: LocalizedError {
+        case unreadable
+
+        var errorDescription: String? {
+            L("This file does not look like a Melo backup.")
+        }
+    }
+
+    /// 解码：优先 ISO8601（现在的导出格式），失败再用默认策略兜一次
+    /// （老版本或别处导出的文件里，日期可能是秒数）。
+    private static func decode(_ data: Data) throws -> MeloBackup {
+        let iso = JSONDecoder()
+        iso.dateDecodingStrategy = .iso8601
+        if let backup = try? iso.decode(MeloBackup.self, from: data) {
+            return backup
+        }
+        let plain = JSONDecoder()
+        plain.dateDecodingStrategy = .deferredToDate
+        return try plain.decode(MeloBackup.self, from: data)
     }
 }
 

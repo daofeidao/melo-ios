@@ -43,6 +43,9 @@ struct RootView: View {
                 }
                 .navigationViewStyle(StackNavigationViewStyle())
             }
+
+            // 后台导入的进度条：导入改成后台任务后，这里是唯一的进度出口
+            ImportBanner()
         }
         .fullScreenCover(isPresented: $player.opensFullPlayer) {
             PlayerView()

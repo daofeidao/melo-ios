@@ -186,7 +186,7 @@ enum FlacHiSource {
         guard let url = URL(string: "\(endpoint)?act=\(path)") else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 12
+        request.timeoutInterval = 7
         request.setValue("application/x-www-form-urlencoded;charset=UTF-8", forHTTPHeaderField: "Content-Type")
         request.setValue(ua, forHTTPHeaderField: "User-Agent")
         request.setValue(referer, forHTTPHeaderField: "Referer")

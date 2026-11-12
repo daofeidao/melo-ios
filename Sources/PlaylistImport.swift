@@ -389,32 +389,39 @@ enum PlaylistFetcher {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
         ]
 
-        // 新版 musicu
-        let body: [String: Any] = [
-            "comm": ["ct": 24, "cv": 0],
-            "req_0": [
-                "module": "music.srfDissInfo.aiDissInfo",
-                "method": "uniform_get_Dissinfo",
-                "param": [
-                    "disstid": Int(id) ?? 0,
-                    "enc_host_uin": "",
-                    "tag": 1,
-                    "userinfo": 1,
-                    "song_begin": 0,
-                    "song_num": 1000
-                ]
-            ]
-        ]
-        if let root = try? await postJSON("https://u.y.qq.com/cgi-bin/musicu.fcg", body: body, headers: headers),
-           let data = JS.dict(JS.dict(root["req_0"])?["data"]),
-           let rawList = JS.array(data["songlist"]), !rawList.isEmpty {
-            let list = rawList.compactMap { JS.dict($0) }
-            let info = JS.dict(data["dirinfo"])
+        // musicu 的 songlist 一次最多给 30 首，必须按 song_begin 翻页。
+        // 先取第一页拿到总数，剩下的页并发取（4 路一批），60 首的歌单
+        // 从十几秒压到两三秒。
+        if let first = try? await qqPage(id: id, begin: 0, size: 30, headers: headers),
+           !first.songs.isEmpty {
+            let total = first.total
+            let lastBegin = min(total, 600) - 1
+            let begins = stride(from: 30, through: lastBegin, by: 30).map { $0 }
+
+            var pages: [(begin: Int, songs: [RemoteSong])] = [(0, first.songs)]
+            if !begins.isEmpty {
+                for chunk in begins.chunked(4) {
+                    let fetched = await withTaskGroup(of: (begin: Int, songs: [RemoteSong]).self) { group -> [(begin: Int, songs: [RemoteSong])] in
+                        for begin in chunk {
+                            group.addTask {
+                                let page = try? await qqPage(id: id, begin: begin, size: 30, headers: headers)
+                                return (begin, page?.songs ?? [])
+                            }
+                        }
+                        var out: [(begin: Int, songs: [RemoteSong])] = []
+                        for await item in group { out.append(item) }
+                        return out
+                    }
+                    pages.append(contentsOf: fetched)
+                }
+            }
+
+            let songs = pages.sorted { $0.begin < $1.begin }.flatMap { $0.songs }
             return RemotePlaylist(
-                name: JS.string(info?["title"]) ?? L("Playlist"),
+                name: first.name.isEmpty ? L("Playlist") : first.name,
                 platform: .qq,
-                cover: JS.string(info?["picurl"]),
-                songs: list.compactMap(qqSong)
+                cover: first.cover,
+                songs: songs
             )
         }
 
@@ -431,6 +438,45 @@ enum PlaylistFetcher {
             platform: .qq,
             cover: JS.string(cd["logo"]),
             songs: list.compactMap(qqSong)
+        )
+    }
+
+    /// QQ 歌单的一页
+    private struct QQPage {
+        var name: String
+        var cover: String?
+        var total: Int
+        var songs: [RemoteSong]
+    }
+
+    private static func qqPage(id: String, begin: Int, size: Int,
+                               headers: [String: String]) async throws -> QQPage {
+        let body: [String: Any] = [
+            "comm": ["ct": 24, "cv": 0],
+            "req_0": [
+                "module": "music.srfDissInfo.aiDissInfo",
+                "method": "uniform_get_Dissinfo",
+                "param": [
+                    "disstid": Int(id) ?? 0,
+                    "enc_host_uin": "",
+                    "tag": 1,
+                    "userinfo": 1,
+                    "song_begin": begin,
+                    "song_num": size
+                ]
+            ]
+        ]
+        guard let root = try await postJSON("https://u.y.qq.com/cgi-bin/musicu.fcg", body: body, headers: headers),
+              let data = JS.dict(JS.dict(root["req_0"])?["data"]) else {
+            throw PlaylistImportError.notFound
+        }
+        let info = JS.dict(data["dirinfo"])
+        let rawList = JS.array(data["songlist"]) ?? []
+        return QQPage(
+            name: JS.string(info?["title"]) ?? "",
+            cover: JS.string(info?["picurl"]),
+            total: JS.int(info?["songnum"]) ?? 0,
+            songs: rawList.compactMap { JS.dict($0) }.compactMap(qqSong)
         )
     }
 
@@ -681,5 +727,20 @@ enum PlaylistMatcher {
         // YouTube 那边没封面时，退回原平台的封面
         if track.artwork == nil { track.artwork = song.artwork }
         return track
+    }
+}
+extension Array {
+    /// 按固定大小切块。并发拉歌单时用它把页分批（每批几路并发），
+    /// 既能并行，又不会一次开出几十个请求把对方打挂。
+    func chunked(_ size: Int) -> [[Element]] {
+        guard size > 0, !isEmpty else { return isEmpty ? [] : [self] }
+        var out: [[Element]] = []
+        var index = 0
+        while index < count {
+            let end = Swift.min(index + size, count)
+            out.append(Array(self[index..<end]))
+            index = end
+        }
+        return out
     }
 }

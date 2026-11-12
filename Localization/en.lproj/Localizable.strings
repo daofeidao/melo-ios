@@ -160,6 +160,10 @@
 "Delete" = "Delete";
 "%d songs" = "%d songs";
 "Import failed" = "Import failed";
+"Importing %@…" = "Importing %@…";
+"You can keep using the app while it finishes." = "You can keep using the app while it finishes.";
+"Imported %d songs" = "Imported %d songs";
+"Importing in the background. You can keep using the app." = "Importing in the background. You can keep using the app.";
 "Try a different link" = "Try a different link";
 "NetEase Cloud Music" = "NetEase Cloud Music";
 "QQ Music" = "QQ Music";
@@ -297,6 +301,7 @@
 "Resolve again from this source" = "Resolve again from this source";
 "Turned off in Data Sources" = "Turned off in Data Sources";
 "Play online from this source" = "Play online from this source";
+"This file does not look like a Melo backup." = "This file does not look like a Melo backup.";
 "This source has no %@ — it will still try, and may fall back or fail." = "This source has no %@ — it will still try, and may fall back or fail.";
 "Hi·FLAC added as a built-in source: it can serve 320 kbps and real FLAC lossless." = "Hi·FLAC added as a built-in source: it can serve 320 kbps and real FLAC lossless.";
 "The source sheet no longer pushes its last rows off the screen." = "The source sheet no longer pushes its last rows off the screen.";
