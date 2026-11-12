@@ -47,6 +47,11 @@ enum AudioSource {
     /// 播放页的「播放源」面板用它标出「正在使用」。
     private(set) static var lastResolvedSource: String?
 
+    /// 这次解析出来的流能不能确定「就是这首歌」。
+    /// 同源 id 直链可信；按歌名在第三方站搜出来的版本不可信，
+    /// PlayerEngine 据此决定要不要把音频落盘 —— 缓存错一次就永久切不回来。
+    private(set) static var lastResolveTrusted: Bool = false
+
     static func takeAlternatives() -> [Track] {
         stateLock.lock(); defer { stateLock.unlock() }
         let list = pendingAlternatives
@@ -102,6 +107,7 @@ enum AudioSource {
         pendingAlternatives = []
         stateLock.unlock()
         lastResolvedSource = nil
+        lastResolveTrusted = false
         // 手动切换音源的那一首，只对本次解析生效
         defer { DomesticSource.forceLooseOnce = false }
 
@@ -125,14 +131,16 @@ enum AudioSource {
             return AudioStream(url: url, itag: -1, bitrate: 0, mime: "audio/mpeg")
         }
 
-        // 音频本体已缓存：直接读本地文件，不联网、也不受直链过期影响
-        if let cached = AudioCache.shared.cachedURL(for: track) {
+        // 音频本体已缓存：直接读本地文件，不联网、也不受直链过期影响。
+        // 命中前 AudioCache 会核对来源音源是否还开着、音质够不够、是不是老错误缓存。
+        if let cached = AudioCache.shared.cachedURL(for: track, quality: quality) {
             lastResolvedSource = "cache"
             return AudioStream(url: cached, itag: -1, bitrate: 0, mime: "audio/mpeg")
         }
 
         // 默认首选 Hi·FLAC：它的会员凭据能给出 320 / flac，其余国内源匿名基本只到 128。
-        // 拿不到就交给下面的源。请求本身有 7 秒超时，不会拖住起播。
+        // 严格匹配（艺人 + 标题 + 时长）对不上就返回 nil 降级，绝不硬选翻唱 / Live 版。
+        // 这一路是「按歌名搜出来的」，标记不可信，不落盘缓存。
         if SourcePrefs.shared.isEnabled("flachi"),
            let url = await FlacHiSource.streamURL(
             title: track.title,
@@ -150,6 +158,8 @@ enum AudioSource {
         // 再问一次只是白等，直接按歌名去其他音源找。
         if !track.isVip, !hasFailed(track.id), let domestic = await domesticStream(for: track, quality: quality) {
             lastResolvedSource = track.source
+            // 曲目自带的平台 id 换直链，能确定就是这首歌，允许落盘缓存
+            lastResolveTrusted = true
             return domestic
         }
 
@@ -188,6 +198,7 @@ enum AudioSource {
             // 解析成功说明 YouTube 这条路已经恢复，清掉上一次失败留下的熔断标记
             blockedAt = nil
             lastResolvedSource = "youtube"
+            lastResolveTrusted = true
             return stream
         } catch {
             if let typed = error as? ApiError, case .botCheck = typed {
@@ -221,25 +232,32 @@ enum AudioSource {
         if source == "youtube" {
             if !track.videoId.isEmpty,
                let stream = try? await StreamResolver.resolve(videoId: track.videoId, quality: quality) {
+                lastResolveTrusted = true
                 return stream
             }
             return nil
         }
 
-        // Hi·FLAC 自带搜索 + 签名，一次调用就能给直链，不用走下面的通用搜索循环
+        // Hi·FLAC 自带搜索 + 签名，一次调用就能给直链，不用走下面的通用搜索循环。
+        // 手动点这个源说明用户明确要它，放宽艺人要求，但改编版 / 时长对不上仍然不认。
         if source == "flachi" {
+            let hasOwnID = track.source == "flachi" && (track.sourceID?.isEmpty == false)
             guard let url = await FlacHiSource.streamURL(
                 title: track.title,
                 artist: track.artist,
                 quality: quality,
-                preferredID: track.source == "flachi" ? track.sourceID : nil,
-                duration: track.duration
+                preferredID: hasOwnID ? track.sourceID : nil,
+                duration: track.duration,
+                manual: true
             ) else { return nil }
+            // 只有曲目本来就带这个站的 id（精确命中）才算可信；否则是搜出来的
+            lastResolveTrusted = hasOwnID
             return AudioStream(url: url, itag: -1, bitrate: 0, mime: "audio/mpeg")
         }
 
         if track.source == source, !track.isVip, let id = track.sourceID, !id.isEmpty,
            let url = await nativeURL(source: source, id: id, quality: quality) {
+            lastResolveTrusted = true
             return AudioStream(url: url, itag: -1, bitrate: 0, mime: "audio/mpeg")
         }
 

@@ -364,19 +364,22 @@ final class PlayerEngine: ObservableObject {
         retryBudget = 1
         errorText = nil
         alternatives = []
-        // 切源必须重新解析：否则会命中 StreamCache 里上一条直链，点了等于没点
+        // 切源必须重新解析：StreamCache（直链）和 AudioCache（音频文件）两层都要作废，
+        // 否则点完还是放上一首来源留下的那份文件，怎么切都像没反应。
         if let track = currentTrack {
             StreamCache.shared.remove(forKey: cacheKey(for: track))
+            AudioCache.shared.invalidate(for: track)
         }
         loadCurrent(autoPlay: true, bypassStreamCache: true)
     }
 
-    /// 换了音质：缓存键里带 quality，所以这里的 loadCurrent 会真的重新取流
+    /// 换了音质：两层缓存都按新档位重新取
     func reloadForQuality() {
         retryBudget = 1
         errorText = nil
         if let track = currentTrack {
             StreamCache.shared.remove(forKey: cacheKey(for: track))
+            AudioCache.shared.invalidate(for: track)
         }
         loadCurrent(autoPlay: true, bypassStreamCache: true)
     }
@@ -468,7 +471,8 @@ final class PlayerEngine: ObservableObject {
         // 它记的是"上次解析出来的那条直链"，照它播就等于把用户的选择吞掉
         // —— 以前切了源实际还在放老源，就是这个原因。
         if !bypassStreamCache, let cached = StreamCache.shared.stream(forKey: key) {
-            start(stream: cached, autoPlay: autoPlay, token: token)
+            // 缓存直链对应的音频文件（如果有）早就在 AudioCache 里了，不要再存一次
+            start(stream: cached, autoPlay: autoPlay, token: token, cacheable: false, cacheSource: nil)
             return
         }
 
@@ -480,11 +484,13 @@ final class PlayerEngine: ObservableObject {
                     pinnedSource: preferredSource
                 )
                 let resolvedFrom = AudioSource.lastResolvedSource
+                let trusted = AudioSource.lastResolveTrusted
                 DispatchQueue.main.async {
                     guard let self = self, self.loadToken == token else { return }
                     self.activeSource = resolvedFrom
                     StreamCache.shared.store(stream, forKey: key)
-                    self.start(stream: stream, autoPlay: autoPlay, token: token)
+                    self.start(stream: stream, autoPlay: autoPlay, token: token,
+                               cacheable: trusted, cacheSource: resolvedFrom)
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -560,7 +566,13 @@ final class PlayerEngine: ObservableObject {
         }
     }
 
-    private func start(stream: AudioStream, autoPlay: Bool, token: UUID) {
+    private func start(
+        stream: AudioStream,
+        autoPlay: Bool,
+        token: UUID,
+        cacheable: Bool = false,
+        cacheSource: String? = nil
+    ) {
         guard loadToken == token, let track = currentTrack else { return }
 
         let asset = AVURLAsset(
@@ -585,13 +597,20 @@ final class PlayerEngine: ObservableObject {
             player.play()
         }
         updateNowPlaying()
-        // 起播后顺手把音频落盘，下次直接读本地。后台任务，失败不影响当前播放。
-        AudioCache.shared.store(
-            from: stream.url,
-            for: track,
-            mime: stream.mime,
-            userAgent: stream.userAgent ?? StreamResolver.clientUserAgent
-        )
+        // 只缓存「能确定就是这首歌」的流（同源 id 直链 / 明确的 videoId）。
+        // 按歌名在第三方站搜出来的版本一律不落盘：错配一次，那份文件就会
+        // 永久顶着这首歌，之后切源、关音源都绕不过去。
+        if cacheable, let source = cacheSource, source != "local", source != "cache" {
+            AudioCache.shared.store(
+                from: stream.url,
+                for: track,
+                mime: stream.mime,
+                userAgent: stream.userAgent ?? StreamResolver.clientUserAgent,
+                source: source,
+                quality: quality(),
+                verified: true
+            )
+        }
         prefetchUpcoming()
     }
 

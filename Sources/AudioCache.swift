@@ -26,6 +26,41 @@ final class AudioCache {
         let size: Int64
         /// 最近一次播放（命中或落盘）时间 —— LRU 的唯一依据
         var lastPlayed: Date
+        /// 这份音频是从哪个音源下的。1.16.9 之前没有这个字段：
+        /// 那批缓存里就有「按歌名错配」的音频，来源不明，一律作废。
+        let source: String
+        /// 音质档位（StreamResolver.Quality.rawValue）
+        let quality: String
+        /// 只有能确定「就是这首歌」的流才允许落盘（同源 id 直链）。
+        /// 按歌名在第三方站搜出来的版本不缓存——错一次就会永久污染这首歌。
+        let verified: Bool
+
+        private enum CodingKeys: String, CodingKey {
+            case file, trackID, size, lastPlayed, source, quality, verified
+        }
+
+        init(file: String, trackID: String, size: Int64, lastPlayed: Date,
+             source: String, quality: String, verified: Bool) {
+            self.file = file
+            self.trackID = trackID
+            self.size = size
+            self.lastPlayed = lastPlayed
+            self.source = source
+            self.quality = quality
+            self.verified = verified
+        }
+
+        /// 老索引没有新增字段，缺失时按「不可信」处理，让上面的失效检查清掉它
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            file = try c.decode(String.self, forKey: .file)
+            trackID = try c.decode(String.self, forKey: .trackID)
+            size = try c.decode(Int64.self, forKey: .size)
+            lastPlayed = try c.decode(Date.self, forKey: .lastPlayed)
+            source = try c.decodeIfPresent(String.self, forKey: .source) ?? ""
+            quality = try c.decodeIfPresent(String.self, forKey: .quality) ?? ""
+            verified = try c.decodeIfPresent(Bool.self, forKey: .verified) ?? false
+        }
     }
 
     private let lock = NSLock()
@@ -56,8 +91,29 @@ final class AudioCache {
 
     // MARK: - 查询
 
-    func cachedURL(for track: Track) -> URL? {
+    /// 命中返回本地文件，并刷新「最近播放」时间。
+    ///
+    /// 命中前逐项核对，任何一条不满足就删掉这份缓存、让上层重新取流：
+    /// - 关掉「缓存音频」后不再读旧缓存（以前这个开关只挡写入，不挡读取）
+    /// - 老条目没有来源 / verified 标记 → 可能就是按歌名错配的那批，一律作废
+    /// - 音质低于当前档位
+    /// - **缓存来自的音源已在「数据来源」里关掉** ← 关了音源还守着错缓存就是这里
+    /// - 用户手动锁定了另一个源
+    func cachedURL(
+        for track: Track,
+        quality: StreamResolver.Quality,
+        pinnedSource: String? = nil
+    ) -> URL? {
+        guard isEnabled else { return nil }
+
         let key = Self.digest(track.id)
+        var needsReload = false
+        defer {
+            if needsReload {
+                DispatchQueue.main.async { LocalMusicStore.shared.reload() }
+            }
+        }
+
         lock.lock()
         defer { lock.unlock() }
         ensureReadyLocked()
@@ -70,10 +126,52 @@ final class AudioCache {
             saveIndexLocked()
             return nil
         }
+
+        let stale =
+            !entry.verified || entry.source.isEmpty ||
+            Self.qualityRank(entry.quality) < Self.qualityRank(quality.rawValue) ||
+            !SourcePrefs.shared.isEnabled(entry.source) ||
+            (pinnedSource != nil && pinnedSource != entry.source)
+
+        if stale {
+            index?.removeValue(forKey: key)
+            saveIndexLocked()
+            try? FileManager.default.removeItem(at: url)
+            needsReload = true
+            return nil
+        }
+
         entry.lastPlayed = Date()
         index?[key] = entry
         saveIndexLocked()
         return url
+    }
+
+    private static func qualityRank(_ key: String) -> Int {
+        switch key {
+        case "lossless": return 2
+        case "high": return 1
+        default: return 0
+        }
+    }
+
+    /// 切源 / 换音质 / 主动重新解析时，把这首歌的旧缓存直接作废。
+    /// 不这么做的话，那份文件会一直躺在「本地音乐」里顶着这首歌。
+    func invalidate(for track: Track) {
+        let key = Self.digest(track.id)
+        var removed: URL?
+        lock.lock()
+        ensureReadyLocked()
+        if let entry = index?.removeValue(forKey: key) {
+            removed = directory.appendingPathComponent(entry.file)
+            saveIndexLocked()
+        }
+        lock.unlock()
+
+        if let removed {
+            try? FileManager.default.removeItem(at: removed)
+            DispatchQueue.main.async { LocalMusicStore.shared.reload() }
+        }
     }
 
     /// 该文件是否由缓存产生（本地音乐页可以据此标一下）
@@ -98,12 +196,22 @@ final class AudioCache {
 
     // MARK: - 下载
 
-    func store(from remote: URL, for track: Track, mime: String, userAgent: String?) {
-        guard isEnabled, !remote.isFileURL else { return }
+    /// - Parameter verified: 这条流能不能确定就是这首歌。按歌名在第三方站
+    ///   搜出来的版本传 false —— 缓存错了就再也切不回来，宁可不缓存。
+    func store(
+        from remote: URL,
+        for track: Track,
+        mime: String,
+        userAgent: String?,
+        source: String,
+        quality: StreamResolver.Quality,
+        verified: Bool
+    ) {
+        guard isEnabled, verified, !source.isEmpty, !remote.isFileURL else { return }
 
         let ext = Self.fileExtension(for: mime)
         guard !ext.isEmpty else { return }
-        if cachedURL(for: track) != nil { return }
+        if cachedURL(for: track, quality: quality, pinnedSource: source) != nil { return }
 
         let key = Self.digest(track.id)
         lock.lock()
@@ -158,7 +266,10 @@ final class AudioCache {
                     file: fileName,
                     trackID: track.id,
                     size: size,
-                    lastPlayed: Date()
+                    lastPlayed: Date(),
+                    source: source,
+                    quality: quality.rawValue,
+                    verified: true
                 )
                 self.saveIndexLocked()
                 self.lock.unlock()

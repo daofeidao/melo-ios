@@ -125,19 +125,37 @@ enum FlacHiSource {
         return nil
     }
 
-    /// 按「歌名 + 艺人」找到这首并取直链。给播放器和「音源」面板用。
+    /// 改编版本标记。用**原始**标题判断：normalize 会把「（Live）」整段吃掉，
+    /// 归一化之后就再也看不出这是现场版了。
+    private static let versionMarkers = [
+        "live", "现场", "翻唱", "cover", "dj", "remix", "变速",
+        "伴奏", "纯音乐", "instrumental", "karaoke", "片段", "试听",
+        "串烧", "怀念版", "重置版", "钢琴", "吉他版", "消音",
+        "女声版", "男声版", "弦乐", "史诗版", "深情版", "纯音"
+    ]
+
+    /// 按歌名找这首并取直链。给播放器和「音源」面板用。
+    ///
+    /// 实测这个站的两个坑：
+    /// - 关键词拼上艺人几乎必然返回 0 条（「晴天 周杰伦」→ total 0），只有纯歌名能出结果；
+    /// - 纯歌名返回的是全站模糊结果，翻唱 / Live / 变速 / DJ 版混在一起，原唱未必在前面。
+    /// 所以只用歌名搜索，再在**本地**用艺人、标题、时长三重筛，一个都对不上就返回 nil
+    /// 交给上层降级，绝不「矮子里拔将军」硬选一个错误版本。
     ///
     /// - Parameter preferredID: 曲目自带的 `platform:id`（从这一路导入的歌），
-    ///   能直接命中就不必再比标题，省掉一次搜索里挑错的风险。
+    ///   id 精确命中时直接信任，不必再比标题。
+    /// - Parameter manual: 用户手动锁定这个源时放宽艺人要求（有些曲目 artist 为空），
+    ///   但版本词和时长仍然是硬过滤。
     static func streamURL(
         title: String,
         artist: String,
         quality: StreamResolver.Quality,
         preferredID: String? = nil,
-        duration: Int = 0
+        duration: Int = 0,
+        manual: Bool = false
     ) async -> URL? {
-        let keyword = "\(title) \(artist)".trimmingCharacters(in: .whitespaces)
-        guard !keyword.isEmpty else { return nil }
+        let cleanTitle = title.trimmingCharacters(in: .whitespaces)
+        guard !cleanTitle.isEmpty else { return nil }
 
         var platform = "kuwo"
         if let preferredID, let head = preferredID.split(separator: ":").first.map(String.init),
@@ -145,31 +163,83 @@ enum FlacHiSource {
             platform = head
         }
 
-        let hits = await search(keyword: keyword, limit: 10, platform: platform)
-        guard !hits.isEmpty else { return nil }
+        // kuwo 找不到合格版本时再试 wyy，两边曲库不一样
+        for pf in [platform, platform == "kuwo" ? "wyy" : "kuwo"] {
+            let hits = await search(keyword: cleanTitle, limit: 20, platform: pf)
+            guard !hits.isEmpty else { continue }
 
-        var target: Hit?
-        if let preferredID, let wanted = preferredID.split(separator: ":").dropFirst().first.map(String.init) {
-            target = hits.first { $0.id == wanted }
+            var target: Hit?
+            if let preferredID,
+               let wanted = preferredID.split(separator: ":").dropFirst().first.map(String.init) {
+                target = hits.first { $0.id == wanted }
+            }
+            if target == nil {
+                target = pickBest(title: cleanTitle, artist: artist,
+                                  duration: duration, hits: hits, manual: manual)
+            }
+            guard let picked = target else { continue }
+            if let url = await streamURL(hit: picked, quality: quality) { return url }
         }
-        if target == nil { target = pickBest(title: title, duration: duration, hits: hits) }
-        guard let picked = target else { return nil }
-        return await streamURL(hit: picked, quality: quality)
+        return nil
     }
 
-    private static func pickBest(title: String, duration: Int, hits: [Hit]) -> Hit? {
+    private static func pickBest(
+        title: String,
+        artist: String,
+        duration: Int,
+        hits: [Hit],
+        manual: Bool
+    ) -> Hit? {
         let wanted = normalize(title)
-        guard wanted.count >= 2 else { return hits.first }
-        let matched = hits.filter {
-            let candidate = normalize($0.title)
-            return candidate.contains(wanted) || wanted.contains(candidate)
+        guard wanted.count >= 2 else { return nil }
+        let wantedArtist = normalize(artist)
+        let wantedHasVersion = versionMarkers.contains { title.lowercased().contains($0) }
+
+        // 多艺人曲目（"A, B" / "A & B"）拆开，任一个能对上就算艺人匹配
+        let artistTokens = artist.lowercased()
+            .split(whereSeparator: { $0 == "," || $0 == "、" || $0 == "/" || $0 == "&" })
+            .map { normalize(String($0)) }
+            .filter { !$0.isEmpty }
+
+        var best: Hit?
+        var bestScore = Int.min
+        for hit in hits {
+            let raw = hit.title.lowercased()
+            // 原曲自己就带版本词时不要误伤；否则改编版一律淘汰
+            if !wantedHasVersion, versionMarkers.contains(where: { raw.contains($0) }) { continue }
+
+            let candidate = normalize(hit.title)
+            let nameScore: Int
+            if candidate == wanted {
+                nameScore = 100
+            } else if (wanted.hasPrefix(candidate) || candidate.hasPrefix(wanted)),
+                      abs(candidate.count - wanted.count) <= 6 {
+                nameScore = 55
+            } else {
+                // 「像晴天像雨天-电视剧《难哄》心动曲」也包含「晴天」，这种绝不认
+                continue
+            }
+
+            let hitArtist = normalize(hit.artist)
+            var artistScore = 0
+            if !wantedArtist.isEmpty {
+                let matched = hitArtist.contains(wantedArtist)
+                    || wantedArtist.contains(hitArtist)
+                    || artistTokens.contains { hitArtist.contains($0) }
+                guard matched else { continue }
+                artistScore = 40
+            } else if !manual && nameScore < 100 {
+                // 曲目没带艺人信息时，只有标题完全一致才敢自动用
+                continue
+            }
+
+            // 时长差超过 8 秒基本就是另一个版本
+            if duration > 0, hit.duration > 0, abs(hit.duration - duration) > 8 { continue }
+
+            let score = nameScore + artistScore - (duration > 0 ? abs(hit.duration - duration) : 0)
+            if score > bestScore { bestScore = score; best = hit }
         }
-        guard !matched.isEmpty else { return nil }
-        // 同名版本有时候是翻唱 / 现场：有已知时长就选最接近的
-        if duration > 0 {
-            return matched.min { abs($0.duration - duration) < abs($1.duration - duration) }
-        }
-        return matched.first
+        return best
     }
 
     private static func normalize(_ value: String) -> String {
