@@ -290,7 +290,11 @@ enum DomesticSource {
 
     static var isStrictMatch: Bool {
         if forceLooseOnce { return false }
-        return UserDefaults.standard.bool(forKey: strictMatchKey)
+        // 默认开启：歌名 + 艺人 + 时长（±5 秒）全对上才跨源兜底。
+        // 以前默认关着，等于「严格匹配」这个功能一直没生效，晴天能配到晴天娃娃。
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: strictMatchKey) == nil { return true }
+        return defaults.bool(forKey: strictMatchKey)
     }
 
     /// 快路径：只问酷狗（一次请求），取最可信的一条。
@@ -552,7 +556,11 @@ enum DomesticSource {
             ) else { continue }
 
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.hasPrefix("http"), let resolved = URL(string: trimmed) { return resolved }
+            if trimmed.hasPrefix("http"), let resolved = URL(string: trimmed) {
+                // 广告短音频（~170KB）一律丢掉，换下一个码率 / 换其它源
+                if let size = await contentLength(resolved), size < 200_000 { continue }
+                return resolved
+            }
         }
         return nil
     }
@@ -677,6 +685,116 @@ enum DomesticSource {
                 creator: creator
             )
         }
+    }
+
+    /// 带网易云身份头 GET 一个 JSON 对象（艺人专辑 / 热门歌这类新接口用）
+    private static func neteaseJSON(_ path: String) async -> [String: Any]? {
+        guard let url = URL(string: "https://music.163.com" + path) else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
+        request.setValue("https://music.163.com/", forHTTPHeaderField: "Referer")
+        request.setValue(declaredIP, forHTTPHeaderField: "X-Real-IP")
+        request.meloCookie(for: "netease")
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        return root
+    }
+
+    /// 艺人本人的全部专辑：`api/artist/albums/<id>` 这个路径式新接口一次给全。
+    /// 原来艺人页用「专辑关键词搜索」，搜「周杰伦」回来的全是 Jay / 周杰伦♚ 这类
+    /// 同名野生账号和单曲拼的假专辑，真正的《范特西》《七里香》一张都没有。
+    static func artistAlbums(artistID: Int, limit: Int = 60) async -> [DomesticAlbum] {
+        guard artistID > 0,
+              let root = await neteaseJSON("/api/artist/albums/\(artistID)?limit=\(limit)&offset=0"),
+              let albums = JS.array(root["hotAlbums"]) else { return [] }
+
+        return albums.compactMap { raw -> DomesticAlbum? in
+            guard let item = JS.dict(raw),
+                  let id = JS.int(item["id"]).map(String.init),
+                  let name = JS.string(item["name"]), !name.isEmpty else { return nil }
+            let artist = (JS.array(item["artists"]) ?? [])
+                .compactMap { JS.dict($0) }
+                .compactMap { JS.string($0["name"]) }
+                .joined(separator: ", ")
+            return DomesticAlbum(
+                id: id,
+                name: name,
+                artist: artist,
+                cover: normalizeArtwork(JS.string(item["picUrl"]), size: 400),
+                trackCount: JS.int(item["size"]) ?? 0
+            )
+        }
+    }
+
+    /// 艺人热门歌。字段是 weapi 风格（ar / al / dt / fee），不是 search 的 artists / album / duration。
+    /// 注意：创作型歌手的热门榜不可信（周杰伦热门 50 首里只有 1 首是他自己的），
+    /// 只能当补充，歌曲主来源要取专辑曲目。
+    static func artistTopSongs(artistID: Int, limit: Int = 50) async -> [Track] {
+        guard artistID > 0,
+              let root = await neteaseJSON("/api/artist/top/song?id=\(artistID)&limit=\(limit)"),
+              let songs = JS.array(root["songs"]) else { return [] }
+
+        return songs.compactMap { raw -> Track? in
+            guard let item = JS.dict(raw),
+                  let title = JS.string(item["name"]), !title.isEmpty,
+                  let sid = JS.int(item["id"]).map(String.init) else { return nil }
+            let artist = (JS.array(item["ar"]) ?? [])
+                .compactMap { JS.dict($0) }
+                .compactMap { JS.string($0["name"]) }
+                .joined(separator: ", ")
+            let album = JS.dict(item["al"])
+            let fee = JS.int(item["fee"]) ?? 0
+            return Track(
+                videoId: "",
+                title: title,
+                artist: artist.isEmpty ? L("Unknown Artist") : artist,
+                album: JS.string(album?["name"]),
+                duration: (JS.int(item["dt"]) ?? 0) / 1000,
+                artwork: normalizeArtwork(JS.string(album?["picUrl"]), size: 400),
+                source: PlaylistPlatform.netease.rawValue,
+                sourceID: sid,
+                isVip: fee == 1 || fee == 4
+            )
+        }
+    }
+
+    /// 从几张专辑里轮流摘曲目（round-robin），避免整屏都是同一张专辑
+    static func artistAlbumTracks(albumIDs: [String], perAlbum: Int = 4, limit: Int = 24) async -> [Track] {
+        guard !albumIDs.isEmpty else { return [] }
+        var groups: [[Track]] = []
+        for id in albumIDs {
+            let detail = await neteaseAlbumDetail(id: id)
+            groups.append(detail?.tracks ?? [])
+        }
+        var out: [Track] = []
+        var round = 0
+        while out.count < limit, round < perAlbum {
+            var added = false
+            for list in groups where round < list.count {
+                out.append(list[round])
+                added = true
+            }
+            if !added { break }
+            round += 1
+        }
+        return Array(out.prefix(limit))
+    }
+
+    /// 只取文件总大小（Range 0-0，最多下 1 字节）：
+    /// 匿名酷我对会员歌会返回「免费听歌」广告短音频，用大小把它筛掉。
+    static func contentLength(_ url: URL) async -> Int64? {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 6
+        request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse else { return nil }
+        if let range = http.value(forHTTPHeaderField: "Content-Range"),
+           let total = range.split(separator: "/").last, let value = Int64(total) {
+            return value
+        }
+        return http.value(forHTTPHeaderField: "Content-Length").flatMap { Int64($0) }
     }
 
     /// 专辑详情：曲目挂在 album.songs[] 里（不在顶层）

@@ -248,10 +248,22 @@ struct PlayerView: View {
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundColor(.white)
                     .lineLimit(1)
-                Text(track.artist)
-                    .font(.system(size: 18))
-                    .foregroundColor(.white.opacity(0.58))
-                    .lineLimit(1)
+                // 点艺名进艺人页：先记住名字并关掉播放页，再由「现在就听」里那个
+                // 隐藏的 NavigationLink 推进去（fullScreenCover 里推不动主栈）
+                Button {
+                    let first = track.artist
+                        .components(separatedBy: CharacterSet(charactersIn: ",，、/&"))
+                        .first?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? track.artist
+                    ArtistRouter.shared.pending = first.isEmpty ? track.artist : first
+                    dismiss()
+                } label: {
+                    Text(track.artist)
+                        .font(.system(size: 18))
+                        .foregroundColor(.white.opacity(0.58))
+                        .lineLimit(1)
+                }
+                .buttonStyle(PlainButtonStyle())
             }
             Spacer(minLength: 0)
             Button {

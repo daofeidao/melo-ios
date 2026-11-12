@@ -2,10 +2,11 @@ import SwiftUI
 import UIKit
 
 /// 艺人详情，版式照 Apple Music 的艺人页：
-/// 顶部圆形大头像 + 艺人名 + 播放，下面依次是 代表作 / 专辑 / 歌曲排行 / 简介。
+/// 顶部圆形大头像 + 艺人名 + 统计，下面依次是 简介 / 专辑 / 歌曲。
 ///
-/// 头像、简介、代表作品来自网易云艺人接口（ArtistInfo，匿名可直连）；
-/// 专辑和歌曲按艺人名实时拉，不写死离线表。
+/// 头像、简介来自网易云艺人接口（ArtistInfo，匿名可直连）；
+/// 专辑按**艺人 id** 直取本人全部专辑（关键词搜索会回来一堆同名野生账号的假专辑）；
+/// 歌曲取本人专辑里的曲目（热门榜对创作型歌手不可信），再补多源搜索。
 struct ArtistDetailView: View {
     let name: String
 
@@ -16,6 +17,11 @@ struct ArtistDetailView: View {
     @State private var loading = true
     @State private var errorText: String?
     @State private var bioExpanded = false
+    @State private var showAllAlbums = false
+    @State private var showAllTracks = false
+
+    private let albumPreview = 5
+    private let trackPreview = 8
 
     var body: some View {
         ScrollView {
@@ -24,14 +30,12 @@ struct ArtistDetailView: View {
             } else if let errorText, albums.isEmpty, tracks.isEmpty, profile == nil {
                 ErrorBanner(message: errorText) { Task { await load() } }
             } else {
-                LazyVStack(alignment: .leading, spacing: 24) {
+                LazyVStack(alignment: .leading, spacing: 22) {
                     hero
-                    if let works = profile?.works, !works.isEmpty {
-                        worksSection(works)
-                    }
+                    // 简介紧跟头像：以前排在最底部，几乎滑不到，看着就像「没有简介」
+                    if !bioText.isEmpty { bioSection }
                     if !albums.isEmpty { albumSection }
                     if !tracks.isEmpty { chartSection }
-                    if !bioText.isEmpty { bioSection }
                 }
                 .padding(.bottom, Layout.contentBottomInset)
             }
@@ -62,113 +66,28 @@ struct ArtistDetailView: View {
             Text(profile?.name ?? name)
                 .font(.system(size: 27, weight: .bold))
                 .lineLimit(1)
-            Text(L("Artist"))
+            // 「艺人 · 48 张专辑 · 50 首歌」——一眼看出这个页面装了多少内容
+            Text(heroSubtitle)
                 .font(.system(size: 13))
                 .foregroundColor(Theme.secondaryLabel)
-            if !tracks.isEmpty {
-                Button {
-                    player.play(tracks: tracks, startAt: 0)
-                } label: {
-                    Text(L("Play All"))
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 26)
-                        .padding(.vertical, 9)
-                        .background(Capsule().fill(Theme.accent))
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 8)
     }
 
-    // MARK: - 代表作
-
-    private func worksSection(_ works: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(title: L("Representative Works"))
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 9) {
-                    ForEach(works, id: \.self) { title in
-                        Button {
-                            Task { await playWork(title) }
-                        } label: {
-                            Text(title)
-                                .font(.system(size: 14))
-                                .foregroundColor(.primary)
-                                .lineLimit(1)
-                                .padding(.horizontal, 15)
-                                .padding(.vertical, 9)
-                                .background(Capsule().fill(Color(UIColor.tertiarySystemFill)))
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
-                }
-                .padding(.horizontal, 16)
-            }
-        }
-    }
-
-    // MARK: - 专辑
-
-    private var albumSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(title: L("Albums"))
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 14) {
-                    ForEach(albums) { album in
-                        let collection = MediaCollection(
-                            browseId: "netease:album:\(album.id)",
-                            title: album.name,
-                            subtitle: album.artist.isEmpty
-                                ? String(format: L("%d songs"), album.trackCount)
-                                : album.artist,
-                            artwork: album.cover
-                        )
-                        VStack(alignment: .leading, spacing: 6) {
-                            CarouselCard(item: .collection(collection), width: 132)
-                            CollectionSaveButton(collection: collection)
-                        }
-                        .frame(width: 132, alignment: .leading)
-                    }
-                }
-                .padding(.horizontal, 16)
-            }
-        }
-    }
-
-    // MARK: - 歌曲排行
-
-    private var ranked: [Track] { Array(tracks.prefix(12)) }
-
-    private var chartSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionHeader(title: L("Top Songs"))
-            LazyVStack(spacing: 0) {
-                ForEach(Array(ranked.enumerated()), id: \.offset) { index, track in
-                    TrackRow(
-                        track: track,
-                        showIndex: true,
-                        index: index + 1,
-                        badge: sourceBadge(track)
-                    ) {
-                        player.play(tracks: ranked, startAt: index)
-                    }
-                    .padding(.horizontal, 16)
-                    if index < ranked.count - 1 {
-                        Divider().padding(.leading, 76)
-                    }
-                }
-            }
-        }
+    private var heroSubtitle: String {
+        var parts: [String] = [L("Artist")]
+        if !albums.isEmpty { parts.append("\(albums.count) 张专辑") }
+        if !tracks.isEmpty { parts.append("\(tracks.count) 首歌") }
+        return parts.joined(separator: " · ")
     }
 
     // MARK: - 简介
 
     private var bioText: String {
         let bio = profile?.biography ?? ""
-        return bio.isEmpty ? (profile?.brief ?? "") : bio
+        let brief = profile?.brief ?? ""
+        return bio.count >= brief.count ? bio : brief
     }
 
     private var bioSection: some View {
@@ -178,7 +97,7 @@ struct ArtistDetailView: View {
                 Text(bioText)
                     .font(.system(size: 14))
                     .foregroundColor(Theme.secondaryLabel)
-                    .lineLimit(bioExpanded ? nil : 6)
+                    .lineLimit(bioExpanded ? nil : 4)
                     .fixedSize(horizontal: false, vertical: true)
                 Button {
                     bioExpanded.toggle()
@@ -196,35 +115,170 @@ struct ArtistDetailView: View {
         }
     }
 
+    // MARK: - 专辑
+
+    private var shownAlbums: [DomesticSource.DomesticAlbum] {
+        showAllAlbums ? albums : Array(albums.prefix(albumPreview))
+    }
+
+    private var albumSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader(L("Albums"), canExpand: albums.count > albumPreview, expanded: showAllAlbums) {
+                showAllAlbums.toggle()
+            }
+            if showAllAlbums {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), spacing: 14)], alignment: .leading, spacing: 18) {
+                    ForEach(shownAlbums) { album in
+                        albumCard(album)
+                    }
+                }
+                .padding(.horizontal, 16)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 14) {
+                        ForEach(shownAlbums) { album in
+                            albumCard(album)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+            }
+        }
+    }
+
+    private func albumCard(_ album: DomesticSource.DomesticAlbum) -> some View {
+        let collection = MediaCollection(
+            browseId: "netease:album:\(album.id)",
+            title: album.name,
+            subtitle: album.artist.isEmpty
+                ? String(format: L("%d songs"), album.trackCount)
+                : album.artist,
+            artwork: album.cover
+        )
+        return VStack(alignment: .leading, spacing: 6) {
+            CarouselCard(item: .collection(collection), width: 132)
+            CollectionSaveButton(collection: collection)
+        }
+        .frame(width: 132, alignment: .leading)
+    }
+
+    // MARK: - 歌曲
+
+    private var shownTracks: [Track] {
+        showAllTracks ? tracks : Array(tracks.prefix(trackPreview))
+    }
+
+    private var chartSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionHeader(L("Songs"), canExpand: tracks.count > trackPreview, expanded: showAllTracks) {
+                showAllTracks.toggle()
+            }
+            LazyVStack(spacing: 0) {
+                ForEach(Array(shownTracks.enumerated()), id: \.offset) { index, track in
+                    TrackRow(
+                        track: track,
+                        showIndex: true,
+                        index: index + 1,
+                        badge: sourceBadge(track)
+                    ) {
+                        player.play(tracks: shownTracks, startAt: index)
+                    }
+                    .padding(.horizontal, 16)
+                    if index < shownTracks.count - 1 {
+                        Divider().padding(.leading, 76)
+                    }
+                }
+            }
+        }
+    }
+
+    /// 分区标题 + 右侧「显示全部 / 收起」
+    private func sectionHeader(
+        _ title: String,
+        canExpand: Bool,
+        expanded: Bool,
+        toggle: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 8) {
+            SectionHeader(title: title)
+            if canExpand {
+                Button(action: toggle) {
+                    Text(expanded ? "收起" : "显示全部")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Theme.accent)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .padding(.trailing, 16)
+            }
+        }
+    }
+
     // MARK: - 数据
 
     private func load() async {
         loading = true
         errorText = nil
 
-        // 用 Task 而不是 async let：项目里踩过 asyncLet_finish_after_task_completion 的坑
-        let profileTask = Task { await ArtistInfo.load(name: name) }
-        let albumTask = Task { await DomesticSource.neteaseAlbumSearch(query: name, limit: 12) }
-        let flacTask = Task { () -> [Track] in
-            guard SourcePrefs.shared.isEnabled("flachi") else { return [] }
-            return await FlacHiSource.searchTracks(query: name, limit: 20)
-        }
-        let songTask = Task { await DomesticSource.search(query: name, limit: 20) }
+        // 先把艺人本体解析出来（id / 头像 / 简介），专辑和歌曲都靠这个 id 直取
+        let p = await ArtistInfo.load(name: name)
+        let artistID = p?.id ?? 0
 
-        let p = await profileTask.value
-        let a = await albumTask.value
-        let f = await flacTask.value
-        let s = await songTask.value
-        // 只认这位艺人本人的作品，别把同名合辑 / 翻唱 / 别人专辑里收录的曲子混进来
-        let merged = dedup(f + s).filter { artistMatches(term: name, artist: $0.artist) }
-        let ownAlbums = a.filter { $0.artist.isEmpty || artistMatches(term: name, artist: $0.artist) }
+        var rawAlbums: [DomesticSource.DomesticAlbum] = []
+        if artistID > 0 {
+            rawAlbums = await DomesticSource.artistAlbums(artistID: artistID)
+        }
+        if rawAlbums.isEmpty {
+            rawAlbums = await DomesticSource.neteaseAlbumSearch(query: name, limit: 30)
+        }
+        // 只认这位艺人本人的正版作品：同名合辑 / 翻唱 / Live / 原声带都剔掉
+        let cleanAlbums = rawAlbums
+            .filter {
+                ($0.artist.isEmpty || artistMatches(term: name, artist: $0.artist))
+                    && isCleanTitle($0.name)
+            }
+            // 大碟（曲目多的）排前面，单曲 / EP 往后
+            .sorted {
+                $0.trackCount == $1.trackCount ? $0.name < $1.name : $0.trackCount > $1.trackCount
+            }
+
+        // 歌曲三路合并：本人专辑曲目（最权威）+ 热门里本人主唱 + 多源搜索（保证有内容）
+        var collected: [Track] = []
+        if !cleanAlbums.isEmpty {
+            collected += await DomesticSource.artistAlbumTracks(
+                albumIDs: Array(cleanAlbums.prefix(6).map(\.id))
+            )
+        }
+        if artistID > 0 {
+            let top = await DomesticSource.artistTopSongs(artistID: artistID)
+            collected += top.filter { primaryArtistMatches(term: name, artist: $0.artist) }
+        }
+        collected += await DomesticSource.search(query: name, limit: 40)
+        if SourcePrefs.shared.isEnabled("flachi") {
+            collected += await FlacHiSource.searchTracks(query: name, limit: 20)
+        }
+
+        let all = dedup(collected).filter {
+            artistMatches(term: name, artist: $0.artist)
+                && isCleanTitle($0.title)
+                && isCleanTitle($0.album ?? "")
+        }
+        // 本人主唱排前面，和别人的合唱 / 助阵放后面；同名只留第一次出现的那版
+        let own = all.filter { primaryArtistMatches(term: name, artist: $0.artist) }
+        let collab = all.filter { !primaryArtistMatches(term: name, artist: $0.artist) }
+        var final: [Track] = []
+        var seen = Set<String>()
+        for track in own + collab {
+            let key = normalize(track.title)
+            if seen.insert(key).inserted { final.append(track) }
+            if final.count >= 50 { break }
+        }
 
         await MainActor.run {
             profile = p
-            albums = ownAlbums
-            tracks = merged
+            albums = cleanAlbums
+            tracks = final
             loading = false
-            if ownAlbums.isEmpty, merged.isEmpty, p == nil {
+            if cleanAlbums.isEmpty, final.isEmpty, p == nil {
                 errorText = L("No artist info found. Try another name.")
             }
         }
@@ -241,20 +295,20 @@ struct ArtistDetailView: View {
     private func normalize(_ value: String) -> String {
         value.lowercased().replacingOccurrences(of: " ", with: "")
     }
+}
 
-    /// 点代表作：先在当前排行里找同名，找不到再按歌名临时搜一首
-    private func playWork(_ title: String) async {
-        let wanted = normalize(title)
-        if let hit = tracks.first(where: { track in
-            let candidate = normalize(track.title)
-            return candidate.contains(wanted) || wanted.contains(candidate)
-        }) {
-            await MainActor.run { player.play(tracks: [hit], startAt: 0) }
-            return
-        }
-        let found = await DomesticSource.search(query: title, limit: 5)
-        if let hit = found.first {
-            await MainActor.run { player.play(tracks: [hit], startAt: 0) }
-        }
-    }
+/// 过滤掉 DJ 魔改 / 翻唱 / Live / 演唱会 / 原声带 / 合辑 / 伴奏 / Remix / 串烧 / 对唱 /
+/// 合唱 / 铃声 / 车载 DJ / 致敬 / 纪念等非本人正版内容。词表同时作用于专辑和歌曲。
+private func isCleanTitle(_ title: String) -> Bool {
+    let lower = title.lowercased()
+    let blocked = [
+        "dj", "remix", "remix版", "dj版", "mashup", "sped", "slowed", "mix版",
+        "翻唱", "原声带", "ost", "合辑", "伴奏", "纯音乐", "试听", "片段",
+        "live", "演唱会", "现场版",
+        "钢琴版", "吉他版", "小提琴版", "串烧", "迪斯科", "的士高", "disco",
+        "对唱", "合唱", "合唱版", "卡拉", "卡啦", "铃声", "手机铃声",
+        "喊麦", "慢摇", "广场舞", "车载", "翻版", "假唱", "试唱", "清唱",
+        "朗读", "相声", "评书", "致敬", "纪念"
+    ]
+    return !blocked.contains { lower.contains($0) }
 }

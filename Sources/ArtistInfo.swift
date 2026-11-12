@@ -11,6 +11,8 @@ enum ArtistInfo {
 
     struct Profile {
         let name: String
+        /// 网易云艺人 id：艺人页靠它去拉本人的真专辑和热门歌
+        let id: Int
         let avatar: String?
         let brief: String
         let biography: String
@@ -44,7 +46,7 @@ enum ArtistInfo {
         guard let introURL = URL(string: "https://music.163.com/api/artist/introduction?id=\(id)"),
               let introData = await get(introURL),
               let intro = (try? JSONSerialization.jsonObject(with: introData)) as? [String: Any] else {
-            return Profile(name: resolvedName, avatar: avatar, brief: "", biography: "", works: [])
+            return Profile(name: resolvedName, id: id, avatar: avatar, brief: "", biography: "", works: [])
         }
 
         let brief = clean(JS.string(intro["briefDesc"]) ?? "")
@@ -80,6 +82,7 @@ enum ArtistInfo {
 
         return Profile(
             name: resolvedName,
+            id: id,
             avatar: avatar,
             brief: brief,
             biography: String(biography.prefix(1400)),

@@ -129,6 +129,15 @@ enum PlaylistLink {
             return nil
         }
 
+        if text.contains("kuwo.cn") {
+            // 链接形如 /newh5app/playlist_detail/3739396498 —— 中间有斜杠，
+            // 早期正则要求 playlist_detail 后面紧跟数字，所以整条识别不了
+            if let id = firstGroup(#"(?:playlist_detail/?|playlist/detail/?|pid=)(\d{2,})"#, in: raw) {
+                return (.kuwo, id)
+            }
+            return nil
+        }
+
         return nil
     }
 
@@ -173,8 +182,7 @@ enum PlaylistFetcher {
         case .kugou:
             return isRank ? try await fetchKugouRank(id: id) : try await fetchKugou(id: id)
         case .kuwo:
-            // 没有公开的歌单抓取接口
-            throw PlaylistImportError.unsupportedLink
+            return try await fetchKuwo(id: id)
         }
     }
 
@@ -510,6 +518,38 @@ enum PlaylistFetcher {
     }
 
     // MARK: 酷狗
+
+    /// 酷我歌单：nplserver 匿名可用（实测一次返回 51 首，字段 id/name/artist/album/duration 齐）。
+    private static func fetchKuwo(id: String) async throws -> RemotePlaylist {
+        let desktopUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        let url = "https://nplserver.kuwo.cn/pl.svc?op=getlistinfo&pid=\(id)&pn=0&rn=500"
+            + "&encode=utf8&keyset=pl2012&identity=kuwo&pcmp4=1&vipver=MUSIC_9.1.0"
+        guard let root = try await getJSON(url, headers: [
+            "Referer": "https://www.kuwo.cn/",
+            "User-Agent": desktopUA
+        ]) else {
+            throw PlaylistImportError.notFound
+        }
+
+        let name = JS.string(root["title"]).flatMap { $0.isEmpty ? nil : $0 } ?? L("Playlist")
+        let cover = JS.string(root["pic"])
+        let list = (JS.array(root["musiclist"]) ?? []).compactMap { JS.dict($0) }
+        let songs = list.compactMap { item -> RemoteSong? in
+            guard let title = JS.string(item["name"]), !title.isEmpty,
+                  let rid = JS.int(item["id"]).map(String.init) else { return nil }
+            return RemoteSong(
+                title: title,
+                artist: JS.string(item["artist"]) ?? L("Unknown Artist"),
+                album: JS.string(item["album"]),
+                duration: JS.int(item["duration"]) ?? 0,
+                source: .kuwo,
+                sourceID: rid
+            )
+        }
+
+        guard !songs.isEmpty else { throw PlaylistImportError.empty }
+        return RemotePlaylist(name: name, platform: .kuwo, cover: cover, songs: songs)
+    }
 
     private static func fetchKugou(id: String) async throws -> RemotePlaylist {
         let headers = [

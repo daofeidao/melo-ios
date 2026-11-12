@@ -72,7 +72,9 @@ struct GenrePlaylistsView: View {
             error = nil
         }
         do {
-            let list = try await HotPlaylists.fetch(.netease, cat: genre.cat)
+            let list = try await (genre.keyword
+                ? HotPlaylists.searchPlaylists(query: genre.cat)
+                : HotPlaylists.fetch(.netease, cat: genre.cat))
             await MainActor.run {
                 items = list
                 loading = false

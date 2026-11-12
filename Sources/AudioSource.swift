@@ -180,19 +180,25 @@ enum AudioSource {
             return domestic
         }
 
-        // 专辑曲目：只允许用自带的平台 id 取原曲。原生直链拿不到就明确失败，
-        // 绝不按歌名去别的源兜底（那样会拿到翻唱 / Live / 同名曲）。
-        if track.strictSource {
-            throw ApiError.unavailable(L("This source has no playable version of this song."))
-        }
-
         // 有国内来源但拿不到直链（网易云 VIP / QQ 要登录）：
         // 按歌名在国内源里找同一首。一次解析只做一次，别搜两遍。
+        // 专辑曲目（strictSource）也允许走这一路 —— 以前在这里直接抛错，导致
+        // 「专辑里的歌放不了、外面搜同一首却能放」；严格匹配默认开着，不会串歌。
         var attemptedFallback = false
         if track.source != nil {
             attemptedFallback = true
             if let fallback = await domesticFallback(for: track) {
                 return fallback
+            }
+            // 最后兜底：歌曲宝（绕回酷我 CDN 的 128k）。歌名严格一致才用，不拿翻唱凑数。
+            if SourcePrefs.shared.isEnabled("gequbao"),
+               let url = await Gequbao.playURL(title: track.title, artist: track.artist),
+               let stream = await probe(url.absoluteString, timeout: 4) {
+                lastResolvedSource = "gequbao"
+                return stream
+            }
+            if track.strictSource {
+                throw ApiError.unavailable(L("This source has no playable version of this song."))
             }
             // 已经确认 YouTube 被拦，就别再空等一轮了
             if youtubeLikelyBlocked {

@@ -30,7 +30,9 @@ final class SourcePrefs: ObservableObject {
         SourceInfo(id: "flachi", name: "Hi·FLAC 无损", needsLogin: false),
         SourceInfo(id: "netease", name: "网易云音乐", needsLogin: true),
         SourceInfo(id: "qq", name: "QQ 音乐", needsLogin: true),
-        SourceInfo(id: "youtube", name: "YouTube Music", needsLogin: false)
+        SourceInfo(id: "youtube", name: "YouTube Music", needsLogin: false),
+        // 最后兜底：走歌曲宝的网页取流，回到酷我 CDN 的 128k。不开也能正常用，只是少救几首
+        SourceInfo(id: "gequbao", name: "歌曲宝（128k 兜底）", needsLogin: false)
     ]
 
     @Published private(set) var enabled: [String: Bool] = [:]
@@ -119,6 +121,9 @@ final class SourcePrefs: ObservableObject {
             return quality == .normal || quality == .low || signedIn
         case "qq":
             return quality != .lossless || signedIn
+        case "gequbao":
+            // 兜底源：能播比音质重要，选无损时也不关掉这一层
+            return true
         default:
             // 自定义源面向用户自己的接口，能力未知，不做假设
             return true

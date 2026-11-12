@@ -103,7 +103,20 @@ struct TrackRow: View {
                     }
                 }
                 Spacer(minLength: 8)
-                if let badge = badge {
+                // 【原唱】实心标：标题里没有翻唱 / DJ / Live / 伴奏等标记才打
+                if isOriginalVersion(track) {
+                    Text("原唱")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1.5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(Theme.accent)
+                        )
+                }
+                // 不传 badge 时默认按音源显示（酷狗 / 酷我 / 网易云 …），覆盖所有用到 TrackRow 的列表
+                if let badge = badge ?? sourceBadge(track) {
                     Text(badge)
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(Theme.accent)

@@ -277,7 +277,7 @@ struct SearchView: View {
                 artistSection(artists)
 
                 VStack(alignment: .leading, spacing: 10) {
-                    SectionHeader(title: L("Browse by Genre"))
+                    SectionHeader(title: "分类浏览")
                     LazyVGrid(
                         columns: [GridItem(.adaptive(minimum: 104), spacing: 10)],
                         spacing: 10
@@ -454,10 +454,9 @@ struct SearchView: View {
             hasSearched = true
             rememberSearch(trimmed)
             matchedArtists = extractArtists(term: trimmed, tracks: ordered)
-            if let hit = matchedArtists.first, artistMatches(term: trimmed, artist: hit) {
-                ArtistStore.remember(hit)
-                artists = ArtistStore.all()
-            }
+            // 每次搜索命中的艺人都记进艺人库 → 「分类浏览 → 艺人」宫格随搜索不断变多
+            matchedArtists.forEach { ArtistStore.remember($0) }
+            artists = ArtistStore.all()
             // 只预热免费曲目：VIP 会白等一次匹配
             player.prewarm(tracks: ordered.filter { !$0.isVip }, limit: 5)
             if ordered.isEmpty, merged.domesticCollections.isEmpty, matchedArtists.isEmpty {

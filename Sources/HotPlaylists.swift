@@ -26,6 +26,9 @@ struct ExternalPlaylist: Identifiable, Hashable, Codable {
 struct PlaylistGenre: Identifiable, Hashable {
     let cat: String
     let titleKey: String
+    /// 网易云没有这个官方分类（古琴 / BPM）：改走歌单关键词搜索，
+    /// 否则 cat 参数会被忽略、退回一堆无关的热门歌单
+    var keyword: Bool = false
 
     var id: String { cat }
     var title: String { L(titleKey) }
@@ -50,7 +53,10 @@ enum HotPlaylists {
         PlaylistGenre(cat: "古典", titleKey: "Classical"),
         PlaylistGenre(cat: "粤语", titleKey: "Cantonese"),
         PlaylistGenre(cat: "日语", titleKey: "Japanese"),
-        PlaylistGenre(cat: "韩语", titleKey: "Korean")
+        PlaylistGenre(cat: "韩语", titleKey: "Korean"),
+        // 这两个词没有网易云官方分类，走歌单关键词搜索
+        PlaylistGenre(cat: "古琴", titleKey: "古琴", keyword: true),
+        PlaylistGenre(cat: "BPM", titleKey: "BPM", keyword: true)
     ]
 
     static func fetch(_ platform: PlaylistPlatform, cat: String = "全部") async throws -> [ExternalPlaylist] {
@@ -64,6 +70,33 @@ enum HotPlaylists {
         case .kuwo:
             // 酷我暂时只做搜索和直链，没有公开的榜单/歌单发现接口
             return []
+        }
+    }
+
+    /// 关键词搜歌单：给没有网易云官方分类的词（古琴 / BPM）用。
+    /// 实测「古琴」出纯古琴名曲、「BPM」出 150BPM 夜场 / 180BPM 跑步等。
+    static func searchPlaylists(query: String, limit: Int = 30) async throws -> [ExternalPlaylist] {
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else { return [] }
+        let url = "https://music.163.com/api/search/get?s=\(encoded)&type=1000&limit=\(limit)"
+        guard let root = try await getJSON(url, headers: [
+            "Referer": "https://music.163.com/",
+            "User-Agent": browserUA
+        ]) else {
+            throw ApiError.unavailable(L("No content was returned. Check that your proxy also covers music.youtube.com, then retry."))
+        }
+
+        let list = (JS.array(JS.dict(root["result"])?["playlists"]) ?? []).compactMap { JS.dict($0) }
+        return list.compactMap { item in
+            guard let id = JS.int(item["id"]).map(String.init),
+                  let name = JS.string(item["name"]), !name.isEmpty else { return nil }
+            let count = JS.int(item["trackCount"]) ?? 0
+            return ExternalPlaylist(
+                platform: .netease,
+                playlistID: id,
+                name: name,
+                subtitle: String(format: L("%d songs"), count),
+                cover: https(JS.string(item["coverImgUrl"]))
+            )
         }
     }
 

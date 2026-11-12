@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ListenNowView: View {
     @EnvironmentObject private var library: Library
+    @ObservedObject private var artistRouter = ArtistRouter.shared
 
     @State private var shelves: [Shelf] = []
     @State private var loading = false
@@ -68,6 +69,21 @@ struct ListenNowView: View {
             .navigationTitle(L("Listen Now"))
             .navigationBarTitleDisplayMode(.large)
             .refreshable { await load() }
+            // 播放页点艺名后回到这里，由这个隐藏的链接把艺人页推进主栈
+            .background(
+                NavigationLink(
+                    isActive: Binding(
+                        get: { artistRouter.pending != nil },
+                        set: { if !$0 { artistRouter.pending = nil } }
+                    )
+                ) {
+                    if let name = artistRouter.pending {
+                        ArtistDetailView(name: name)
+                    }
+                } label: {
+                    EmptyView()
+                }
+            )
             .task {
                 // 冷启动先用上次成功的结果铺满，再后台刷新
                 if shelves.isEmpty, let cached = InnerTube.shared.cachedHomeShelves() {

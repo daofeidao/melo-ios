@@ -3,12 +3,12 @@ import Foundation
 /// 搜索页「艺人」模块的数据源。
 ///
 /// 两部分组成：内置一批常见艺人（第一次打开就有内容），加上用户搜过的
-/// 艺人（自动记下来、排最前，最多 12 个）。只存名字，专辑和歌曲都是
+/// 艺人（自动记下来、排最前，最多 60 个）。只存名字，专辑和歌曲都是
 /// 点进去时按名字实时拉的，不写死离线数据。
 enum ArtistStore {
 
     private static let key = "melo.savedArtists"
-    private static let max = 12
+    private static let max = 60
 
     static let builtIn: [String] = [
         "周杰伦", "林俊杰", "陈奕迅", "邓紫棋", "周深",
