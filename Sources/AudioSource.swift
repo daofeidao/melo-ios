@@ -173,7 +173,8 @@ enum AudioSource {
         }
 
         // 用户自己在「关于 → 数据来源」里添加的音源：排在所有内置源之后
-        let customSources = SourcePrefs.shared.customSources        if !customSources.isEmpty {
+        let customSources = SourcePrefs.shared.customSources
+        if !customSources.isEmpty {
             for source in customSources {
                 guard let raw = await SourcePrefs.shared.resolveCustom(source, track: track) else { continue }
                 if let stream = await probe(raw, timeout: 4) { return stream }
