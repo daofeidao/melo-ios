@@ -416,6 +416,8 @@ TABLE = [
     ("Resolve again from this source", "用这个源重新解析"),
     ("Turned off in Data Sources", "已在「数据来源」里关闭"),
     ("Play online from this source", "用在线音源播放，跳过本地文件"),
+    ("Disabled sources: %@. Turn them back on in Data Sources if needed.",
+     "已停用的音源：%@。需要的话到「数据来源」重新打开。"),
     ("This file does not look like a Melo backup.",
      "这个文件看起来不是 Melo 的备份文件。"),
     ("This source has no %@ — it will still try, and may fall back or fail.",

@@ -98,6 +98,17 @@ enum AudioSource {
         }
     }
 
+    /// 关掉的源不会再读它留下的旧缓存，所以解析失败是预期行为。
+    /// 把被停用的源点出来，别让用户以为是匹配失败或缓存坏了。
+    private static func disabledSourcesHint() -> String {
+        let disabled = SourcePrefs.shared.builtIn.filter { !SourcePrefs.shared.isEnabled($0.id) }
+        guard !disabled.isEmpty else { return "" }
+        return " " + String(
+            format: L("Disabled sources: %@. Turn them back on in Data Sources if needed."),
+            disabled.map(\.name).joined(separator: "、")
+        )
+    }
+
     static func resolve(
         track: Track,
         quality: StreamResolver.Quality,
@@ -119,7 +130,7 @@ enum AudioSource {
                 lastResolvedSource = pinned
                 return stream
             }
-            throw ApiError.unavailable(L("This source has no playable version of this song."))
+            throw ApiError.unavailable(L("This source has no playable version of this song.") + disabledSourcesHint())
         }
 
         // 本地导入的音频：直接给 file URL，不联网、不解析
@@ -173,7 +184,7 @@ enum AudioSource {
             }
             // 已经确认 YouTube 被拦，就别再空等一轮了
             if youtubeLikelyBlocked {
-                throw ApiError.unavailable(L("This song is not available on domestic sources right now."))
+                throw ApiError.unavailable(L("This song is not available on domestic sources right now.") + disabledSourcesHint())
             }
         } else if youtubeLikelyBlocked, let fallback = await domesticFallback(for: track) {
             return fallback
@@ -190,7 +201,7 @@ enum AudioSource {
 
         // YouTube 也是在「数据来源」里可以关掉的；关掉就不要再走这一步
         guard SourcePrefs.shared.isEnabled("youtube") else {
-            throw ApiError.unavailable(L("This song is not available on domestic sources right now."))
+            throw ApiError.unavailable(L("This song is not available on domestic sources right now.") + disabledSourcesHint())
         }
 
         do {

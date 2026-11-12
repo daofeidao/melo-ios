@@ -306,6 +306,7 @@
 "Resolve again from this source" = "Resolve again from this source";
 "Turned off in Data Sources" = "Turned off in Data Sources";
 "Play online from this source" = "Play online from this source";
+"Disabled sources: %@. Turn them back on in Data Sources if needed." = "Disabled sources: %@. Turn them back on in Data Sources if needed.";
 "This file does not look like a Melo backup." = "This file does not look like a Melo backup.";
 "This source has no %@ — it will still try, and may fall back or fail." = "This source has no %@ — it will still try, and may fall back or fail.";
 "Hi·FLAC added as a built-in source: it can serve 320 kbps and real FLAC lossless." = "Hi·FLAC added as a built-in source: it can serve 320 kbps and real FLAC lossless.";
