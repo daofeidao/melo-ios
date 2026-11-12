@@ -61,21 +61,7 @@ struct PlayerSourceSheet: View {
                 Section {
                     HStack(spacing: 8) {
                         ForEach(StreamResolver.Quality.allCases) { option in
-                            Button {
-                                qualityRaw = option.rawValue
-                                player.reloadForQuality()
-                            } label: {
-                                Text(option.label)
-                                    .font(.system(size: 13, weight: option == quality ? .semibold : .regular))
-                                    .foregroundColor(option == quality ? Theme.accent : .primary)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 8)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 9)
-                                            .fill(option == quality ? Theme.accent.opacity(0.16) : Theme.tertiaryFill)
-                                    )
-                            }
-                            .buttonStyle(PlainButtonStyle())
+                            qualityButton(option)
                         }
                     }
                     .padding(.vertical, 2)
@@ -143,6 +129,24 @@ struct PlayerSourceSheet: View {
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
+    }
+
+    /// 单独抽成方法：这段内联在 ForEach 里会让类型检查超时（实测 Swift 5.9 编译失败）
+    private func qualityButton(_ option: StreamResolver.Quality) -> some View {
+        let active = option == quality
+        return Button {
+            qualityRaw = option.rawValue
+            player.reloadForQuality()
+        } label: {
+            Text(option.label)
+                .font(.system(size: 13, weight: active ? .semibold : .regular))
+                .foregroundColor(active ? Theme.accent : Color.primary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .background(active ? Theme.accent.opacity(0.16) : Theme.tertiaryFill)
+                .clipShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 
     private func detail(for info: SourcePrefs.SourceInfo) -> String {
