@@ -160,6 +160,11 @@
 "Delete" = "Delete";
 "%d songs" = "%d songs";
 "Import failed" = "Import failed";
+"Picking a source in the player now really switches the source: the previous stream is no longer reused from cache." = "Picking a source in the player now really switches the source: the previous stream is no longer reused from cache.";
+"Turning a source off in Data Sources now takes effect immediately; picking a disabled source reports it instead of silently playing the old one." = "Turning a source off in Data Sources now takes effect immediately; picking a disabled source reports it instead of silently playing the old one.";
+"Backup restore now works, and a backup exported on Android can be restored on iPhone (and the other way round)." = "Backup restore now works, and a backup exported on Android can be restored on iPhone (and the other way round).";
+"Importing a playlist now runs in the background with a progress bar, and long playlists load much faster." = "Importing a playlist now runs in the background with a progress bar, and long playlists load much faster.";
+"Hi·FLAC is now tried first when resolving a song; other sources are used only when it has no match." = "Hi·FLAC is now tried first when resolving a song; other sources are used only when it has no match.";
 "Importing %@…" = "Importing %@…";
 "You can keep using the app while it finishes." = "You can keep using the app while it finishes.";
 "Imported %d songs" = "Imported %d songs";

@@ -160,6 +160,11 @@
 "Delete" = "删除";
 "%d songs" = "%d 首";
 "Import failed" = "导入失败";
+"Picking a source in the player now really switches the source: the previous stream is no longer reused from cache." = "播放源里选一个音源，现在真的会换源：不再复用上一次的旧直链缓存。";
+"Turning a source off in Data Sources now takes effect immediately; picking a disabled source reports it instead of silently playing the old one." = "在「数据来源」里关掉音源后立刻生效；手动选了已关闭的源会明确提示，不会偷偷继续放旧的。";
+"Backup restore now works, and a backup exported on Android can be restored on iPhone (and the other way round)." = "备份恢复现在可用了，Android 导出的备份能在 iPhone 上恢复（反过来也可以）。";
+"Importing a playlist now runs in the background with a progress bar, and long playlists load much faster." = "导入歌单改为后台进行并带进度条，长歌单加载快很多。";
+"Hi·FLAC is now tried first when resolving a song; other sources are used only when it has no match." = "解析歌曲时优先用 Hi·FLAC，它没有匹配时才用其他音源。";
 "Importing %@…" = "正在导入 %@…";
 "You can keep using the app while it finishes." = "导入在后台进行，你可以继续用 App。";
 "Imported %d songs" = "已导入 %d 首";

@@ -12,6 +12,13 @@ struct ChangelogEntry: Identifiable {
 enum Changelog {
     static var entries: [ChangelogEntry] {
         [
+            ChangelogEntry(version: "1.16.9", date: "2026-11-12", notes: [
+                L("Picking a source in the player now really switches the source: the previous stream is no longer reused from cache."),
+                L("Turning a source off in Data Sources now takes effect immediately; picking a disabled source reports it instead of silently playing the old one."),
+                L("Backup restore now works, and a backup exported on Android can be restored on iPhone (and the other way round)."),
+                L("Importing a playlist now runs in the background with a progress bar, and long playlists load much faster."),
+                L("Hi·FLAC is now tried first when resolving a song; other sources are used only when it has no match.")
+            ]),
             ChangelogEntry(version: "1.16.7", date: "2026-11-12", notes: [
                 L("Hi·FLAC added as a built-in source: it can serve 320 kbps and real FLAC lossless."),
                 L("The source sheet no longer pushes its last rows off the screen."),
