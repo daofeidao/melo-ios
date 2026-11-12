@@ -46,6 +46,12 @@
 "Playback Test" = "Playback Test";
 "Playback failed" = "Playback failed";
 "Playback failed: %@" = "Playback failed: %@";
+"No exact match. Open Playback Source to see playable versions of this song." = "No exact match. Open Playback Source to see playable versions of this song.";
+"Playable versions" = "Playable versions";
+"These versions came back from the sources and can be played right away." = "These versions came back from the sources and can be played right away.";
+"Playback failures now show a single-line notice instead of a tall card, so the play and list buttons stay in place." = "Playback failures now show a single-line notice instead of a tall card, so the play and list buttons stay in place.";
+"Removed the Retry and Switch Source prompts and the divider from the failure notice." = "Removed the Retry and Switch Source prompts and the divider from the failure notice.";
+"Playable versions moved into the Playback Source sheet, listed above Quality." = "Playable versions moved into the Playback Source sheet, listed above Quality.";
 "Step 0 · YouTube access" = "Step 0 · YouTube access";
 "Not flagged as a bot" = "Not flagged as a bot";
 "YouTube rejected this playback request and no matching version was found on domestic sources. Please retry later or play songs imported from a domestic playlist." = "YouTube rejected this playback request and no matching version was found on domestic sources. Please retry later or play songs imported from a domestic playlist.";

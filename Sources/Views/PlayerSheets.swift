@@ -59,6 +59,26 @@ struct PlayerSourceSheet: View {
     var body: some View {
         NavigationView {
             List {
+                // 播放失败时能直接播的版本放最上面（在「音质」之上），
+                // 播放页本身只留一行提示，不再把候选堆在进度条上方。
+                if !player.alternatives.isEmpty {
+                    Section {
+                        ForEach(player.alternatives) { candidate in
+                            Button {
+                                player.playAlternative(candidate)
+                                dismiss()
+                            } label: {
+                                alternativeRow(candidate)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    } header: {
+                        Text(L("Playable versions"))
+                    } footer: {
+                        Text(L("These versions came back from the sources and can be played right away."))
+                    }
+                }
+
                 Section {
                     HStack(spacing: 8) {
                         ForEach(StreamResolver.Quality.allCases) { option in
@@ -133,6 +153,28 @@ struct PlayerSourceSheet: View {
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
+    }
+
+    /// 单独抽出来，避免 List 里内联复杂 HStack 触发 Swift 类型检查超时
+    private func alternativeRow(_ candidate: Track) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(candidate.title)
+                    .font(.system(size: 14))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                Text(candidate.artist)
+                    .font(.system(size: 11))
+                    .foregroundColor(Theme.secondaryLabel)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            Text("\(candidate.source ?? "?") · \(candidate.durationText)")
+                .font(.system(size: 11))
+                .foregroundColor(Theme.secondaryLabel)
+                .lineLimit(1)
+        }
+        .contentShape(Rectangle())
     }
 
     /// 单独抽成方法：这段内联在 ForEach 里会让类型检查超时（实测 Swift 5.9 编译失败）

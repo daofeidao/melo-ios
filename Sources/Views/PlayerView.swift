@@ -62,8 +62,8 @@ struct PlayerView: View {
                         }
                         Spacer().frame(height: 26)
                         if player.errorText != nil {
-                            errorCard
-                                .padding(.bottom, 14)
+                            errorLine
+                                .padding(.bottom, 8)
                         }
                         progressBlock
                         Spacer().frame(height: 22)
@@ -348,76 +348,35 @@ struct PlayerView: View {
         }
     }
 
-    private var errorCard: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 7) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 13))
+    /// 播放失败提示：固定一行，不放按钮、横线、候选列表。
+    /// 能播的版本统一进「播放源」面板，避免把进度条和播放键往下顶。
+    private var errorLine: some View {
+        Button {
+            activeSheet = .sources
+        } label: {
+            HStack(spacing: 5) {
+                Text("△")
+                    .font(.system(size: 11))
                     .foregroundColor(.orange)
                 Text(L("Playback failed"))
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.white)
+                Text(L("No exact match. Open Playback Source to see playable versions of this song."))
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.68))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
-            if let error = player.errorText {
-                Text(error)
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.72))
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Button {
-                player.retryCurrent()
-            } label: {
-                Text(L("Retry"))
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 7)
-                    .background(Capsule().fill(Color.white.opacity(0.18)))
-            }
-            .buttonStyle(PlainButtonStyle())
-
-            // 严格模式找不到时长一致的正版时，把同名版本列出来手动选
-            if !player.alternatives.isEmpty {
-                Divider().background(Color.white.opacity(0.14)).padding(.vertical, 6)
-                Text(L("Switch Source"))
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.6))
-                ForEach(player.alternatives) { candidate in
-                    Button {
-                        player.playAlternative(candidate)
-                    } label: {
-                        HStack(spacing: 8) {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(candidate.title)
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.white)
-                                    .lineLimit(1)
-                                Text(candidate.artist)
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.5))
-                                    .lineLimit(1)
-                            }
-                            Spacer(minLength: 4)
-                            Text("\(candidate.source ?? "?") · \(candidate.durationText)")
-                                .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.55))
-                                .monospacedDigit()
-                        }
-                        .contentShape(Rectangle())
-                        .padding(.vertical, 4)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.black.opacity(0.30))
+            )
         }
-        .padding(14)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.black.opacity(0.38))
-        )
-        .padding(.horizontal, 24)
+        .buttonStyle(PlainButtonStyle())
+        .padding(.horizontal, 20)
     }
 
     private var bottomBar: some View {

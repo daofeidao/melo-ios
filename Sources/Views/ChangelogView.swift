@@ -12,6 +12,11 @@ struct ChangelogEntry: Identifiable {
 enum Changelog {
     static var entries: [ChangelogEntry] {
         [
+            ChangelogEntry(version: "1.16.12", date: "2026-11-12", notes: [
+                L("Playback failures now show a single-line notice instead of a tall card, so the play and list buttons stay in place."),
+                L("Removed the Retry and Switch Source prompts and the divider from the failure notice."),
+                L("Playable versions moved into the Playback Source sheet, listed above Quality.")
+            ]),
             ChangelogEntry(version: "1.16.11", date: "2026-11-12", notes: [
                 L("Search now shows Hi·FLAC results first, with a source badge on every song."),
                 L("A new Artists section with circular cards appears both on the search page and in search results, like Apple Music."),
