@@ -258,7 +258,10 @@ final class AudioCache {
 
         let target = directory.appendingPathComponent(fileName)
         var request = URLRequest(url: remote)
-        request.timeoutInterval = 60
+        // 60 秒对「接口 JSON」够用，对 5~13MB 的音频就是掐脖子：
+        // 周杰伦那些 5 分钟以上的歌 320k 一份十几 MB，弱网下要下很久。
+        // URLSession 的这个间隔是「数据流空闲超时」而不是总时长，给足一点更稳。
+        request.timeoutInterval = 120
         if let userAgent = userAgent, !userAgent.isEmpty {
             request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         }
@@ -282,6 +285,14 @@ final class AudioCache {
             let size = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
             // 小于 256 KB 的多半是错误页或截断文件，宁可不缓存
             guard size > 256 * 1024 else {
+                try? FileManager.default.removeItem(at: temp)
+                fail()
+                return
+            }
+            // 服务器给了总长度就核一遍：没下完就断的同样算失败，
+            // 否则「半首歌」会顶着这首歌进本地音乐，播到中间突然断
+            let expected = http.expectedContentLength
+            if expected > 0, size < expected {
                 try? FileManager.default.removeItem(at: temp)
                 fail()
                 return

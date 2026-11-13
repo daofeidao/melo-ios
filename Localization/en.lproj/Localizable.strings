@@ -357,3 +357,10 @@
 "Audio caching is off. Turn it on in Settings." = "Audio caching is off. Turn it on in Settings.";
 "Download failed. Try again later." = "Download failed. Try again later.";
 "Couldn't find a playable source for this song" = "Couldn't find a playable source for this song";
+
+/* 播放源面板里的缓存入口 */
+"On this device" = "On this device";
+"Download" = "Download";
+"Downloading to this device…" = "Downloading to this device…";
+"Save a copy so it plays offline" = "Save a copy so it plays offline";
+"The file is saved into Local Music, so it plays offline." = "The file is saved into Local Music, so it plays offline.";

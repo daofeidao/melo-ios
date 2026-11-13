@@ -358,3 +358,10 @@
 "Audio caching is off. Turn it on in Settings." = "自动缓存已在设置里关闭";
 "Download failed. Try again later." = "缓存失败，稍后再试";
 "Couldn't find a playable source for this song" = "缓存失败：这首歌暂时解析不到音源";
+
+/* 播放源面板里的缓存入口 */
+"On this device" = "存到本机";
+"Download" = "下载";
+"Downloading to this device…" = "正在下载到本机…";
+"Save a copy so it plays offline" = "存一份到本机，离线也能听";
+"The file is saved into Local Music, so it plays offline." = "文件会存到「本地音乐」，离线也能听。";
