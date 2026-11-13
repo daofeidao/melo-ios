@@ -21,7 +21,9 @@ enum ArtistInfo {
 
     private static let headers = [
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        "Referer": "https://music.163.com/"
+        "Referer": "https://music.163.com/",
+        // 匿名设备标识：不带上时网易云会概率性回 code=-462（限流），艺人资料与头像拉不到
+        "Cookie": NeteaseDeviceCookie.value
     ]
 
     static func load(name: String) async -> Profile? {

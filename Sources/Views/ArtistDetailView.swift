@@ -256,10 +256,11 @@ struct ArtistDetailView: View {
             let top = await DomesticSource.artistTopSongs(artistID: artistID)
             collected += top.filter { primaryArtistMatches(term: name, artist: $0.artist) }
         }
-        collected += await DomesticSource.search(query: name, limit: 40)
-        if SourcePrefs.shared.isEnabled("flachi") {
-            collected += await FlacHiSource.searchTracks(query: name, limit: 20)
-        }
+        // 以前这里还并了两路「按艺人名搜」的结果（DomesticSource.search(query: name)
+        // 和 FlacHiSource.searchTracks(query: name)）：把艺人名当关键词扔给搜索引擎，
+        // 会混进同名翻唱 / 致敬 / 串烧 / 别人主唱的歌，且这些结果不带可信平台 id，
+        // 播放时只能按歌名兜底猜版本 —— 于是「搜索页搜单曲是对的，艺人页点同一首却放错」。
+        // 现在只保留带精确 sourceID 的权威来源：全量歌曲 + 专辑曲目 + 热门榜。
 
         let all = dedup(collected).filter {
             artistMatches(term: name, artist: $0.artist)

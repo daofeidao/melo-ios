@@ -206,10 +206,26 @@ final class SourcePrefs: ObservableObject {
     }
 }
 
+/// 网易云对「完全没有 Cookie 的匿名请求」会概率性返回 code=-462（限流、内容为空），
+/// 表现为专辑打开是空的、点重试偶尔又出来、返回再进又空。
+/// 实测交替对照：带一个 NMTID 设备 Cookie 4/4 成功，不带 0/4。
+/// 这不是登录，只是给请求一个稳定的浏览器设备标识；进程内固定一个值即可。
+enum NeteaseDeviceCookie {
+    static let value: String = {
+        let id = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let stamp = Int(Date().timeIntervalSince1970 * 1000)
+        return "NMTID=00O\(id)AA; _ntes_nnid=\(String(id.prefix(16))),\(stamp); _ntes_nuid=\(String(id.prefix(16)))"
+    }()
+}
+
 extension URLRequest {
-    /// 把设置里录入的 Cookie 加到对应源的请求上，不串源
+    /// 把设置里录入的 Cookie 加到对应源的请求上，不串源。
+    /// 网易云没登录态时补一个匿名设备 Cookie，绕开 -462 匿名限流（用户录入的会员 Cookie 优先）。
     mutating func meloCookie(for source: String) {
-        guard let cookie = SourcePrefs.shared.cookie(source) else { return }
-        setValue(cookie, forHTTPHeaderField: "Cookie")
+        if let cookie = SourcePrefs.shared.cookie(source) {
+            setValue(cookie, forHTTPHeaderField: "Cookie")
+        } else if source == "netease" {
+            setValue(NeteaseDeviceCookie.value, forHTTPHeaderField: "Cookie")
+        }
     }
 }

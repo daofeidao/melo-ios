@@ -864,18 +864,34 @@ enum DomesticSource {
 
     /// 专辑详情：曲目挂在 album.songs[] 里（不在顶层）
     static func neteaseAlbumDetail(id: String) async -> CollectionDetail? {
+        // 一次成功就记住：艺人页会并发展开多张专辑、用户也会反复进出同一张专辑。
+        // 每次重新打接口既慢，又容易撞上 -462 限流（songs 为空 → 页面显示「没有内容」，
+        // 点重试偶尔又出来、返回再进又空）。
+        if let cached = AlbumDetailCache.shared.get(id) { return cached }
+
         guard let url = URL(string: "https://music.163.com/api/album/\(id)") else { return nil }
 
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 6
-        request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
-        request.setValue("https://music.163.com/", forHTTPHeaderField: "Referer")
-        request.setValue(declaredIP, forHTTPHeaderField: "X-Real-IP")
-        request.meloCookie(for: "netease")
+        func fetch() async -> [String: Any]? {
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 6
+            request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
+            request.setValue("https://music.163.com/", forHTTPHeaderField: "Referer")
+            request.setValue(declaredIP, forHTTPHeaderField: "X-Real-IP")
+            request.meloCookie(for: "netease")
+            guard let (data, _) = try? await URLSession.shared.data(for: request),
+                  let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            else { return nil }
+            // code=-462 是限流，不是「这张专辑没歌」
+            if let code = JS.int(root["code"]), code != 200 { return nil }
+            return JS.dict(root["album"])
+        }
 
-        guard let (data, _) = try? await URLSession.shared.data(for: request),
-              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let album = JS.dict(root["album"]) else { return nil }
+        var fetched = await fetch()
+        if fetched == nil {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            fetched = await fetch()
+        }
+        guard let album = fetched else { return nil }
 
         let name = JS.string(album["name"]) ?? L("Unknown Album")
         let artist = (JS.array(album["artists"]) ?? [])
@@ -909,12 +925,14 @@ enum DomesticSource {
 
         guard !songs.isEmpty else { return nil }
         let countText = String(format: L("%d songs"), songs.count)
-        return CollectionDetail(
+        let detail = CollectionDetail(
             title: name,
             subtitle: artist.isEmpty ? countText : "\(artist) · \(countText)",
             artwork: normalizeArtwork(JS.string(album["picUrl"])),
             tracks: songs
         )
+        AlbumDetailCache.shared.put(id, detail)
+        return detail
     }
 
     private static func neteaseSearchRoot(query: String, type: Int, limit: Int) async -> [String: Any]? {
@@ -965,5 +983,25 @@ enum DomesticSource {
                 || (value >= 0x4E00 && value <= 0x9FA5)
         })
         return cleaned.isEmpty ? lowered.trimmingCharacters(in: .whitespaces) : cleaned
+    }
+}
+
+/// 专辑详情进程内缓存：艺人页会一次展开多张专辑、用户也会反复进出同一张专辑。
+/// 缓存成功后不再重复请求，避免撞上 -462 限流导致「刚才有内容、返回再进就空了」。
+private final class AlbumDetailCache {
+    static let shared = AlbumDetailCache()
+    private let lock = NSLock()
+    private var map: [String: CollectionDetail] = [:]
+    private let max = 64
+
+    func get(_ id: String) -> CollectionDetail? {
+        lock.lock(); defer { lock.unlock() }
+        return map[id]
+    }
+
+    func put(_ id: String, _ detail: CollectionDetail) {
+        lock.lock(); defer { lock.unlock() }
+        map[id] = detail
+        if map.count > max, let oldest = map.keys.first { map.removeValue(forKey: oldest) }
     }
 }
