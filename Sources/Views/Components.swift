@@ -277,7 +277,7 @@ struct Scrubber: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let width = proxy.size.width
+            let width = max(1, proxy.size.width)
             let value = min(1, max(0, dragging ? dragValue : progress))
 
             ZStack(alignment: .leading) {
@@ -293,22 +293,29 @@ struct Scrubber: View {
                     .offset(x: width * CGFloat(value) - (dragging ? 6.5 : 4.5))
                     .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
             }
-            .frame(height: 24)
+            // 24 太窄，手指点偏一点就落到进度条外面；加到 30 更好按
+            .frame(height: 30)
             .contentShape(Rectangle())
-            .gesture(
+            // highPriorityGesture：播放页外层挂了「下滑关闭」的 DragGesture(minimumDistance: 12)，
+            // 普通 .gesture 会被它先吃掉手势 —— 表现就是「点一下进度条没反应，
+            // 非得按住拖一段才跳」。这里提到高优先级，点按和拖动都归进度条。
+            .highPriorityGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { gesture in
                         dragging = true
-                        dragValue = min(1, max(0, gesture.location.x / max(1, width)))
+                        dragValue = min(1, max(0, gesture.location.x / width))
                     }
-                    .onEnded { _ in
-                        let target = dragValue
+                    .onEnded { gesture in
+                        // 直接用这次手势的落点算目标，不读 @State 里的 dragValue：
+                        // 单击时 onChanged 只跑一帧，读状态有读到旧值的风险
+                        let target = min(1, max(0, gesture.location.x / width))
+                        dragValue = target
                         dragging = false
                         onSeek(target)
                     }
             )
         }
-        .frame(height: 24)
+        .frame(height: 30)
     }
 }
 

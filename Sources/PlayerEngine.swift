@@ -68,6 +68,8 @@ final class PlayerEngine: ObservableObject {
     private var currentStreamSource: String?
     /// 上一条缓存提示是给哪首歌的：换歌时清掉，别让新歌顶着上一首的「已缓存」
     private var cacheTrackID: String?
+    /// 提示的自动消失任务
+    private var cacheMessageTask: Task<Void, Never>?
     private var prefetchTask: Task<Void, Never>?
     private var prefetchedIndex: Int?
     private var artworkCache: [String: UIImage] = [:]
@@ -454,17 +456,17 @@ final class PlayerEngine: ObservableObject {
     func cacheCurrent() {
         guard let track = currentTrack else { return }
         if AudioCache.shared.hasEntry(for: track.id) {
-            cacheMessage = L("Already saved on this device")
+            flashCacheMessage(L("Already saved on this device"))
             return
         }
         guard AudioCache.shared.isEnabled else {
-            cacheMessage = L("Audio caching is off. Turn it on in Settings.")
+            flashCacheMessage(L("Audio caching is off. Turn it on in Settings."))
             return
         }
         if cacheBusy { return }
 
         cacheBusy = true
-        cacheMessage = nil
+        flashCacheMessage(nil)
         let quality = self.quality()
 
         // 正在播、来源也明确：直接下这条流，省掉一次解析
@@ -520,7 +522,21 @@ final class PlayerEngine: ObservableObject {
 
     private func finishCache(_ ok: Bool, reason: String? = nil) {
         cacheBusy = false
-        cacheMessage = ok ? L("Saved to this device") : (reason ?? L("Download failed. Try again later."))
+        flashCacheMessage(ok ? L("Saved to this device")
+                             : (reason ?? L("Download failed. Try again later.")))
+    }
+
+    /// 提示只在屏幕上停 3.5 秒。播放页不该常驻一行「已缓存」——
+    /// 图标变实心已经说明了一切，文字只留给「正在做 / 刚失败」。
+    private func flashCacheMessage(_ text: String?) {
+        cacheMessageTask?.cancel()
+        cacheMessage = text
+        guard let text = text, !text.isEmpty else { return }
+        cacheMessageTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_500_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { self?.cacheMessage = nil }
+        }
     }
 
     private func quality() -> StreamResolver.Quality {
@@ -541,7 +557,7 @@ final class PlayerEngine: ObservableObject {
         // 换歌就把上一首留下的缓存提示清掉
         if cacheTrackID != track.id {
             cacheTrackID = track.id
-            cacheMessage = nil
+            flashCacheMessage(nil)
             cacheBusy = false
         }
 

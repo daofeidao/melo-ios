@@ -59,22 +59,6 @@ struct PlayerSourceSheet: View {
     var body: some View {
         NavigationView {
             List {
-                // 缓存到本地：从播放页挪到这里 —— 「从哪儿听、要不要存下来」是同一件事。
-                // 放在最上面，进面板第一眼就能看到。
-                Section {
-                    Button {
-                        player.cacheCurrent()
-                    } label: {
-                        cacheRow
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .disabled(player.cacheBusy)
-                } header: {
-                    Text(L("On this device"))
-                } footer: {
-                    Text(L("The file is saved into Local Music, so it plays offline."))
-                }
-
                 // 播放失败时能直接播的版本放最上面（在「音质」之上），
                 // 播放页本身只留一行提示，不再把候选堆在进度条上方。
                 if !player.alternatives.isEmpty {
@@ -169,44 +153,6 @@ struct PlayerSourceSheet: View {
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
-    }
-
-    /// 单独抽出来，避免 List 里内联复杂 HStack 触发 Swift 类型检查超时
-    private var cacheRow: some View {
-        let cached = player.currentTrack.map { player.isCached($0) } ?? false
-        let title: String = {
-            if player.cacheBusy { return L("Caching…") }
-            return cached ? L("Cached") : L("Cache")
-        }()
-        let detail: String = {
-            if player.cacheBusy { return L("Downloading to this device…") }
-            if let message = player.cacheMessage { return message }
-            return cached ? L("Saved to this device") : L("Save a copy so it plays offline")
-        }()
-        return HStack(spacing: 10) {
-            Image(systemName: cached ? "arrow.down.circle.fill" : "arrow.down.circle")
-                .font(.system(size: 17))
-                .foregroundColor(cached ? Theme.accent : .secondary)
-                .frame(width: 24)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 15))
-                    .foregroundColor(cached ? Theme.accent : .primary)
-                Text(detail)
-                    .font(.system(size: 12))
-                    .foregroundColor(Theme.secondaryLabel)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 6)
-            if player.cacheBusy {
-                ProgressView()
-            } else if !cached {
-                Text(L("Download"))
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(Theme.accent)
-            }
-        }
-        .padding(.vertical, 2)
     }
 
     /// 单独抽出来，避免 List 里内联复杂 HStack 触发 Swift 类型检查超时

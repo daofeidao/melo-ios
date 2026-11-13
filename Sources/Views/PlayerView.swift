@@ -265,6 +265,19 @@ struct PlayerView: View {
                             .lineLimit(1)
                     }
                     .buttonStyle(PlainButtonStyle())
+                    // 一次性反馈：正在缓存 / 刚失败（3.5 秒后自动消失）。
+                    // 「已缓存」不写文字，图标变实心红就够了
+                    if player.cacheBusy {
+                        Text(L("Caching…"))
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.55))
+                            .padding(.top, 2)
+                    } else if let message = player.cacheMessage {
+                        Text(message)
+                            .font(.system(size: 11))
+                            .foregroundColor(Theme.accent)
+                            .padding(.top, 2)
+                    }
                 }
                 Spacer(minLength: 0)
                 Button {
@@ -276,8 +289,27 @@ struct PlayerView: View {
                         .frame(width: 34, height: 34)
                 }
                 .buttonStyle(PlainButtonStyle())
-                // 缓存/下载不放在播放页上：统一进「播放源」面板，
-                // 那里才有「这一首怎么听、从哪儿听、要不要存下来」的完整上下文
+                // 缓存：和收藏同一档的小图标，就摆在收藏右边。
+                // 只保留这一个入口 —— 别再额外加「下载」按钮，同一件事两个按钮只会让人犹豫。
+                Button {
+                    player.cacheCurrent()
+                } label: {
+                    ZStack {
+                        if player.cacheBusy {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .scaleEffect(0.62)
+                        } else {
+                            Image(systemName: player.isCached(track)
+                                  ? "arrow.down.circle.fill" : "arrow.down.circle")
+                                .font(.system(size: 19))
+                                .foregroundColor(player.isCached(track)
+                                                 ? Theme.accent : .white.opacity(0.85))
+                        }
+                    }
+                    .frame(width: 34, height: 34)
+                }
+                .buttonStyle(PlainButtonStyle())
             }
         }
         .padding(.horizontal, 28)
