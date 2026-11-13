@@ -48,6 +48,16 @@ struct PlayerSourceSheet: View {
 
     @AppStorage("melo.quality") private var qualityRaw = StreamResolver.Quality.high.rawValue
 
+    /// 「可播放版本」一屏最多摆这么多条，其余折起来
+    private static let alternativesPreview = 4
+    @State private var showAllAlternatives = false
+
+    private var visibleAlternatives: [Track] {
+        showAllAlternatives
+            ? player.alternatives
+            : Array(player.alternatives.prefix(Self.alternativesPreview))
+    }
+
     private var quality: StreamResolver.Quality {
         StreamResolver.Quality(rawValue: qualityRaw) ?? .high
     }
@@ -61,9 +71,11 @@ struct PlayerSourceSheet: View {
             List {
                 // 播放失败时能直接播的版本放最上面（在「音质」之上），
                 // 播放页本身只留一行提示，不再把候选堆在进度条上方。
+                // 这些是「同名不同版本」，属于次要信息：默认只露 4 条，
+                // 再多就把下面的音源列表顶出屏幕，用户真正要点的「换音源」反而看不见。
                 if !player.alternatives.isEmpty {
                     Section {
-                        ForEach(player.alternatives) { candidate in
+                        ForEach(visibleAlternatives) { candidate in
                             Button {
                                 player.playAlternative(candidate)
                                 dismiss()
@@ -72,8 +84,25 @@ struct PlayerSourceSheet: View {
                             }
                             .buttonStyle(PlainButtonStyle())
                         }
+                        if player.alternatives.count > Self.alternativesPreview {
+                            Button {
+                                showAllAlternatives.toggle()
+                            } label: {
+                                Text(showAllAlternatives
+                                     ? L("Show less")
+                                     : String(format: L("Show all %d versions"),
+                                              player.alternatives.count))
+                                    .font(.system(size: 14))
+                                    .foregroundColor(Theme.accent)
+                            }
+                        }
                     } header: {
-                        Text(L("Playable versions"))
+                        HStack {
+                            Text(L("Playable versions"))
+                            Spacer()
+                            Text("\(player.alternatives.count)")
+                                .foregroundColor(.secondary)
+                        }
                     } footer: {
                         Text(L("These versions came back from the sources and can be played right away."))
                     }

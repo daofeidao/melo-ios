@@ -365,3 +365,7 @@
 "Downloading to this device…" = "正在下载到本机…";
 "Save a copy so it plays offline" = "存一份到本机，离线也能听";
 "The file is saved into Local Music, so it plays offline." = "文件会存到「本地音乐」，离线也能听。";
+
+/* 播放源面板：可播放版本折叠 */
+"Show less" = "收起";
+"Show all %d versions" = "显示全部 %d 首";

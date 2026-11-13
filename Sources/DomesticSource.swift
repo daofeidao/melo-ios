@@ -949,9 +949,10 @@ enum DomesticSource {
         return text
     }
 
-    /// 小写、去括注与书名号、只留数字/字母/CJK，让「晴天 (Live)」和「晴天」能对上
+    /// 小写、繁转简、去括注与书名号、只留数字/字母/CJK，让「晴天 (Live)」和「晴天」能对上。
+    /// 繁简这步是必需的：YouTube Music 给的是「周傑倫」，不转会跟「周杰伦」判成两个人。
     static func normalize(_ text: String) -> String {
-        let lowered = text.lowercased()
+        let lowered = Zh.simplified(text).lowercased()
         let stripped = lowered.replacingOccurrences(
             of: "\\([^)]*\\)|（[^）]*）|\\[[^\\]]*\\]|【[^】]*】|《[^》]*》|〈[^〉]*〉",
             with: "",

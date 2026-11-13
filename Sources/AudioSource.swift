@@ -187,6 +187,15 @@ enum AudioSource {
         var attemptedFallback = false
         if track.source != nil {
             attemptedFallback = true
+            // VIP 曲目（周杰伦基本全在此列）国内源要么给不出直链，要么给个 KTV /
+            // 串烧 / 翻唱。歌曲宝是按「歌名 + 艺人」在酷我曲库里实搜再比对的，
+            // 对上就是原唱，所以这类歌让它先上，别在国内源上白等一轮。
+            if track.isVip, SourcePrefs.shared.isEnabled("gequbao"),
+               let url = await Gequbao.playURL(title: track.title, artist: track.artist),
+               let stream = await probe(url.absoluteString, timeout: 4) {
+                lastResolvedSource = "gequbao"
+                return stream
+            }
             if let fallback = await domesticFallback(for: track) {
                 return fallback
             }

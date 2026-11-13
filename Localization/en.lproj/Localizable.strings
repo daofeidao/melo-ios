@@ -364,3 +364,7 @@
 "Downloading to this device…" = "Downloading to this device…";
 "Save a copy so it plays offline" = "Save a copy so it plays offline";
 "The file is saved into Local Music, so it plays offline." = "The file is saved into Local Music, so it plays offline.";
+
+/* 播放源面板：可播放版本折叠 */
+"Show less" = "Show less";
+"Show all %d versions" = "Show all %d versions";
