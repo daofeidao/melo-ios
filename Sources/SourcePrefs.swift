@@ -74,6 +74,9 @@ final class SourcePrefs: ObservableObject {
         case "qq": return "https://y.qq.com/"
         case "kuwo": return "https://m.kuwo.cn/newh5app/"
         case "kugou": return "https://www.kugou.com/"
+        // 歌曲宝：它前面挂 Cloudflare，被风控时需要在 App 内 WebView 过人机验证。
+        // 进首页即可，验证通过后会落 cf_clearance Cookie。
+        case "gequbao": return "https://www.gequbao.com/"
         default: return "https://y.music.163.com/m/login"
         }
     }
@@ -86,6 +89,8 @@ final class SourcePrefs: ObservableObject {
         case "qq": return "qm_keyst="
         case "kuwo": return "kw_token="
         case "kugou": return "KuGoo="
+        // 歌曲宝的人机验证看 Cloudflare 的 cf_clearance：出现这个就说明验证过了
+        case "gequbao": return "cf_clearance="
         default: return nil
         }
     }
@@ -97,8 +102,15 @@ final class SourcePrefs: ObservableObject {
         case "qq": return "qq.com"
         case "kuwo": return "kuwo.cn"
         case "kugou": return "kugou.com"
+        case "gequbao": return "gequbao.com"
         default: return ""
         }
+    }
+
+    /// 这个源需要「在 App 内完成人机验证」而不是「登录」：目前只有歌曲宝
+    /// （Cloudflare 风控）。WebLoginView 会据此切到验证话术、并用与取流一致的固定 UA。
+    func isVerification(_ id: String) -> Bool {
+        return id == "gequbao"
     }
 
     func isEnabled(_ id: String) -> Bool { enabled[id] ?? true }

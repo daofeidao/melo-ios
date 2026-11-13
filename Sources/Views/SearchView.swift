@@ -16,9 +16,16 @@ struct SearchView: View {
     @State private var youtubeNote: String?
     @State private var searchGeneration = 0
     @State private var lastQuery = ""
+    /// 点歌曲行里的艺人名 → 程序化跳到艺人页（曲目行本身整行是「播放」，艺人名是独立点击）
+    @State private var artistNavTarget: String?
+    @State private var artistNavActive = false
 
     @EnvironmentObject private var player: PlayerEngine
     @EnvironmentObject private var library: Library
+
+    /// 监听 RootView 发来的「重选 Search tab」信号；令牌变化即把整条导航栈拆掉、
+    /// 回到搜索根界面（兼容搜索 → 艺人 → 专辑 任意深度）。
+    @ObservedObject private var coordinator = SearchCoordinator.shared
 
     var body: some View {
         NavigationView {
@@ -57,6 +64,7 @@ struct SearchView: View {
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
+        .id(coordinator.resetToken)
     }
 
     private var searchField: some View {
@@ -103,13 +111,16 @@ struct SearchView: View {
     private var resultList: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                // 搜索时也把「艺人」放在最上面，和 Apple Music 的结果页一致
+                // 点歌曲行里的艺人名时，用这个隐藏 NavigationLink 程序化跳转
+                NavigationLink(
+                    destination: artistDestination,
+                    isActive: $artistNavActive
+                ) { EmptyView() }
+                .hidden()
+
+                // 顺序按用户要求：① 艺人 ② 专辑 ③ 歌曲。歌单是次要信息，挪到歌曲之后。
                 if !matchedArtists.isEmpty {
                     artistSection(matchedArtists)
-                }
-
-                if !playlistCollections.isEmpty {
-                    collectionSection(title: L("Playlists"), items: playlistCollections)
                 }
 
                 if !albumCollections.isEmpty {
@@ -121,7 +132,15 @@ struct SearchView: View {
                         SectionHeader(title: L("Songs"))
                         LazyVStack(spacing: 0) {
                             ForEach(Array(results.domestic.enumerated()), id: \.offset) { index, track in
-                                TrackRow(track: track, badge: sourceBadge(track)) {
+                                TrackRow(
+                                    track: track,
+                                    badge: sourceBadge(track),
+                                    onArtistTap: {
+                                        artistNavTarget = firstArtist(track.artist)
+                                        artistNavActive = true
+                                    },
+                                    contextArtist: matchedArtists.first
+                                ) {
                                     player.play(tracks: results.domestic, startAt: index)
                                 }
                                 .padding(.horizontal, 16)
@@ -133,11 +152,30 @@ struct SearchView: View {
                     }
                 }
 
+                if !playlistCollections.isEmpty {
+                    collectionSection(title: L("Playlists"), items: playlistCollections)
+                }
+
                 youtubeSection
             }
             .padding(.top, 4)
             .padding(.bottom, Layout.contentBottomInset)
         }
+    }
+
+    private var artistDestination: some View {
+        Group {
+            if let target = artistNavTarget {
+                ArtistDetailView(name: target)
+            }
+        }
+    }
+
+    private func firstArtist(_ artist: String) -> String {
+        artist
+            .components(separatedBy: CharacterSet(charactersIn: ",，/、&·"))
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? artist
     }
 
     private var playlistCollections: [MediaCollection] {
@@ -448,8 +486,13 @@ struct SearchView: View {
 
         // Hi·FLAC 排最前，其余国内源补充；去重保留先出现的那条（带精确 id，播放最稳）。
         let combined = dedup(flac + songs)
-        // 可播排前面、VIP 排后面；同组内保持接口原顺序
-        let ordered = combined.filter { !$0.isVip } + combined.filter { $0.isVip }
+        // 歌曲区排序：① 可播排前、VIP 排后；② 同一查询下「原唱者本人」的版本排最前，
+        // 其次才是别的艺人的翻唱 / 合唱版本（搜周杰伦先放周杰伦本人唱的）。
+        let vipSplit = combined.filter { !$0.isVip } + combined.filter { $0.isVip }
+        let ordered = vipSplit.sorted {
+            primaryArtistMatches(term: trimmed, artist: $0.artist)
+            && !primaryArtistMatches(term: trimmed, artist: $1.artist)
+        }
 
         var merged = SearchResults()
         merged.domestic = ordered

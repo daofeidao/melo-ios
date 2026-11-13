@@ -19,9 +19,24 @@ import Foundation
 /// 一旦站点要求「人机验证」（code=2），立刻收手 —— 越问限得越久。
 enum Gequbao {
 
+    /// 歌曲宝被 Cloudflare 风控时的验证状态：播放页据此显示「完成验证」按钮，
+    /// 用户在 App 内 WebView 过验证后清掉。
+    private static var blockedUntil: TimeInterval = 0
+
+    static func isBlocked() -> Bool {
+        Date().timeIntervalSince1970 < blockedUntil
+    }
+
+    /// 用户在 App 内 WebView 完成人机验证后调用：清掉冷却与待验证状态，
+    /// 验证拿到的 Cookie 已经由 WebLoginView 存进 SourcePrefs，取流会自动带上。
+    static func onVerified() {
+        blockedUntil = 0
+        GequbaoVerificationState.shared.needsVerification = false
+    }
+
     private static let base = "https://www.gequbao.com"
 
-    private static let mobileUA = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 "
+    static let mobileUA = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 "
         + "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
 
     private static let desktopUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -50,6 +65,8 @@ enum Gequbao {
     static func playURL(title: String, artist: String, minBytes: Int64 = 500_000) async -> URL? {
         let wanted = normalize(title)
         guard wanted.count >= 2 else { return nil }
+        // 冷却期：刚被风控标记，别再撞枪口，直接交给别的源兜底
+        guard !isBlocked() else { return nil }
         let keyword = "\(title) \(artist)".trimmingCharacters(in: .whitespacesAndNewlines)
         guard !keyword.isEmpty else { return nil }
 
@@ -66,7 +83,11 @@ enum Gequbao {
         for id in ids.prefix(6) {
             let result = await streamURL(id: id)
             // 站点开始要「人机验证」了：这一轮问下去只会继续被拒，直接收手交给别的源
-            if result.captcha { return nil }
+            if result.captcha {
+                blockedUntil = Date().timeIntervalSince1970 + 20 * 60
+                GequbaoVerificationState.shared.needsVerification = true
+                return nil
+            }
             guard let url = result.url else { continue }
             if let size = await DomesticSource.contentLength(url), size < minBytes { continue }
             return url
@@ -182,6 +203,9 @@ enum Gequbao {
         request.setValue(base, forHTTPHeaderField: "Origin")
         request.setValue(mobileUA, forHTTPHeaderField: "User-Agent")
         request.setValue("empty", forHTTPHeaderField: "Sec-Fetch-Dest")
+        if let cookie = SourcePrefs.shared.cookie("gequbao") {
+            request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        }
         request.setValue("cors", forHTTPHeaderField: "Sec-Fetch-Mode")
         request.setValue("same-origin", forHTTPHeaderField: "Sec-Fetch-Site")
         let form = "id=\(encode(playID) ?? playID)&purpose=play"
@@ -208,6 +232,10 @@ enum Gequbao {
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
         for (key, value) in pageHeaders(ua) { request.setValue(value, forHTTPHeaderField: key) }
+        // 用户已在 App 内过完人机验证：带上 cf_clearance，否则照样被 Cloudflare 拦在外面
+        if let cookie = SourcePrefs.shared.cookie("gequbao") {
+            request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        }
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse,
               (200...299).contains(http.statusCode),
@@ -244,4 +272,11 @@ enum Gequbao {
         }
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+}
+
+/// 歌曲宝的人机验证状态（可观察）：被 Cloudflare 风控时置 true，
+/// 播放页据此显示「完成验证」按钮；用户在 App 内 WebView 过验证后清掉。
+final class GequbaoVerificationState: ObservableObject {
+    static let shared = GequbaoVerificationState()
+    @Published var needsVerification = false
 }

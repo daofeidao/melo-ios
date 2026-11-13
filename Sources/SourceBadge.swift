@@ -2,9 +2,43 @@ import Foundation
 
 /// 歌曲行右侧的来源角标：让用户一眼看出这首歌是哪个音源给的。
 /// 搜索结果页和艺人页共用，VIP 信息并进去，不丢。
+/// 记录每首歌「实际播放时命中的音源」。列表角标以前只读 track.source（曲库出处），
+/// 周杰伦的歌强制走歌曲宝后角标还写着「网易云」就是这个错。解析成功时记一笔，
+/// sourceBadge 优先读这里，没播过的退回强制规则 / 曲库出处。
+enum ResolvedSources {
+    private static var map: [String: String] = [:]
+    static func record(_ id: String, _ source: String) {
+        if !id.isEmpty { map[id] = source }
+    }
+    static func of(_ id: String) -> String? { map[id] }
+    static func clear() { map.removeAll() }
+}
+
+/// 指定艺人的歌一律优先走的音源。用户要求周杰伦全部用歌曲宝（国内源对这批歌
+/// 基本只给 VIP 死链或 KTV / 翻唱，歌曲宝按「歌名 + 艺人」实搜比对对上就是原唱）。
+/// 不硬锁：歌曲宝被风控 / 站内没有时仍回退原链路，避免整批没声。
+enum ForcedSource {
+    private static let gequbaoArtists = ["周杰伦"]
+
+    static func forTrack(_ track: Track) -> String? {
+        let primary = track.artist
+            .components(separatedBy: CharacterSet(charactersIn: ",，/、&·"))
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalized = Zh.simplified(primary)
+        guard !normalized.isEmpty else { return nil }
+        return gequbaoArtists.first(where: { normalized.contains($0) }).map { _ in "gequbao" }
+    }
+
+    static func displaySource(_ track: Track) -> String? { forTrack(track) }
+}
+
 func sourceBadge(_ track: Track) -> String? {
+    let effective = ResolvedSources.of(track.id)
+        ?? ForcedSource.displaySource(track)
+        ?? track.source
     let source: String?
-    switch track.source?.lowercased() {
+    switch effective?.lowercased() {
     case "flachi": source = "Hi·FLAC"
     case "kugou": source = "酷狗"
     case "kuwo": source = "酷我"
@@ -14,7 +48,9 @@ func sourceBadge(_ track: Track) -> String? {
     case "gequbao": source = "歌曲宝"
     default: source = nil
     }
-    let parts = [source, track.isVip ? "VIP" : nil].compactMap { $0 }
+    // 已确定是歌曲宝就别再挂「VIP」：那是曲库出处带来的标记，容易误导
+    let vip = (track.isVip && source != "歌曲宝") ? "VIP" : nil
+    let parts = [source, vip].compactMap { $0 }
     return parts.isEmpty ? nil : parts.joined(separator: "·")
 }
 
@@ -31,12 +67,29 @@ private let nonOriginalMarkers = [
     "弦乐版", "钢琴曲", "piano", "ver."
 ]
 
-/// 这条曲目是不是「原唱」版本：标题里没有翻唱 / DJ / Live / 伴奏等标记，且不是灰显占位。
-/// 用于在曲目行打【原唱】标，让用户一眼确认放的是正版原唱、不是同名魔改版。
-func isOriginalVersion(_ track: Track) -> Bool {
+/// 这条曲目是不是「原唱」版本。
+///
+/// 以前只看标题里有没有翻唱 / DJ / Live 等标记，于是「标题写得很干净、其实是别人
+/// 翻唱的版本」也被打了【原唱】——这是误标来源。现在加上艺人校验：有上下文艺人
+/// （搜索词命中的艺人、艺人页名字、专辑艺人）时，必须这位艺人才算原唱；没有上下文
+/// 时退回只看标题。
+func isOriginalVersion(_ track: Track, contextArtist: String? = nil) -> Bool {
     if track.isUnavailable { return false }
     let title = track.title.lowercased()
-    return !nonOriginalMarkers.contains { title.contains($0) }
+    guard !nonOriginalMarkers.contains(where: { title.contains($0) }) else { return false }
+
+    if let ctx = contextArtist?.trimmingCharacters(in: .whitespacesAndNewlines), ctx.count >= 2 {
+        let wanted = Zh.simplified(ctx.lowercased())
+        let actual = Zh.simplified(track.artist.lowercased())
+        let primary = actual
+            .components(separatedBy: CharacterSet(charactersIn: ",，/、&·"))
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !primary.isEmpty && !primary.contains(wanted) && !wanted.contains(primary) {
+            return false
+        }
+    }
+    return true
 }
 
 /// 从本次搜索结果里提出相关艺人：只保留与查询词真正相关的（名字 token 对得上），

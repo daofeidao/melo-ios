@@ -19,6 +19,10 @@ struct ArtistDetailView: View {
     @State private var bioExpanded = false
     @State private var showAllAlbums = false
     @State private var showAllTracks = false
+    /// 只拉一次：艺人页是用 NavigationLink 推出来的，从子页（专辑）pop 回来时
+    /// 视图仍活着、@State 还在，但 .task 每次出现都会重跑 → 又拉一遍全部数据，
+    /// 看着就像「返回很慢、重载了一遍」。用这个标记跳过重复加载。
+    @State private var didLoad = false
 
     private let albumPreview = 5
     private let trackPreview = 8
@@ -44,7 +48,13 @@ struct ArtistDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             ArtistStore.remember(name)
-            await load()
+            // 艺人页是 NavigationLink 推出来的：从子页（专辑）pop 回来时视图仍活着、
+            // @State 还在，但 .task 每次出现都会重跑 → 又拉一遍全部数据，
+            // 看着就像「返回很慢、重载了一遍」。用 didLoad 跳过重复加载。
+            if !didLoad {
+                didLoad = true
+                await load()
+            }
         }
     }
 
@@ -224,9 +234,22 @@ struct ArtistDetailView: View {
         let artistID = p?.id ?? 0
 
         var rawAlbums: [DomesticSource.DomesticAlbum] = []
+        var collected: [Track] = []
+
+        // 拿到 artistID 后，专辑列表 / 全量歌曲 / 热门榜 三路互不影响，并发取数。
+        // 艺人页进入慢的根因是顺序 await：先把这一批并发跑起来，再处理依赖专辑的环节。
         if artistID > 0 {
-            rawAlbums = await DomesticSource.artistAlbums(artistID: artistID)
+            async let albumsTask = DomesticSource.artistAlbums(artistID: artistID)
+            async let songsTask = DomesticSource.artistSongs(artistID: artistID)
+            async let topTask = DomesticSource.artistTopSongs(artistID: artistID)
+
+            rawAlbums = await albumsTask
+            let ownSongs = await songsTask
+            let top = await topTask
+            collected += ownSongs
+            collected += top.filter { primaryArtistMatches(term: name, artist: $0.artist) }
         }
+
         if rawAlbums.isEmpty {
             rawAlbums = await DomesticSource.neteaseAlbumSearch(query: name, limit: 30)
         }
@@ -241,26 +264,13 @@ struct ArtistDetailView: View {
                 $0.trackCount == $1.trackCount ? $0.name < $1.name : $0.trackCount > $1.trackCount
             }
 
-        // 歌曲主来源：艺人全部歌曲（分页，有多少取多少）
-        var collected: [Track] = []
-        if artistID > 0 {
-            collected += await DomesticSource.artistSongs(artistID: artistID)
-        }
-        // 专辑曲目补上接口漏掉的曲目（有些歌只挂在专辑里，没进 artist/songs）
+        // 专辑曲目补上接口漏掉的曲目（有些歌只挂在专辑里，没进 artist/songs）。
+        // 依赖 cleanAlbums，必须等上面算完。
         if !cleanAlbums.isEmpty {
             collected += await DomesticSource.artistAlbumTracks(
                 albumIDs: Array(cleanAlbums.prefix(6).map(\.id))
             )
         }
-        if artistID > 0 {
-            let top = await DomesticSource.artistTopSongs(artistID: artistID)
-            collected += top.filter { primaryArtistMatches(term: name, artist: $0.artist) }
-        }
-        // 以前这里还并了两路「按艺人名搜」的结果（DomesticSource.search(query: name)
-        // 和 FlacHiSource.searchTracks(query: name)）：把艺人名当关键词扔给搜索引擎，
-        // 会混进同名翻唱 / 致敬 / 串烧 / 别人主唱的歌，且这些结果不带可信平台 id，
-        // 播放时只能按歌名兜底猜版本 —— 于是「搜索页搜单曲是对的，艺人页点同一首却放错」。
-        // 现在只保留带精确 sourceID 的权威来源：全量歌曲 + 专辑曲目 + 热门榜。
 
         let all = dedup(collected).filter {
             artistMatches(term: name, artist: $0.artist)

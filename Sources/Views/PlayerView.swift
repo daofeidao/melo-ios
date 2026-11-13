@@ -11,12 +11,16 @@ struct PlayerView: View {
     /// iOS 15 上同一视图叠两个 .sheet 会互相顶掉，统一用一个 enum 驱动
     @State private var activeSheet: PlayerSheet?
     @State private var showLyrics = false
+    /// 歌曲宝被 Cloudflare 风控时显示「完成验证」按钮，可观察
+    @StateObject private var verifyState = GequbaoVerificationState.shared
 
     private enum PlayerSheet: String, Identifiable {
         /// 播放历史 + 待播清单，同一个浮层里分段切换
         case library
         /// 音源与音质
         case sources
+        /// 歌曲宝人机验证（在 App 内 WebView 完成）
+        case verify
 
         var id: String { rawValue }
     }
@@ -65,6 +69,29 @@ struct PlayerView: View {
                             errorLine
                                 .padding(.bottom, 8)
                         }
+                        // 歌曲宝被 Cloudflare 风控：直接在播放页给「完成验证」入口，
+                        // 点开 App 内 WebView 过验证，回来后重试即可，不用去浏览器折腾。
+                        if verifyState.needsVerification {
+                            Button {
+                                activeSheet = .verify
+                            } label: {
+                                HStack(spacing: 0) {
+                                    Text(L("歌曲宝需要人机验证 · 点此在 App 内完成"))
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.white)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    Text(L("去验证 ›"))
+                                        .font(.system(size: 12))
+                                        .foregroundColor(Theme.accent)
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 9)
+                                .background(Color.black.opacity(0.3))
+                                .cornerRadius(8)
+                            }
+                            .padding(.horizontal, 4)
+                            .padding(.bottom, 8)
+                        }
                         progressBlock
                         Spacer().frame(height: 22)
                         controlsBlock
@@ -106,6 +133,10 @@ struct PlayerView: View {
             case .sources:
                 PlayerSourceSheet()
                     .environmentObject(player)
+            case .verify:
+                if let info = SourcePrefs.shared.builtIn.first(where: { $0.id == "gequbao" }) {
+                    WebLoginView(platform: info)
+                }
             }
         }
         .task(id: player.currentTrack?.id) {

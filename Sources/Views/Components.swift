@@ -59,6 +59,10 @@ struct TrackRow: View {
     var index: Int = 0
     /// 右侧小标签，目前用来标 VIP
     var badge: String? = nil
+    /// 点艺人名跳艺人页；不传就不把艺人名做成可点（保持整行点击 = 播放）
+    var onArtistTap: (() -> Void)? = nil
+    /// 原唱判定的上下文艺人（搜索词命中的艺人 / 艺人页 / 专辑艺人）
+    var contextArtist: String? = nil
     var onTap: () -> Void
 
     @EnvironmentObject private var player: PlayerEngine
@@ -96,15 +100,25 @@ struct TrackRow: View {
                                 .font(.system(size: 9))
                                 .foregroundColor(Theme.accent)
                         }
-                        Text(track.artist)
-                            .font(.system(size: 13))
-                            .foregroundColor(Theme.secondaryLabel)
-                            .lineLimit(1)
+                        if let onArtistTap {
+                            Button(action: onArtistTap) {
+                                Text(track.artist)
+                                    .font(.system(size: 13))
+                                    .foregroundColor(Theme.accent)
+                                    .lineLimit(1)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        } else {
+                            Text(track.artist)
+                                .font(.system(size: 13))
+                                .foregroundColor(Theme.secondaryLabel)
+                                .lineLimit(1)
+                        }
                     }
                 }
                 Spacer(minLength: 8)
-                // 【原唱】实心标：标题里没有翻唱 / DJ / Live / 伴奏等标记才打
-                if isOriginalVersion(track) {
+                // 【原唱】实心标：标题里没有翻唱 / DJ / Live / 伴奏等标记、且艺人对得上才打
+                if isOriginalVersion(track, contextArtist: contextArtist) {
                     Text("原唱")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(.white)

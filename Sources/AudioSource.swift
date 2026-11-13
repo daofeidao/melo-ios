@@ -154,6 +154,19 @@ enum AudioSource {
             return AudioStream(url: cached, itag: -1, bitrate: 0, mime: "audio/mpeg")
         }
 
+        // 指定艺人（周杰伦）的歌一律优先歌曲宝：国内源对这批歌基本只给 VIP 死链或 KTV /
+        // 翻唱，歌曲宝按「歌名 + 艺人」实搜比对，对上就是原唱。不硬锁：被风控 / 站内没有
+        // 时回退到下面常规链路，避免整批放不出声。
+        if let forced = ForcedSource.forTrack(track),
+           forced == "gequbao",
+           SourcePrefs.shared.isEnabled("gequbao"),
+           let url = await Gequbao.playURL(title: track.title, artist: track.artist),
+           let stream = await probe(url.absoluteString, timeout: 4) {
+            lastResolvedSource = "gequbao"
+            ResolvedSources.record(track.id, "gequbao")
+            return stream
+        }
+
         // 默认首选 Hi·FLAC：它的会员凭据能给出 320 / flac，其余国内源匿名基本只到 128。
         // 严格匹配（艺人 + 标题 + 时长）对不上就返回 nil 降级，绝不硬选翻唱 / Live 版。
         // 这一路是「按歌名搜出来的」，标记不可信，不落盘缓存。

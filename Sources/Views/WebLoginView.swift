@@ -25,6 +25,9 @@ struct WebLoginView: View {
                     hint: prefs.cookieHint(platform.id),
                     onCookieFound: { header in
                         prefs.setCookie(platform.id, header)
+                        // 歌曲宝是「人机验证」不是「登录」：验证通过（拿到 cf_clearance）
+                        // 就清掉待验证状态，播放页的提示按钮自动消失。
+                        if platform.id == "gequbao" { Gequbao.onVerified() }
                         saved = true
                     },
                     onLoaded: { pageLoading = false }
@@ -60,6 +63,7 @@ struct WebLoginView: View {
                         LoginWebView.collectCookie(domainSuffix: prefs.cookieDomain(platform.id)) { header in
                             if !header.isEmpty { prefs.setCookie(platform.id, header) }
                         }
+                        if platform.id == "gequbao" { Gequbao.onVerified() }
                         dismiss()
                     }
                 }
@@ -94,6 +98,11 @@ private struct LoginWebView: UIViewRepresentable {
         if urlString.contains("y.qq.com") {
             web.customUserAgent = Self.desktopUA
             web.scrollView.minimumZoomScale = 0.5
+        }
+        // 歌曲宝的人机验证看 Cloudflare 的 cf_clearance，它绑定 User-Agent：
+        // WebView 和取流请求必须用同一个 UA，否则验证通过也照样被拦。
+        if urlString.contains("gequbao.com") {
+            web.customUserAgent = Gequbao.mobileUA
         }
 
         if let url = URL(string: urlString) {

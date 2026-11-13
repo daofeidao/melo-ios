@@ -7,9 +7,28 @@ struct RootView: View {
     @State private var showSettings = false
     @State private var showWebProbe = false
 
+    /// 自定义 selection 绑定：拦截「重选已选中 tab」的事件。
+    /// 系统默认不会为同值变化触发 onChange，但绑定 setter 仍会被调用，
+    /// 借此在重选 Search tab（tag 3）时通知 SearchCoordinator 回到根界面。
+    private var tabSelection: Binding<Int> {
+        Binding(
+            get: { selection },
+            set: { newValue in
+                if newValue == selection {
+                    // 重选了同一个 tab：只有 Search 需要 pop 回根
+                    if newValue == 3 {
+                        SearchCoordinator.shared.popToRoot()
+                    }
+                } else {
+                    selection = newValue
+                }
+            }
+        )
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
-            TabView(selection: $selection) {
+            TabView(selection: tabSelection) {
                 ListenNowView()
                     // 固定条，不悬浮：safeAreaInset 会让内容自己让位，不再盖住列表。
                     // 只挂在「现在就听」上，其他栏目不再出现。
