@@ -323,19 +323,41 @@ struct SearchView: View {
         ]
         let index = abs(name.hashValue % colors.count)
         return VStack(spacing: 7) {
-            ZStack {
-                Circle().fill(colors[index])
-                Text(String(name.prefix(1)).uppercased())
-                    .font(.system(size: 32, weight: .semibold))
-                    .foregroundColor(.white)
-            }
-            .frame(width: 88, height: 88)
+            ArtistCircleAvatar(name: name, fallback: colors[index])
             Text(name)
                 .font(.system(size: 13))
                 .foregroundColor(Theme.secondaryLabel)
                 .lineLimit(1)
         }
         .frame(width: 96)
+    }
+
+    /// 圆形艺人头像：异步取真实头像，拿不到就退回原来的首字色块。
+    /// 和安卓的 SearchArtistTile 口径一致；艺人内页保持最新版设计不变。
+    private struct ArtistCircleAvatar: View {
+        let name: String
+        let fallback: Color
+        @State private var avatar: String?
+
+        var body: some View {
+            ZStack {
+                if let url = avatar, !url.isEmpty {
+                    ArtworkView(url: url, size: 88, round: true)
+                } else {
+                    Circle().fill(fallback)
+                    Text(String(name.prefix(1)).uppercased())
+                        .font(.system(size: 32, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+            }
+            .frame(width: 88, height: 88)
+            .task {
+                let profile = await ArtistInfo.load(name: name)
+                if let url = profile?.avatar, url.hasPrefix("http") {
+                    avatar = url
+                }
+            }
+        }
     }
 
     private func genreCard(_ genre: PlaylistGenre, index: Int) -> some View {
