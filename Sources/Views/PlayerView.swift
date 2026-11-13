@@ -242,41 +242,81 @@ struct PlayerView: View {
     }
 
     private func titleBlock(_ track: Track) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(track.title)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                // 点艺名进艺人页：先记住名字并关掉播放页，再由「现在就听」里那个
-                // 隐藏的 NavigationLink 推进去（fullScreenCover 里推不动主栈）
-                Button {
-                    let first = track.artist
-                        .components(separatedBy: CharacterSet(charactersIn: ",，、/&"))
-                        .first?
-                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? track.artist
-                    ArtistRouter.shared.pending = first.isEmpty ? track.artist : first
-                    dismiss()
-                } label: {
-                    Text(track.artist)
-                        .font(.system(size: 18))
-                        .foregroundColor(.white.opacity(0.58))
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(track.title)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.white)
                         .lineLimit(1)
+                    // 点艺名进艺人页：先记住名字并关掉播放页，再由「现在就听」里那个
+                    // 隐藏的 NavigationLink 推进去（fullScreenCover 里推不动主栈）
+                    Button {
+                        let first = track.artist
+                            .components(separatedBy: CharacterSet(charactersIn: ",，、/&"))
+                            .first?
+                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? track.artist
+                        ArtistRouter.shared.pending = first.isEmpty ? track.artist : first
+                        dismiss()
+                    } label: {
+                        Text(track.artist)
+                            .font(.system(size: 18))
+                            .foregroundColor(.white.opacity(0.58))
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+                Spacer(minLength: 0)
+                Button {
+                    library.toggleFavorite(track)
+                } label: {
+                    Image(systemName: library.isFavorite(track) ? "heart.fill" : "heart")
+                        .font(.system(size: 19))
+                        .foregroundColor(library.isFavorite(track) ? Theme.accent : .white.opacity(0.85))
+                        .frame(width: 34, height: 34)
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                // 只给图标太容易和收藏混成两个小点点，这里直接带文字：
+                // 「缓存」/「缓存中」/「已缓存」，一眼能认出来
+                Button {
+                    player.cacheCurrent()
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: player.isCached(track) ? "arrow.down.circle.fill" : "arrow.down.circle")
+                            .font(.system(size: 14, weight: .medium))
+                        Text(cacheTitle(track))
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(player.isCached(track) ? Theme.accent : .white.opacity(0.95))
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 7)
+                    .background(
+                        Capsule().fill(Color.white.opacity(player.isCached(track) ? 0.20 : 0.12))
+                    )
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            Spacer(minLength: 0)
-            Button {
-                library.toggleFavorite(track)
-            } label: {
-                Image(systemName: library.isFavorite(track) ? "heart.fill" : "heart")
-                    .font(.system(size: 19))
-                    .foregroundColor(library.isFavorite(track) ? Theme.accent : .white.opacity(0.85))
-                    .frame(width: 34, height: 34)
+
+            // 「正在缓存…」/「已缓存到本地」/失败原因：点了要看得见反馈
+            if let tip = cacheTip(track) {
+                Text(tip)
+                    .font(.system(size: 12))
+                    .foregroundColor(player.cacheBusy ? .white.opacity(0.55) : Theme.accent)
             }
-            .buttonStyle(PlainButtonStyle())
         }
         .padding(.horizontal, 28)
+    }
+
+    private func cacheTitle(_ track: Track) -> String {
+        if player.cacheBusy { return L("Caching…") }
+        return player.isCached(track) ? L("Cached") : L("Cache")
+    }
+
+    private func cacheTip(_ track: Track) -> String? {
+        if player.cacheBusy { return L("Caching…") }
+        if let message = player.cacheMessage { return message }
+        return player.isCached(track) ? L("Saved to this device") : nil
     }
 
     private var progressBlock: some View {
@@ -392,7 +432,8 @@ struct PlayerView: View {
     }
 
     private var bottomBar: some View {
-        VStack(spacing: 8) {
+        let cached = player.currentTrack.map { player.isCached($0) } ?? false
+        return VStack(spacing: 8) {
             HStack {
                 // 左下角：原来是装饰性的 text.quote（静态 Image，点了没反应），
                 // 现在改成播放历史入口，和中间的待播清单配成一对
@@ -402,6 +443,19 @@ struct PlayerView: View {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 17))
                         .foregroundColor(.white.opacity(0.85))
+                        .frame(width: 44, height: 32)
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                Spacer()
+
+                // 缓存/下载也放到底部这一排：标题旁那个胶囊有些人找不到
+                Button {
+                    player.cacheCurrent()
+                } label: {
+                    Image(systemName: cached ? "arrow.down.circle.fill" : "arrow.down.circle")
+                        .font(.system(size: 18))
+                        .foregroundColor(cached ? Theme.accent : .white.opacity(0.85))
                         .frame(width: 44, height: 32)
                 }
                 .buttonStyle(PlainButtonStyle())

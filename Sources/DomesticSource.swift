@@ -351,7 +351,7 @@ enum DomesticSource {
 
         var scored: [(track: Track, score: Int)] = []
 
-        // 严格模式：歌名、艺人、时长三项都必须对上，时长允许 ±5 秒。
+        // 严格模式：歌名、艺人、时长三项都必须对上，时长允许 ±25 秒。
         // 宁可这首播不出来，也不播成翻唱 / 现场版 / 他人改编。
         if isStrictMatch && !forceLoose {
             for candidate in tracks {
@@ -365,9 +365,13 @@ enum DomesticSource {
                             || wantedArtist.contains(candidateArtist) else { continue }
                 }
 
-                // 时长是严格模式的硬条件：两边都得有值，且差值不超过 5 秒
+                // 时长是严格模式的硬条件：两边都得有值，且差值不超过 25 秒。
+                // 为什么不是 5 秒：酷我登记的时长系统性偏短（《稻香》网易云 223 秒、
+                // 酷我 203 秒），5 秒容差会把唯一能播的那条判成「不同版本」直接扔掉，
+                // 表现就是「各平台都有这首歌，App 却说没有源」。
+                // 真正的 Live / 加长版一般差 40 秒以上，25 秒仍然挡得住。
                 guard duration > 0, candidate.duration > 0,
-                      abs(candidate.duration - duration) <= 5 else { continue }
+                      abs(candidate.duration - duration) <= 25 else { continue }
 
                 var score = 190
                 switch candidate.source ?? "" {
@@ -756,6 +760,67 @@ enum DomesticSource {
                 sourceID: sid,
                 isVip: fee == 1 || fee == 4
             )
+        }
+    }
+
+    /// 艺人**全部**歌曲：`api/v1/artist/songs` 带分页，一次 100 首。
+    /// 艺人页原来只有热门榜 50 首，还截断在 50，周杰伦这类高产歌手看着就很简陋。
+    /// 每页一次请求约 200~400ms，通常 2~3 页就取完；上限 800 首，够任何人用了。
+    static func artistSongs(artistID: Int, maxSongs: Int = 800) async -> [Track] {
+        guard artistID > 0 else { return [] }
+
+        func page(_ offset: Int) async -> [String: Any]? {
+            await neteaseJSON("/api/v1/artist/songs?id=\(artistID)&limit=100&offset=\(offset)")
+        }
+
+        guard let first = await page(0) else { return [] }
+        let total = JS.int(first["total"]) ?? 0
+        var roots: [[String: Any]] = [first]
+
+        if total > 100 {
+            var offset = 100
+            let ceiling = min(total, maxSongs)
+            while offset < ceiling {
+                guard let next = await page(offset) else { break }
+                // 接口偶尔会在 offset 超出后仍返回同一页，靠 songs 为空判断收尾
+                if JS.array(next["songs"])?.isEmpty ?? true { break }
+                roots.append(next)
+                offset += 100
+            }
+        }
+
+        var out: [Track] = []
+        for root in roots {
+            for raw in JS.array(root["songs"]) ?? [] {
+                guard let item = JS.dict(raw),
+                      let title = JS.string(item["name"]), !title.isEmpty,
+                      let sid = JS.int(item["id"]).map(String.init) else { continue }
+                let artist = (JS.array(item["artists"]) ?? [])
+                    .compactMap { JS.dict($0) }
+                    .compactMap { JS.string($0["name"]) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: ", ")
+                let album = JS.dict(item["album"])
+                let fee = JS.int(item["fee"]) ?? 0
+                out.append(Track(
+                    videoId: "",
+                    title: title,
+                    artist: artist.isEmpty ? L("Unknown Artist") : artist,
+                    album: JS.string(album?["name"]),
+                    duration: (JS.int(item["duration"]) ?? 0) / 1000,
+                    artwork: normalizeArtwork(JS.string(album?["picUrl"]), size: 400),
+                    source: PlaylistPlatform.netease.rawValue,
+                    sourceID: sid,
+                    // 会员曲目照样列出来，播放时按严格匹配去别的源兜底
+                    isVip: fee == 1 || fee == 4
+                ))
+            }
+        }
+
+        var seen = Set<String>()
+        return out.filter { track in
+            guard let id = track.sourceID else { return true }
+            return seen.insert(id).inserted
         }
     }
 

@@ -40,6 +40,10 @@ final class PlayerEngine: ObservableObject {
 
     /// 这一首实际用的是哪个源（local / cache / kugou / kuwo / netease / qq / youtube）
     @Published private(set) var activeSource: String?
+    /// 用户手动点「缓存到本地」时的状态：正在下 / 刚给过什么提示。
+    /// 没有这两个，点下去要等几秒才有文件出现，看着就像没反应。
+    @Published private(set) var cacheBusy = false
+    @Published private(set) var cacheMessage: String?
     /// 用户手动锁定的源；nil 表示按默认顺序自动兜底
     @Published private(set) var preferredSource: String?
     @Published var repeatMode: RepeatMode = .off
@@ -58,6 +62,12 @@ final class PlayerEngine: ObservableObject {
     private var retryBudget = 1
     private var itemStatusCancellable: AnyCancellable?
     private var loadToken = UUID()
+    /// 当前这首正在用的直链和它的来源 —— 手动「缓存到本地」直接复用，
+    /// 不必再解析一遍（解析一次又要 1~6 秒）
+    private var currentStream: AudioStream?
+    private var currentStreamSource: String?
+    /// 上一条缓存提示是给哪首歌的：换歌时清掉，别让新歌顶着上一首的「已缓存」
+    private var cacheTrackID: String?
     private var prefetchTask: Task<Void, Never>?
     private var prefetchedIndex: Int?
     private var artworkCache: [String: UIImage] = [:]
@@ -432,6 +442,87 @@ final class PlayerEngine: ObservableObject {
         load(autoPlay: autoPlay, resetBudget: true, bypassStreamCache: bypassStreamCache)
     }
 
+    // MARK: - 手动缓存到本地
+
+    /// 播放页要显示「已缓存」。只看索引，不做失效判断 —— cachedURL 有副作用、也重。
+    func isCached(_ track: Track) -> Bool {
+        AudioCache.shared.hasEntry(for: track.id)
+    }
+
+    /// 手动下这一首：正在播就直接用现成的直链，还没解析就先解析一条再下。
+    /// 和「自动缓存」的区别只在触发方式：都是走严格匹配过的那条流，不会存错版本。
+    func cacheCurrent() {
+        guard let track = currentTrack else { return }
+        if AudioCache.shared.hasEntry(for: track.id) {
+            cacheMessage = L("Already saved on this device")
+            return
+        }
+        guard AudioCache.shared.isEnabled else {
+            cacheMessage = L("Audio caching is off. Turn it on in Settings.")
+            return
+        }
+        if cacheBusy { return }
+
+        cacheBusy = true
+        cacheMessage = nil
+        let quality = self.quality()
+
+        // 正在播、来源也明确：直接下这条流，省掉一次解析
+        if let stream = currentStream, let source = currentStreamSource,
+           source != "cache", source != "local" {
+            AudioCache.shared.store(
+                from: stream.url,
+                for: track,
+                mime: stream.mime,
+                userAgent: stream.userAgent ?? StreamResolver.clientUserAgent,
+                source: source,
+                quality: quality,
+                verified: true
+            ) { [weak self] ok in
+                self?.finishCache(ok)
+            }
+            return
+        }
+
+        Task { [weak self] in
+            guard let self = self else { return }
+            do {
+                let stream = try await AudioSource.resolve(
+                    track: track,
+                    quality: quality,
+                    pinnedSource: self.preferredSource
+                )
+                let source = AudioSource.lastResolvedSource ?? "kugou"
+                guard source != "cache", source != "local" else {
+                    await MainActor.run { self.finishCache(true) }
+                    return
+                }
+                await MainActor.run {
+                    AudioCache.shared.store(
+                        from: stream.url,
+                        for: track,
+                        mime: stream.mime,
+                        userAgent: stream.userAgent ?? StreamResolver.clientUserAgent,
+                        source: source,
+                        quality: quality,
+                        verified: true
+                    ) { [weak self] ok in
+                        self?.finishCache(ok)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.finishCache(false, reason: L("Couldn't find a playable source for this song"))
+                }
+            }
+        }
+    }
+
+    private func finishCache(_ ok: Bool, reason: String? = nil) {
+        cacheBusy = false
+        cacheMessage = ok ? L("Saved to this device") : (reason ?? L("Download failed. Try again later."))
+    }
+
     private func quality() -> StreamResolver.Quality {
         let raw = UserDefaults.standard.string(forKey: "melo.quality") ?? StreamResolver.Quality.high.rawValue
         return StreamResolver.Quality(rawValue: raw) ?? .high
@@ -446,6 +537,13 @@ final class PlayerEngine: ObservableObject {
     private func load(autoPlay: Bool, resetBudget: Bool, keepError: Bool = false, bypassStreamCache: Bool = false) {
         if resetBudget { retryBudget = 1 }
         guard let track = currentTrack else { return }
+
+        // 换歌就把上一首留下的缓存提示清掉
+        if cacheTrackID != track.id {
+            cacheTrackID = track.id
+            cacheMessage = nil
+            cacheBusy = false
+        }
 
         let token = UUID()
         loadToken = token
@@ -574,6 +672,9 @@ final class PlayerEngine: ObservableObject {
         cacheSource: String? = nil
     ) {
         guard loadToken == token, let track = currentTrack else { return }
+
+        currentStream = stream
+        currentStreamSource = cacheSource ?? activeSource
 
         let asset = AVURLAsset(
             url: stream.url,

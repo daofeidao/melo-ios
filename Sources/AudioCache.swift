@@ -182,6 +182,17 @@ final class AudioCache {
         return index?.values.contains { $0.file == fileName } ?? false
     }
 
+    /// 只看索引里有没有这条缓存，不做任何失效判断、不删文件。
+    /// 播放页要频繁问「这首缓存了吗」，走 cachedURL 会每次都碰磁盘和开关，
+    /// 太重了 —— 这里只做一次字典查找 + 文件存在性检查。
+    func hasEntry(for trackID: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        ensureReadyLocked()
+        guard let entry = index?[Self.digest(trackID)] else { return false }
+        return FileManager.default.fileExists(atPath: directory.appendingPathComponent(entry.file).path)
+    }
+
     /// 用户在「本地音乐」里删掉了这首歌：把索引里的记录一并剔除，否则占用统计会虚高
     func forget(fileName: String) {
         lock.lock()
@@ -198,6 +209,8 @@ final class AudioCache {
 
     /// - Parameter verified: 这条流能不能确定就是这首歌。按歌名在第三方站
     ///   搜出来的版本传 false —— 缓存错了就再也切不回来，宁可不缓存。
+    /// - Parameter completion: 下完（成功 / 失败）在**主线程**回调一次。
+    ///   播放页手动点「缓存」时要靠它把「缓存中…」换成结果，不然点了没反应。
     func store(
         from remote: URL,
         for track: Track,
@@ -205,18 +218,38 @@ final class AudioCache {
         userAgent: String?,
         source: String,
         quality: StreamResolver.Quality,
-        verified: Bool
+        verified: Bool,
+        completion: ((Bool) -> Void)? = nil
     ) {
-        guard isEnabled, verified, !source.isEmpty, !remote.isFileURL else { return }
+        let fail: () -> Void = {
+            guard let completion = completion else { return }
+            DispatchQueue.main.async { completion(false) }
+        }
+        let succeed: () -> Void = {
+            guard let completion = completion else { return }
+            DispatchQueue.main.async { completion(true) }
+        }
+
+        guard isEnabled, verified, !source.isEmpty, !remote.isFileURL else {
+            fail()
+            return
+        }
 
         let ext = Self.fileExtension(for: mime)
-        guard !ext.isEmpty else { return }
-        if cachedURL(for: track, quality: quality, pinnedSource: source) != nil { return }
+        guard !ext.isEmpty else {
+            fail()
+            return
+        }
+        if cachedURL(for: track, quality: quality, pinnedSource: source) != nil {
+            succeed()
+            return
+        }
 
         let key = Self.digest(track.id)
         lock.lock()
         guard !inFlight.contains(key) else {
             lock.unlock()
+            fail()
             return
         }
         inFlight.insert(key)
@@ -240,13 +273,17 @@ final class AudioCache {
 
             guard let temp = temp,
                   let http = response as? HTTPURLResponse,
-                  (200...299).contains(http.statusCode) else { return }
+                  (200...299).contains(http.statusCode) else {
+                fail()
+                return
+            }
 
             let attributes = try? FileManager.default.attributesOfItem(atPath: temp.path)
             let size = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
             // 小于 256 KB 的多半是错误页或截断文件，宁可不缓存
             guard size > 256 * 1024 else {
                 try? FileManager.default.removeItem(at: temp)
+                fail()
                 return
             }
 
@@ -276,8 +313,10 @@ final class AudioCache {
 
                 self.trimIfNeeded()
                 DispatchQueue.main.async { LocalMusicStore.shared.reload() }
+                succeed()
             } catch {
                 try? FileManager.default.removeItem(at: temp)
+                fail()
             }
         }.resume()
     }

@@ -241,8 +241,12 @@ struct ArtistDetailView: View {
                 $0.trackCount == $1.trackCount ? $0.name < $1.name : $0.trackCount > $1.trackCount
             }
 
-        // 歌曲三路合并：本人专辑曲目（最权威）+ 热门里本人主唱 + 多源搜索（保证有内容）
+        // 歌曲主来源：艺人全部歌曲（分页，有多少取多少）
         var collected: [Track] = []
+        if artistID > 0 {
+            collected += await DomesticSource.artistSongs(artistID: artistID)
+        }
+        // 专辑曲目补上接口漏掉的曲目（有些歌只挂在专辑里，没进 artist/songs）
         if !cleanAlbums.isEmpty {
             collected += await DomesticSource.artistAlbumTracks(
                 albumIDs: Array(cleanAlbums.prefix(6).map(\.id))
@@ -262,7 +266,8 @@ struct ArtistDetailView: View {
                 && isCleanTitle($0.title)
                 && isCleanTitle($0.album ?? "")
         }
-        // 本人主唱排前面，和别人的合唱 / 助阵放后面；同名只留第一次出现的那版
+        // 本人主唱排前面，和别人的合唱 / 助阵放后面；同名只留第一次出现的那版。
+        // 不再截断 50 首 —— 以前这里 break 掉，高产歌手永远只能看到 50 首。
         let own = all.filter { primaryArtistMatches(term: name, artist: $0.artist) }
         let collab = all.filter { !primaryArtistMatches(term: name, artist: $0.artist) }
         var final: [Track] = []
@@ -270,7 +275,6 @@ struct ArtistDetailView: View {
         for track in own + collab {
             let key = normalize(track.title)
             if seen.insert(key).inserted { final.append(track) }
-            if final.count >= 50 { break }
         }
 
         await MainActor.run {

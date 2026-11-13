@@ -333,7 +333,12 @@ enum AudioSource {
             duration: track.duration
            ), !hasFailed(quick.id), !tried.contains(quick.id) {
             rememberFallback(quick, for: track.id)
-            if let stream = await verifiedDomesticStream(for: quick) { return stream }
+            if let stream = await verifiedDomesticStream(for: quick) {
+                // 以前这条快路径不记来源，播放页「播放源」就显示不出到底用的哪个源
+                lastResolvedSource = quick.source
+                lastResolveTrusted = DomesticSource.isStrictMatch
+                return stream
+            }
         }
 
         guard Date() < deadline else { return nil }
@@ -351,6 +356,9 @@ enum AudioSource {
             if let stream = await verifiedDomesticStream(for: candidate) {
                 // 记下实际命中的源，播放页的「播放源」面板要显示「当前：酷我」这类信息
                 lastResolvedSource = candidate.source
+                // 严格模式下能走到这里，说明歌名 / 艺人 / 时长全对上了，可以放心落盘。
+                // 以前只有「曲目自带 id 换直链」才缓存，靠兜底播出来的热歌一首都没存下来。
+                lastResolveTrusted = DomesticSource.isStrictMatch
                 return stream
             }
         }
