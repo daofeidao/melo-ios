@@ -44,13 +44,11 @@ final class Library: ObservableObject {
         defaults.set(true, forKey: didSeedKey)
     }
 
-    /** 官方曲库精确 id（网易云），点开直接按 id 取直链，不靠歌名猜版本 */
+    /** 种子歌曲：周杰伦《太阳之子》按强制规则走歌曲宝（兼当歌曲宝健康探针），
+     *  青花 / 黄昏 用网易云官方曲库精确 id 直链，不靠歌名猜版本 */
     private static let defaultSeedTracks: [Track] = [
         Track(
-            videoId: "", title: "太阳之子", artist: "宁锐",
-            album: "太阳之子（周同学）", duration: 164,
-            artwork: "https://p2.music.126.net/YEcbQXROphZfQ-Jq3EjsVg==/109951172979339213.jpg",
-            source: "netease", sourceID: "3365685659"
+            videoId: "", title: "太阳之子", artist: "周杰伦", album: "太阳之子", duration: 0
         ),
         Track(
             videoId: "", title: "青花", artist: "周传雄",
