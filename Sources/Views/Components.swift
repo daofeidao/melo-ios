@@ -41,11 +41,13 @@ struct ArtworkView: View {
             await MainActor.run { self.image = nil }
             return
         }
+        // 按显示尺寸解码：滑到哪里解到哪里的小图，不在主线程解原图（修滚动卡顿）
+        let maxPixel = min(max(size * UIScreen.main.scale, 60), 600)
         if let cached = ImageLoader.shared.cached(for: target) {
             await MainActor.run { self.image = cached }
             return
         }
-        let loaded = await ImageLoader.shared.image(for: target)
+        let loaded = await ImageLoader.shared.image(for: target, maxPixel: maxPixel)
         await MainActor.run { self.image = loaded }
     }
 }
@@ -182,6 +184,8 @@ struct SectionHeader: View {
 struct CarouselCard: View {
     let item: ShelfItem
     var width: CGFloat = 148
+    /// 传入后长按卡片弹出「移除收藏」菜单（首页收藏 / 最近播放用）
+    var onRemove: (() -> Void)? = nil
 
     @EnvironmentObject private var player: PlayerEngine
 
@@ -197,6 +201,7 @@ struct CarouselCard: View {
                 )
             }
             .buttonStyle(PlainButtonStyle())
+            .removeContextMenu(onRemove)
 
         case .track(let track):
             Button {
@@ -205,6 +210,7 @@ struct CarouselCard: View {
                 card(title: track.title, subtitle: track.artist, artwork: track.artwork, round: false)
             }
             .buttonStyle(PlainButtonStyle())
+            .removeContextMenu(onRemove)
         }
     }
 
@@ -225,6 +231,22 @@ struct CarouselCard: View {
                 .frame(height: 15, alignment: .top)
         }
         .frame(width: width, alignment: .leading)
+    }
+}
+
+extension View {
+    /// 长按「移除收藏」菜单；没传 onRemove 就保持原样（搜索 / 艺人页的卡片不受影响）
+    @ViewBuilder
+    func removeContextMenu(_ action: (() -> Void)?) -> some View {
+        if let action {
+            contextMenu {
+                Button(action: action) {
+                    Label(L("Remove Favorite"), systemImage: "heart.slash")
+                }
+            }
+        } else {
+            self
+        }
     }
 }
 
@@ -263,18 +285,76 @@ struct CarouselSection: View {
     let title: String
     let items: [ShelfItem]
     var width: CGFloat = 148
+    /// 传入后卡片长按弹出「移除收藏」
+    var onRemove: ((ShelfItem) -> Void)? = nil
+    /// 标题右侧的自定义动作（首页最近播放的红色「清空」）
+    var headerTrailing: AnyView? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(title: title)
+            if let headerTrailing {
+                HStack {
+                    SectionHeader(title: title)
+                    headerTrailing
+                }
+            } else {
+                SectionHeader(title: title)
+            }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 14) {
                     ForEach(items) { item in
-                        CarouselCard(item: item, width: width)
+                        CarouselCard(item: item, width: width, onRemove: onRemove.map { remove in
+                            { remove(item) }
+                        })
                     }
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 2)
+            }
+        }
+    }
+}
+
+/// 圆形艺人头像块：搜索页与首页「喜欢艺人」共用。
+/// 头像异步取真实图，拿不到就退回首字色块。
+struct ArtistCircleTile: View {
+    let name: String
+    var size: CGFloat = 88
+
+    @State private var avatar: String?
+
+    private var fallbackColor: Color {
+        let colors: [Color] = [
+            Color(hex: 0xE0455E), Color(hex: 0x2E7BE0), Color(hex: 0xE08A2E),
+            Color(hex: 0x2EA98A), Color(hex: 0x7B5BD6), Color(hex: 0xC24E8F),
+            Color(hex: 0x3C6FA8)
+        ]
+        return colors[abs(name.hashValue) % colors.count]
+    }
+
+    var body: some View {
+        VStack(spacing: 7) {
+            ZStack {
+                if let url = avatar, !url.isEmpty {
+                    ArtworkView(url: url, size: size, round: true)
+                } else {
+                    Circle().fill(fallbackColor)
+                    Text(String(name.prefix(1)).uppercased())
+                        .font(.system(size: size * 0.36, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+            }
+            .frame(width: size, height: size)
+            Text(name)
+                .font(.system(size: 13))
+                .foregroundColor(Theme.secondaryLabel)
+                .lineLimit(1)
+        }
+        .frame(width: size + 8)
+        .task(id: name) {
+            let profile = await ArtistInfo.load(name: name)
+            if let url = profile?.avatar, url.hasPrefix("http") {
+                avatar = url
             }
         }
     }

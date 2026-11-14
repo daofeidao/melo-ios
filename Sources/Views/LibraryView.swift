@@ -109,15 +109,12 @@ private enum AboutPage: String, Identifiable {
 struct SettingsView: View {
     @EnvironmentObject private var library: Library
 
-    @AppStorage("melo.quality") private var quality: String = StreamResolver.Quality.high.rawValue
     @AppStorage("melo.appearance") private var appearance: String = AppearanceMode.system.rawValue
     @AppStorage(AudioCache.enabledKey) private var cacheAudio = true
     @AppStorage(AudioCache.limitKey) private var cacheLimitMB = AudioCache.defaultLimitMB
     @AppStorage(DomesticSource.strictMatchKey) private var strictMatch = false
     @State private var cacheBytes: Int64 = 0
     @State private var showClearCacheConfirm = false
-
-    @State private var showClearConfirm = false
 
     // 备份 / 恢复
     @State private var exporting = false
@@ -135,16 +132,17 @@ struct SettingsView: View {
 
     var body: some View {
         List {
+            // 外观排到最顶：换主题是最常用的设置项（说明文字已按要求去掉）
             Section {
-                Picker(L("Audio Quality"), selection: $quality) {
-                    ForEach(StreamResolver.Quality.allCases) { option in
-                        Text(option.label).tag(option.rawValue)
+                Picker(L("Appearance"), selection: $appearance) {
+                    ForEach(AppearanceMode.allCases) { mode in
+                        Text(mode.label).tag(mode.rawValue)
                     }
                 }
+                .pickerStyle(SegmentedPickerStyle())
+                .labelsHidden()
             } header: {
-                Text(L("Playback"))
-            } footer: {
-                Text(L("Lossless needs a membership login. Without one the app automatically falls back to 320 kbps, then 128 kbps."))
+                Text(L("Appearance"))
             }
 
             Section {
@@ -185,30 +183,7 @@ struct SettingsView: View {
                 Text(L("Cached audio is kept until you clear it here. When the limit is reached, the songs you have not played for the longest time are removed first."))
             }
 
-            Section {
-                Picker(L("Appearance"), selection: $appearance) {
-                    ForEach(AppearanceMode.allCases) { mode in
-                        Text(mode.label).tag(mode.rawValue)
-                    }
-                }
-                .pickerStyle(SegmentedPickerStyle())
-                .labelsHidden()
-            } header: {
-                Text(L("Appearance"))
-            } footer: {
-                Text(L("Appearance follows the system by default. Pick Light or Dark to override it for this app only."))
-            }
-
-            Section {
-                Button {
-                    showClearConfirm = true
-                } label: {
-                    Text(L("Clear Recently Played"))
-                        .foregroundColor(.red)
-                }
-            } header: {
-                Text(L("Library"))
-            }
+            // 清空最近播放已挪到「现在就听 → 最近播放」标题右侧
 
             Section {
                 Button {
@@ -288,16 +263,6 @@ struct SettingsView: View {
             // 上限调小后立刻淘汰，不能等下次下载才生效
             AudioCache.shared.enforceLimit()
             refreshCacheSize()
-        }
-        .confirmationDialog(
-            L("Clear recently played?"),
-            isPresented: $showClearConfirm,
-            titleVisibility: .visible
-        ) {
-            Button(L("Clear"), role: .destructive) {
-                library.clearRecent()
-            }
-            Button(L("Cancel"), role: .cancel) {}
         }
         .confirmationDialog(
             L("Clear audio cache?"),

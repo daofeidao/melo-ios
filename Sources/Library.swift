@@ -7,16 +7,64 @@ final class Library: ObservableObject {
     @Published private(set) var favorites: [Track] = []
     /// 搜索结果里收藏的歌单 / 专辑，出现在「现在就听」
     @Published private(set) var savedCollections: [MediaCollection] = []
+    /// 喜欢艺人：只存名字，头像与歌曲点开时实时拉；长按可移除
+    @Published private(set) var likedArtists: [String] = []
 
     private let recentKey = "melo.recent"
     private let favoritesKey = "melo.favorites"
     private let savedCollectionsKey = "melo.savedCollections"
+    private let likedArtistsKey = "melo.likedArtists"
+    private let didSeedKey = "melo.didSeedDefaults"
 
     private init() {
         recent = Self.load(recentKey)
         favorites = Self.load(favoritesKey)
         savedCollections = Self.loadCollections(savedCollectionsKey)
+        let savedArtists = UserDefaults.standard.stringArray(forKey: likedArtistsKey)
+        likedArtists = savedArtists ?? Self.defaultLikedArtists
+        seedDefaultsIfNeeded()
     }
+
+    /** 首次启动的喜欢艺人种子 */
+    private static let defaultLikedArtists = ["周杰伦", "周传雄", "林俊杰", "张学友"]
+
+    /**
+     * 首次启动种入真实内容：收藏三首经典曲 + 喜欢艺人四位。
+     * 首页四个分区因此「开箱即有内容」，不用等用户先收藏。
+     * 种子就是普通收藏，长按即可移除；打了 didSeed 标记，移除后不会再长回来。
+     */
+    private func seedDefaultsIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: didSeedKey) else { return }
+        if favorites.isEmpty && recent.isEmpty && savedCollections.isEmpty {
+            favorites = Self.defaultSeedTracks
+            Self.save(favorites, favoritesKey)
+        }
+        saveLikedArtists()
+        defaults.set(true, forKey: didSeedKey)
+    }
+
+    /** 官方曲库精确 id（网易云），点开直接按 id 取直链，不靠歌名猜版本 */
+    private static let defaultSeedTracks: [Track] = [
+        Track(
+            videoId: "", title: "太阳之子", artist: "宁锐",
+            album: "太阳之子（周同学）", duration: 164,
+            artwork: "https://p2.music.126.net/YEcbQXROphZfQ-Jq3EjsVg==/109951172979339213.jpg",
+            source: "netease", sourceID: "3365685659"
+        ),
+        Track(
+            videoId: "", title: "青花", artist: "周传雄",
+            album: "蓝色土耳其", duration: 298,
+            artwork: "https://p2.music.126.net/prDyYpF9EsrLA4O13Tf5hw==/109951169874952327.jpg",
+            source: "netease", sourceID: "189602"
+        ),
+        Track(
+            videoId: "", title: "黄昏", artist: "周传雄",
+            album: "Transfer", duration: 344,
+            artwork: "https://p2.music.126.net/mFM2Ii6Kxktb_87b4q3TYQ==/109951167366664357.jpg",
+            source: "netease", sourceID: "190072"
+        ),
+    ]
 
     func addRecent(_ track: Track) {
         guard !track.title.isEmpty else { return }
@@ -43,6 +91,37 @@ final class Library: ObservableObject {
     func clearRecent() {
         recent = []
         Self.save(recent, recentKey)
+    }
+
+    /// 首页最近播放单条移除（长按）
+    func removeRecent(_ track: Track) {
+        recent.removeAll { $0.id == track.id }
+        Self.save(recent, recentKey)
+    }
+
+    // MARK: - 喜欢艺人
+
+    func isLikedArtist(_ name: String) -> Bool {
+        likedArtists.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+    }
+
+    func toggleLikedArtist(_ name: String) {
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let index = likedArtists.firstIndex(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
+            likedArtists.remove(at: index)
+        } else {
+            likedArtists.insert(clean, at: 0)
+        }
+        saveLikedArtists()
+    }
+
+    func removeLikedArtist(_ name: String) {
+        likedArtists.removeAll { $0.caseInsensitiveCompare(name) == .orderedSame }
+        saveLikedArtists()
+    }
+
+    private func saveLikedArtists() {
+        UserDefaults.standard.set(likedArtists, forKey: likedArtistsKey)
     }
 
     // MARK: - 歌单 / 专辑收藏

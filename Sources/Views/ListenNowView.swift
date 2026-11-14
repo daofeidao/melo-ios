@@ -7,37 +7,58 @@ struct ListenNowView: View {
     @State private var shelves: [Shelf] = []
     @State private var loading = false
     @State private var error: String?
+    @State private var showClearRecentConfirm = false
 
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 26) {
-                    if !library.savedCollections.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            SectionHeader(title: L("Saved Playlists & Albums"))
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(alignment: .top, spacing: 14) {
-                                    ForEach(library.savedCollections) { collection in
-                                        CarouselCard(item: .collection(collection), width: 132)
-                                            .contextMenu {
-                                                Button {
-                                                    library.toggleSavedCollection(collection)
-                                                } label: {
-                                                    Label(L("Remove"), systemImage: "heart.slash")
-                                                }
+                    // 固定框架：四个分区的标题直出，空时只显示一行灰字提示。
+                    // 首页数据全部来自本地资料库，不必等网络刷新才出现内容；
+                    // 只有 YouTube 推荐在后台拉，出来后追加在最下面。
+                    frameworkSection(title: L("Saved Playlists & Albums"),
+                                     isEmpty: library.savedCollections.isEmpty,
+                                     emptyHint: L("Save playlists or albums from search results and they will show up here.")) {                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(alignment: .top, spacing: 14) {
+                                ForEach(library.savedCollections) { collection in
+                                    CarouselCard(item: .collection(collection), width: 132)
+                                        .contextMenu {
+                                            Button {
+                                                library.toggleSavedCollection(collection)
+                                            } label: {
+                                                Label(L("Remove"), systemImage: "heart.slash")
                                             }
-                                    }
+                                        }
                                 }
-                                .padding(.horizontal, 16)
                             }
+                            .padding(.horizontal, 16)
                         }
                     }
-                    if !library.recent.isEmpty {
-                        CarouselSection(title: L("Recently Played"), items: library.recent.map { .track($0) })
+
+                    CarouselSection(
+                        title: L("Recently Played"),
+                        items: library.recent.map { ShelfItem.track($0) },
+                        onRemove: { item in
+                            if case .track(let t) = item { library.removeRecent(t) }
+                        },
+                        headerTrailing: library.recent.isEmpty ? nil : AnyView(clearRecentButton)
+                    )
+                    if library.recent.isEmpty { sectionHint(L("Songs you play will show up here.")) }
+
+                    CarouselSection(
+                        title: L("My Favorites"),
+                        items: library.favorites.map { ShelfItem.track($0) },
+                        width: 132,
+                        onRemove: { item in
+                            if case .track(let t) = item { library.toggleFavorite(t) }
+                        }
+                    )
+                    if library.favorites.isEmpty {
+                        sectionHint(L("Tap ♥ or long-press a song to add it to favorites."))
                     }
-                    if !library.favorites.isEmpty {
-                        CarouselSection(title: L("My Favorites"), items: library.favorites.map { .track($0) })
-                    }
+
+                    likedArtistsSection
+
                     ForEach(shelves) { shelf in
                         CarouselSection(title: shelf.title, items: shelf.items)
                     }
@@ -45,22 +66,13 @@ struct ListenNowView: View {
                     if loading && shelves.isEmpty {
                         ProgressView()
                             .frame(maxWidth: .infinity)
-                            .padding(.top, 48)
+                            .padding(.top, 24)
                     }
 
                     if let error = error, shelves.isEmpty {
                         ErrorBanner(message: error) {
                             Task { await load() }
                         }
-                    }
-
-                    if !loading, error == nil, shelves.isEmpty, library.recent.isEmpty,
-                       library.favorites.isEmpty, library.savedCollections.isEmpty {
-                        EmptyHint(
-                            symbol: "play.circle",
-                            title: L("Start listening"),
-                            message: L("Search for a song and play it — your listening history will show up here.")
-                        )
                     }
                 }
                 .padding(.top, 8)
@@ -93,6 +105,90 @@ struct ListenNowView: View {
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
+        .confirmationDialog(
+            L("Clear recently played?"),
+            isPresented: $showClearRecentConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(L("Clear"), role: .destructive) {
+                library.clearRecent()
+            }
+            Button(L("Cancel"), role: .cancel) {}
+        }
+    }
+
+    /// 固定分区：标题 + 内容；内容为空时显示一行灰字，不再整块消失
+    @ViewBuilder
+    private func frameworkSection<Content: View>(
+        title: String,
+        isEmpty: Bool,
+        emptyHint: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(title: title)
+            if isEmpty {
+                Text(emptyHint)
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.tertiaryLabel)
+                    .padding(.horizontal, 16)
+            } else {
+                content()
+            }
+        }
+    }
+
+    /// 固定分区空态的一行灰字提示
+    private func sectionHint(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12))
+            .foregroundColor(Theme.tertiaryLabel)
+            .padding(.horizontal, 16)
+    }
+
+    /// 最近播放标题右侧的红字「清空」（原设置页「资料库 → 清除最近播放」挪到这里）
+    private var clearRecentButton: some View {
+        Button {
+            showClearRecentConfirm = true
+        } label: {
+            Text(L("Clear"))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(Color(hex: 0xE0455E))
+        }
+        .buttonStyle(PlainButtonStyle())
+        .padding(.trailing, 16)
+    }
+
+    /// 喜欢艺人（新增）：圆形真实头像 + 名字，点开进艺人页，长按移除
+    private var likedArtistsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(title: L("Liked Artists"))
+            if library.likedArtists.isEmpty {
+                Text(L("Long-press an artist to remove."))
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.tertiaryLabel)
+                    .padding(.horizontal, 16)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 14) {
+                        ForEach(library.likedArtists, id: \.self) { name in
+                            NavigationLink(destination: ArtistDetailView(name: name)) {
+                                ArtistCircleTile(name: name)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .contextMenu {
+                                Button {
+                                    library.removeLikedArtist(name)
+                                } label: {
+                                    Label(L("Remove"), systemImage: "person.slash")
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+            }
+        }
     }
 
     private func load() async {

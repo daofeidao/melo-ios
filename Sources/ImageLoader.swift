@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import UIKit
 
 final class ImageLoader {
@@ -10,7 +11,8 @@ final class ImageLoader {
     private let diskQueue = DispatchQueue(label: "melo.artwork-disk", qos: .utility)
 
     private init() {
-        cache.countLimit = 260
+        // 降采样后每张封面只占几万到几十 KB，260 的上限可以放宽到 600
+        cache.countLimit = 600
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 20
         config.requestCachePolicy = .returnCacheDataElseLoad
@@ -24,29 +26,57 @@ final class ImageLoader {
 
     /// 内存缓存，给 SwiftUI 的 .task 快速命中用
     func cached(for url: URL) -> UIImage? {
-        cache.object(forKey: url.absoluteString as NSString)
+        cache.object(forKey: cacheKey(url, maxPixel: 420))
     }
 
-    func image(for url: URL) async -> UIImage? {
-        let key = url.absoluteString as NSString
+    /// maxPixel：按显示尺寸解码封面。滚动卡顿的根因是封面原图动辄 1500~3000px，
+    /// UIImage(data:) 是惰性解码 —— 滑到哪张就在主线程解哪张，一解就是几十毫秒。
+    /// 这里用 ImageIO 直接解出目标尺寸的小图（shouldCacheImmediately 预解码），
+    /// 解码在后台完成，主线程只做贴图。
+    func image(for url: URL, maxPixel: CGFloat = 420) async -> UIImage? {
+        let pixel = min(max(maxPixel, 60), 600)
+        let key = cacheKey(url, maxPixel: pixel)
         if let cached = cache.object(forKey: key) { return cached }
 
         // 磁盘缓存：榜单封面在冷启动后不必再下一遍（每次几十 KB，几十张就是几 MB）
         if let data = try? Data(contentsOf: diskURL(url)),
-           let image = UIImage(data: data) {
+           let image = Self.downsampled(data, maxPixel: pixel) {
             cache.setObject(image, forKey: key)
             return image
         }
 
         do {
             let (data, _) = try await session.data(from: url)
-            guard let image = UIImage(data: data) else { return nil }
+            guard let image = Self.downsampled(data, maxPixel: pixel) else { return nil }
             cache.setObject(image, forKey: key)
             saveToDisk(data, for: url)
             return image
         } catch {
             return nil
         }
+    }
+
+    // MARK: - 降采样
+
+    private static func downsampled(_ data: Data, maxPixel: CGFloat) -> UIImage? {
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            // 关键：解码时立即解到内存，而不是第一次绘制才解（惰性解码会卡主线程）
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+        ]
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        else {
+            // 解不出来（比如 WebP 之类系统不认的格式）退回原解码，保证有图
+            return UIImage(data: data)
+        }
+        return UIImage(cgImage: cgImage)
+    }
+
+    private func cacheKey(_ url: URL, maxPixel: CGFloat) -> NSString {
+        "\(url.absoluteString)#\(Int(maxPixel))" as NSString
     }
 
     // MARK: - 磁盘缓存

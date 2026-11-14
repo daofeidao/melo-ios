@@ -372,3 +372,10 @@
 /* 歌曲宝人机验证入口 */
 "歌曲宝需要人机验证 · 点此在 App 内完成" = "Gequbao needs human verification · complete it in the app";
 "去验证 ›" = "Verify ›";
+
+/* 首页固定分区 */
+"Liked Artists" = "Liked Artists";
+"Save playlists or albums from search results and they will show up here." = "Save playlists or albums from search results and they will show up here.";
+"Songs you play will show up here." = "Songs you play will show up here.";
+"Tap ♥ or long-press a song to add it to favorites." = "Tap ♥ or long-press a song to add it to favorites.";
+"Long-press an artist to remove." = "Long-press an artist to remove.";

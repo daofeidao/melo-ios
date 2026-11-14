@@ -373,3 +373,10 @@
 /* 歌曲宝人机验证入口 */
 "歌曲宝需要人机验证 · 点此在 App 内完成" = "歌曲宝需要人机验证 · 点此在 App 内完成";
 "去验证 ›" = "去验证 ›";
+
+/* 首页固定分区 */
+"Liked Artists" = "喜欢艺人";
+"Save playlists or albums from search results and they will show up here." = "在搜索结果里点「收藏」，歌单和专辑会出现在这里";
+"Songs you play will show up here." = "播放过的歌会出现在这里";
+"Tap ♥ or long-press a song to add it to favorites." = "长按歌曲或点 ♥ 收藏，歌曲会出现在这里";
+"Long-press an artist to remove." = "长按头像可移除";
