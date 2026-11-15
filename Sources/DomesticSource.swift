@@ -284,22 +284,15 @@ enum DomesticSource {
 
     // MARK: - 按歌名匹配（播放失败时的保底）
 
-    /// 严格匹配开关（设置 → 播放 → 严格匹配）。
-    /// 开着时「歌名 + 艺人 + 时长」三项必须都对上，时长允许 ±5 秒；
-    /// 关掉是原来的打分制，找不到严格命中的也会退而求其次。
-    static let strictMatchKey = "melo.matchStrict"
-
-    /// 用户手动「切换音源」时置 true：那一首不套严格匹配，否则点了也播不出来
+    /// 严格匹配：**恒定开启**，不再提供开关。
+    ///
+    /// 规则是「歌名 + 艺人 + 时长（±5 秒）」三项都对上才允许跨源兜底。
+    /// 早先是设置里的一个开关且默认关着，等于这个保护一直没生效，
+    /// 于是会配到同名但不是这首的歌（晴天 → 晴天娃娃）。现在直接写死。
+    /// 唯一例外是用户手动「切换音源」那一首：那时他明确要这一条，不再卡严格匹配。
     static var forceLooseOnce = false
 
-    static var isStrictMatch: Bool {
-        if forceLooseOnce { return false }
-        // 默认开启：歌名 + 艺人 + 时长（±5 秒）全对上才跨源兜底。
-        // 以前默认关着，等于「严格匹配」这个功能一直没生效，晴天能配到晴天娃娃。
-        let defaults = UserDefaults.standard
-        if defaults.object(forKey: strictMatchKey) == nil { return true }
-        return defaults.bool(forKey: strictMatchKey)
-    }
+    static var isStrictMatch: Bool { !forceLooseOnce }
 
     /// 快路径：只问酷狗（一次请求），取最可信的一条。
     static func match(title: String, artist: String, duration: Int) async -> Track? {

@@ -409,3 +409,15 @@
 "Use the web page" = "用网页登录";
 "Sign in inside the app: the platform's own login page opens in a browser view and the resulting Cookie is captured automatically. Melo never sees your password. A membership account unlocks 320 kbps and lossless." = "在 App 内登录：打开平台自己的登录页，登录后自动取回 Cookie 并保存，Melo 看不到你的密码。用会员账号登录可解锁 320 kbps 与无损。";
 "Paste a Cookie header from the platform's website if the in-app sign-in does not work. The app never sees your password - only the resulting Cookie is stored, on this device." = "App 内登录打不开时，可从平台网页复制 Cookie 头粘贴到这里。Melo 看不到你的密码，只保存 Cookie，且仅存在本机。";
+
+/* 彩蛋页：高级入口 */
+"Advanced" = "高级";
+
+/* 免责声明 */
+"Disclaimer" = "免责声明";
+"本软件仅用于个人学习，请下载后在24小时内自动删除，如涉及到版权问题，请联系开发者删除。" = "本软件仅用于个人学习，请下载后在24小时内自动删除，如涉及到版权问题，请联系开发者删除。";
+
+/* 内建下载更新包 */
+"Download failed." = "下载失败。";
+"Downloading %d%%" = "下载中 %d%%";
+"Invalid download link." = "下载地址无效。";

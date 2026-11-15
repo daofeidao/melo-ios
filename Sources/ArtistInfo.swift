@@ -26,42 +26,47 @@ enum ArtistInfo {
         "Cookie": NeteaseDeviceCookie.value
     ]
 
-    static func load(name: String) async -> Profile? {
-        guard let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let searchURL = URL(string: "https://music.163.com/api/search/get?s=\(encoded)&type=100&limit=5"),
+    /// 精确解析：返回网易云艺人 id / 官方名 / 头像。
+    ///
+    /// 只接受「归一化后完全相等」，不做包含匹配 —— 包含匹配会让
+    /// `周杰伦微博台`、`周杰伦粉丝团` 这类派生账号蒙混过关。
+    static func neteaseMatch(_ name: String) async -> (id: Int, name: String, avatar: String?)? {
+        let query = ArtistName.key(ArtistName.primary(name))
+        guard !query.isEmpty else { return nil }
+        guard let encoded = ArtistName.primary(name)
+                .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let searchURL = URL(string: "https://music.163.com/api/search/get?s=\(encoded)&type=100&limit=10"),
               let searchData = await get(searchURL),
               let searchRoot = (try? JSONSerialization.jsonObject(with: searchData)) as? [String: Any],
-              let rawArtists = JS.array(JS.dict(searchRoot["result"])?["artists"]),
-              !rawArtists.isEmpty else { return nil }
+              let rawArtists = JS.array(JS.dict(searchRoot["result"])?["artists"])
+        else { return nil }
 
-        let artists = rawArtists.compactMap { JS.dict($0) }
-        let queryKey = ArtistName.key(name)
-        // 只认「确实是这个人」的结果：归一化同名 > 包含关系（长度差 ≤2）。
-        //
-        // 以前这里是 `?? artists.first`：网易云根本没有「单田芳评书」这个艺人，
-        // type=100 只返回 id=31633464 的「一拉帮」，于是页面标题写着「单田芳评书」、
-        // 内容全是「一拉帮」的歌。宁可返回 nil（艺人页只展示搜到的歌），也不要张冠李戴。
-        let candidates = artists.compactMap { dict -> (node: [String: Any], key: String)? in
-            guard let raw = JS.string(dict["name"]) else { return nil }
-            let clean = ArtistName.sanitize(raw)
-            guard !clean.isEmpty else { return nil }
-            return (dict, ArtistName.key(clean))
+        for raw in rawArtists {
+            guard let node = JS.dict(raw),
+                  let id = JS.int(node["id"]), id > 0,
+                  let rawName = JS.string(node["name"]) else { continue }
+            let clean = ArtistName.sanitize(rawName)
+            guard !clean.isEmpty, ArtistName.key(clean) == query else { continue }
+            let avatar = (JS.string(node["picUrl"]) ?? JS.string(node["img1v1Url"]))
+                .flatMap { $0.hasPrefix("http") ? $0 : nil }
+            return (id, clean, avatar)
         }
-        let node: [String: Any]? = {
-            if let hit = candidates.first(where: { !queryKey.isEmpty && $0.key == queryKey }) {
-                return hit.node
-            }
-            return candidates.first {
-                guard !queryKey.isEmpty, !$0.key.isEmpty else { return false }
-                return ($0.key.contains(queryKey) || queryKey.contains($0.key))
-                    && abs($0.key.count - queryKey.count) <= 2
-            }?.node
-        }()
-        guard let node, let id = JS.int(node["id"]), id > 0 else { return nil }
+        return nil
+    }
 
-        let avatar = (JS.string(node["picUrl"]) ?? JS.string(node["img1v1Url"]))
-            .flatMap { $0.hasPrefix("http") ? $0 : nil }
-        let resolvedName = ArtistName.sanitize(JS.string(node["name"]) ?? name)
+    /// 只要 id（艺人准入校验用）
+    static func neteaseArtistID(name: String) async -> Int? {
+        await neteaseMatch(name)?.id
+    }
+
+    static func load(name: String) async -> Profile? {
+        // 只认精确命中：网易云艺人库里必须存在一个归一化后完全等于 name 的艺人。
+        // 「单田芳评书」在库里没有（搜出来的是「一拉帮」）、「周杰伦微博台」也不是本人，
+        // 一律返回 nil —— 艺人页宁可不显示资料，也不张冠李戴。
+        guard let match = await neteaseMatch(name) else { return nil }
+        let id = match.id
+        let avatar = match.avatar
+        let resolvedName = match.name
 
         guard let introURL = URL(string: "https://music.163.com/api/artist/introduction?id=\(id)"),
               let introData = await get(introURL),

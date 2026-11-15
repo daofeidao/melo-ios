@@ -59,6 +59,12 @@ struct SearchView: View {
             .onAppear {
                 loadRecentSearches()
                 artists = ArtistStore.all()
+                // 后台校验艺人宫格的存量：不是真人艺人的（周杰伦微博台 之类）清掉
+                Task {
+                    await ArtistResolver.pruneSavedArtists()
+                    let fresh = ArtistStore.all()
+                    await MainActor.run { artists = fresh }
+                }
                 guard let preset = SmokeTest.searchQuery, query.isEmpty else { return }
                 query = preset
             }
@@ -513,22 +519,37 @@ struct SearchView: View {
             )
         }
 
+        // 艺人候选：先按结构规则粗筛（拆合唱、去乱码、黑名单）
+        let candidateArtists = extractArtists(term: trimmed, tracks: ordered)
+
         await MainActor.run {
             guard generation == searchGeneration else { return }
             results = merged
             loading = false
             hasSearched = true
             rememberSearch(trimmed)
-            matchedArtists = extractArtists(term: trimmed, tracks: ordered)
-            // 每次搜索命中的艺人都记进艺人库 → 「分类浏览 → 艺人」宫格随搜索不断变多
-            matchedArtists.forEach { ArtistStore.remember($0) }
-            artists = ArtistStore.all()
+            // 艺人区先清空，等白名单校验通过再填 —— 宁可晚半秒，也不要先闪出一批假艺人
+            matchedArtists = []
             // 只预热免费曲目：VIP 会白等一次匹配
             player.prewarm(tracks: ordered.filter { !$0.isVip }, limit: 5)
             if ordered.isEmpty, merged.domesticCollections.isEmpty, matchedArtists.isEmpty {
                 error = L("Nothing found on domestic sources. Open “More results” to try YouTube.")
             } else {
                 error = nil
+            }
+        }
+
+        // 艺人白名单校验放到后台：只保留「网易云艺人库里精确存在」的，
+        // 「周杰伦微博台」「宋雨琦（雨琦）」这类派生账号在这里被挡掉。
+        // 结果有磁盘缓存，同一个名字不会反复请求。
+        Task {
+            let verified = await ArtistResolver.filter(candidateArtists)
+            await MainActor.run {
+                guard generation == searchGeneration else { return }
+                matchedArtists = verified
+                // 通过的才记进艺人库 → 「分类浏览 → 艺人」宫格随搜索变多，且不带脏名
+                verified.forEach { ArtistStore.remember($0) }
+                artists = ArtistStore.all()
             }
         }
     }

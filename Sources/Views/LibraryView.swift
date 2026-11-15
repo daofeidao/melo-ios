@@ -113,7 +113,6 @@ struct SettingsView: View {
     @AppStorage("melo.appearance") private var appearance: String = AppearanceMode.system.rawValue
     @AppStorage(AudioCache.enabledKey) private var cacheAudio = true
     @AppStorage(AudioCache.limitKey) private var cacheLimitMB = AudioCache.defaultLimitMB
-    @AppStorage(DomesticSource.strictMatchKey) private var strictMatch = false
     @State private var cacheBytes: Int64 = 0
     @State private var showClearCacheConfirm = false
 
@@ -121,6 +120,8 @@ struct SettingsView: View {
     @State private var checkingUpdate = false
     @State private var updateOffer: AppUpdate.Info?
     @State private var showUpToDate = false
+    /// 更新包内建下载：下载完交给系统分享面板（TrollStore 安装 / 存到文件）
+    @StateObject private var updater = UpdateDownloader()
 
     // 备份 / 恢复
     @State private var exporting = false
@@ -152,14 +153,6 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle(L("Strict matching"), isOn: $strictMatch)
-            } header: {
-                Text(L("Fallback Matching"))
-            } footer: {
-                Text(L("When a direct link fails, Melo searches other sources for the same song. Strict mode requires the same title, artist and duration (±5 s). Turning it off may pick covers or live versions."))
-            }
-
-            Section {
                 Toggle(L("Cache played audio"), isOn: $cacheAudio)
                 Picker(L("Cache limit"), selection: $cacheLimitMB) {
                     Text("200 MB").tag(200)
@@ -185,8 +178,6 @@ struct SettingsView: View {
                 }
             } header: {
                 Text(L("Storage"))
-            } footer: {
-                Text(L("Cached audio is kept until you clear it here. When the limit is reached, the songs you have not played for the longest time are removed first."))
             }
 
             // 清空最近播放已挪到「现在就听 → 最近播放」标题右侧
@@ -219,54 +210,47 @@ struct SettingsView: View {
             }
 
             Section {
-                Button {
-                    guard !checkingUpdate else { return }
-                    checkingUpdate = true
-                    Task {
-                        updateOffer = await AppUpdate.check(current: AppUpdate.currentVersion)
-                        checkingUpdate = false
-                        if updateOffer == nil { showUpToDate = true }
-                    }
-                } label: {
-                    HStack {
-                        Text(L("Check for Updates"))
-                        Spacer()
-                        Text(checkingUpdate ? L("Checking…") : "v\(AppUpdate.currentVersion)")
+                // 版本与检查更新合并成一行：左「版本」、中版本号、右红字「检查更新」。
+                // 点左侧文字或版本号仍触发彩蛋（连点 7 次出更新记录），只有点红字才检查更新。
+                HStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        Text(L("Version"))
+                        Spacer(minLength: 8)
+                        Text("v\(AppUpdate.currentVersion)")
                             .foregroundColor(Theme.secondaryLabel)
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture { registerVersionTap() }
+
+                    Button {
+                        checkForUpdates()
+                    } label: {
+                        Text(checkingUpdate ? L("Checking…") : L("Check for Updates"))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Color(hex: 0xE0455E))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(checkingUpdate)
                 }
 
                 HStack {
-                    Text(L("Version"))
+                    Text(L("Author"))
                     Spacer()
-                    Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
+                    Text("张宏亮")
                         .foregroundColor(Theme.secondaryLabel)
                 }
-                .contentShape(Rectangle())
-                .onTapGesture { registerVersionTap() }
 
-                NavigationLink(destination: DataSourceSettingsView()) {
-                    HStack {
-                        Text(L("Data Sources"))
-                        Spacer()
-                        Text(String(format: L("%d sources"),
-                                    SourcePrefs.shared.builtIn.count + SourcePrefs.shared.customSources.count))
-                            .foregroundColor(Theme.secondaryLabel)
-                    }
-                }
-
-                NavigationLink(destination: AdvancedDiagnosticsView()) {
-                    HStack {
-                        Text(L("Advanced Diagnostics"))
-                        Spacer()
-                        Text(L("Read-only"))
-                            .foregroundColor(Theme.secondaryLabel)
-                    }
-                }
             } header: {
                 Text(L("About"))
-            } footer: {
-                Text(L("A third-party client built for iOS 15, for personal study only. Please follow local laws and the platform's terms."))
+            }
+
+            Section {
+                Text(L("本软件仅用于个人学习，请下载后在24小时内自动删除，如涉及到版权问题，请联系开发者删除。"))
+                    .font(.system(size: 13))
+                    .foregroundColor(Theme.secondaryLabel)
+                    .fixedSize(horizontal: false, vertical: true)
+            } header: {
+                Text(L("Disclaimer"))
             }
         }
         .listStyle(InsetGroupedListStyle())
@@ -336,12 +320,36 @@ struct SettingsView: View {
             presenting: updateOffer
         ) { info in
             Button(L("Download")) {
-                let url = info.downloadUrl.isEmpty ? info.pageUrl : info.downloadUrl
-                if let target = URL(string: url) { openURL(target) }
+                // 在 App 内直接下载，不跳浏览器；下载完弹系统分享面板
+                updater.downloadAndShare(info)
             }
             Button(L("Cancel"), role: .cancel) {}
         } message: { info in
             Text(String(info.notes.prefix(600)))
+        }
+        .overlay {
+            if case .downloading = updater.phase {
+                ZStack {
+                    Color.black.opacity(0.25).ignoresSafeArea()
+                    VStack(spacing: 10) {
+                        ProgressView(value: updater.progress)
+                            .frame(width: 180)
+                        Text(String(format: L("Downloading %d%%"), Int(updater.progress * 100)))
+                            .font(.system(size: 13))
+                            .foregroundColor(Theme.secondaryLabel)
+                        Button(L("Cancel")) { updater.cancel() }
+                            .font(.system(size: 13))
+                    }
+                    .padding(20)
+                    .background(Theme.groupedBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+            }
+        }
+        .onChange(of: updater.phase) { phase in
+            if case .failed(let message) = phase {
+                show(title: L("Download failed."), message: message)
+            }
         }
         .alert(L("Up to date"), isPresented: $showUpToDate) {
             Button(L("Done"), role: .cancel) {}
@@ -375,6 +383,17 @@ struct SettingsView: View {
 
     /// 连点 7 次才打开更新记录。中间停顿超过 2.5 秒就重新计数，
     /// 免得平时误触把页面弹出来。
+
+    private func checkForUpdates() {
+        guard !checkingUpdate else { return }
+        checkingUpdate = true
+        Task {
+            updateOffer = await AppUpdate.check(current: AppUpdate.currentVersion)
+            checkingUpdate = false
+            if updateOffer == nil { showUpToDate = true }
+        }
+    }
+
     private func registerVersionTap() {        let now = Date()
         if now.timeIntervalSince(lastVersionTap) > 2.5 { versionTaps = 0 }
         lastVersionTap = now

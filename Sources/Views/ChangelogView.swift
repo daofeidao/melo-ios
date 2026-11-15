@@ -12,6 +12,13 @@ struct ChangelogEntry: Identifiable {
 enum Changelog {
     static var entries: [ChangelogEntry] {
         [
+            ChangelogEntry(version: "2.0.2", date: "2026-11-15", notes: [
+                "艺人改用「白名单」：只有网易云艺人库里**精确存在**的艺人才会出现在艺人区。像「周杰伦微博台」「宋雨琦（雨琦）」这类名字里带真艺人、其实是派生账号的，一律不显示——搜不到就搜不到，不给假艺人。已存下的这类脏名会在后台校验后自动移除。",
+                "「严格匹配」开关删掉了，恒定开启：歌名 + 艺人 + 专辑 + 时长（±5 秒）全对上才允许跨源兜底，避免配到同名但不是这首的歌。",
+                "设置：存储分组里关于「缓存会一直保留」的说明文字已删除；「版本」与「检查更新」合并成一行——左边版本号点 7 次仍进彩蛋页，只有右边红字「检查更新」才检查更新。",
+                "设置：作者挪到「关于」下面；新增免责声明；「数据来源」和「高级诊断」从关于区移进彩蛋页（点版本号进的那一页），关于区不再被技术项挤满。",
+                "检查更新支持 App 内下载：不再跳浏览器，直接在应用内下载 IPA，下载完弹系统分享面板交给 TrollStore 安装（iOS 不允许未签名 IPA 静默安装，这是系统限制）。",
+            ]),
             ChangelogEntry(version: "2.0.1", date: "2026-11-15", notes: [
                 "艺人乱名彻底修掉：源里带的是已转义文本（界面直接显示「孙楠\\u0026那英」），现在统一还原成「&」；合唱串「孙楠&那英」按主艺人拆开，宫格里不再出现把两个人当一个的情况；旧版已经存下的脏名会在启动时自动清洗并写回，不会复活。",
                 "艺人页不再张冠李戴：以前名字对不上就退回取搜索结果第一条，于是「单田芳评书」打开是「一拉帮」。现在只认同名或高度接近的结果，对不上就只展示搜到的歌，不打开别人的页面。",
@@ -171,12 +178,6 @@ struct ChangelogView: View {
             List {
                 // 置顶：作者与项目地址（用户 2026-11-11 要求）
                 Section {
-                    HStack {
-                        Text(L("Author"))
-                        Spacer()
-                        Text("张宏亮")
-                            .foregroundColor(Theme.secondaryLabel)
-                    }
                     Link(destination: URL(string: "https://github.com/daofeidao/melo-ios")!) {
                         HStack {
                             Text(L("Project"))
@@ -191,6 +192,30 @@ struct ChangelogView: View {
                     Text(L("About this build"))
                 } footer: {
                     Text(L("A third-party client for personal study only."))
+                }
+
+                // 数据来源与高级诊断挪到这里：关于区只留「版本 + 作者」，
+                // 免得常用设置被技术项挤满。入口还在，只是藏进彩蛋页。
+                Section {
+                    NavigationLink(destination: DataSourceSettingsView()) {
+                        HStack {
+                            Text(L("Data Sources"))
+                            Spacer()
+                            Text(String(format: L("%d sources"),
+                                        SourcePrefs.shared.builtIn.count + SourcePrefs.shared.customSources.count))
+                                .foregroundColor(Theme.secondaryLabel)
+                        }
+                    }
+                    NavigationLink(destination: AdvancedDiagnosticsView()) {
+                        HStack {
+                            Text(L("Advanced Diagnostics"))
+                            Spacer()
+                            Text(L("Read-only"))
+                                .foregroundColor(Theme.secondaryLabel)
+                        }
+                    }
+                } header: {
+                    Text(L("Advanced"))
                 }
 
                 ForEach(Changelog.entries) { entry in

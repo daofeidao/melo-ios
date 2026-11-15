@@ -33,6 +33,8 @@ enum ArtistStore {
         for name in raw {
             let clean = ArtistName.primary(name)
             guard ArtistName.isPlausible(clean) else { continue }
+            // 已被校验判定「不是真人艺人」的（周杰伦微博台这类派生账号）直接丢掉
+            guard ArtistResolver.cachedKnown(clean) != false else { continue }
             let id = ArtistName.key(clean)
             guard !id.isEmpty, seenSaved.insert(id).inserted else { continue }
             cleanedSaved.append(clean)
@@ -69,5 +71,18 @@ enum ArtistStore {
         list.insert(clean, at: 0)
         if list.count > max { list = Array(list.prefix(max)) }
         UserDefaults.standard.set(list, forKey: key)
+    }
+
+    /// 存量原始名单（给后台校验用，不做事先过滤）
+    static func savedNames() -> [String] { load() }
+
+    /// 把校验判定为「不存在」的艺人从存量里删掉
+    static func dropRejected() {
+        let raw = load()
+        guard !raw.isEmpty else { return }
+        let kept = raw.filter { ArtistResolver.cachedKnown($0) != false }
+        if kept != raw {
+            UserDefaults.standard.set(Array(kept.prefix(max)), forKey: key)
+        }
     }
 }

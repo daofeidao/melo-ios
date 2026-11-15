@@ -102,6 +102,7 @@ struct ListenNowView: View {
                     shelves = cached
                 }
                 await load()
+                await pruneLikedArtists()
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
@@ -160,6 +161,20 @@ struct ListenNowView: View {
     }
 
     /// 喜欢艺人（新增）：圆形真实头像 + 名字，点开进艺人页，长按移除
+
+    /// 喜欢艺人里可能混着派生账号（「周杰伦微博台」这类）：后台校验一次，
+    /// 判定不是真人艺人的直接移除，下次进首页就干净了。
+    private func pruneLikedArtists() async {
+        let names = library.likedArtists
+        guard !names.isEmpty else { return }
+        for name in names.prefix(10) {
+            if ArtistResolver.cachedKnown(name) != nil { continue }
+            if await ArtistResolver.resolve(name) == nil {
+                library.removeLikedArtist(name)
+            }
+        }
+    }
+
     private var likedArtistsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(title: L("Liked Artists"))

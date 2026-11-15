@@ -408,3 +408,15 @@
 "Use the web page" = "Use the web page";
 "Sign in inside the app: the platform's own login page opens in a browser view and the resulting Cookie is captured automatically. Melo never sees your password. A membership account unlocks 320 kbps and lossless." = "Sign in inside the app: the platform's own login page opens in a browser view and the resulting Cookie is captured automatically. Melo never sees your password. A membership account unlocks 320 kbps and lossless.";
 "Paste a Cookie header from the platform's website if the in-app sign-in does not work. The app never sees your password - only the resulting Cookie is stored, on this device." = "Paste a Cookie header from the platform's website if the in-app sign-in does not work. The app never sees your password - only the resulting Cookie is stored, on this device.";
+
+/* Easter egg page: advanced entries */
+"Advanced" = "Advanced";
+
+/* Disclaimer */
+"Disclaimer" = "Disclaimer";
+"本软件仅用于个人学习，请下载后在24小时内自动删除，如涉及到版权问题，请联系开发者删除。" = "This app is for personal study only. Please delete it within 24 hours of download. If you believe it infringes copyright, contact the developer for removal.";
+
+/* In-app update download */
+"Download failed." = "Download failed.";
+"Downloading %d%%" = "Downloading %d%%";
+"Invalid download link." = "Invalid download link.";
