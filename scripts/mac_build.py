@@ -9,7 +9,7 @@
     （体检打印出的「用户名」和「端口」填进 scripts/mac-build.json）
 
 日常使用：
-    python scripts/mac_build.py                # 版本号自动读 project.yml
+    python scripts/mac_build.py                # 版本号自动探测，工程/Scheme 由 Mac 端自动识别
     python scripts/mac_build.py --version 2.0.1 --build 118
     python scripts/mac_build.py --probe        # 只测连通性
 """
@@ -34,9 +34,10 @@ REPO = Path(__file__).resolve().parent.parent
 CONFIG_PATH = Path(__file__).resolve().parent / "mac-build.json"
 DEFAULT_OUT = Path("D:/wb/downloads/melo")
 
-# 只打包编译真正需要的东西；.git / build* / dist 一律不进包，保证 Mac 侧干净、快
-PACK_INCLUDE = ["Sources", "Resources", "Localization", "project.yml", "build_ipa.sh"]
-PACK_EXTRA_FILES = ["scripts/mac-setup.sh"]
+# 打包整个工程（支持任意项目名 / 任意目录结构 —— AI 每次生成的新项目都不同），
+# 只排除版本控制与构建产物。不再用写死 Sources/Resources/project.yml 的白名单。
+PACK_EXCLUDE_DIRS = {".git", "build", "build-dev", "build-sim", "dist", "__pycache__", ".build", "DerivedData", "Pods", ".swiftpm"}
+PACK_EXCLUDE_FILES = {".DS_Store"}
 
 C_OK, C_WARN, C_ERR, C_DIM, C_END = "\033[32m", "\033[33m", "\033[31m", "\033[90m", "\033[0m"
 
@@ -126,8 +127,8 @@ def target(cfg: dict) -> str:
     return f'{cfg["user"]}@{cfg["host"]}'
 
 
-def run_streaming(cmd: list[str], title: str) -> int:
-    """边跑边打印，长构建不至于看起来卡死。"""
+def run_streaming(cmd: list[str], title: str, capture: list[str] | None = None) -> int:
+    """边跑边打印，长构建不至于看起来卡死。capture 非空时逐行收集（用于解析 IPA_PATH）。"""
     if title:
         say(title)
     proc = subprocess.Popen(
@@ -136,6 +137,8 @@ def run_streaming(cmd: list[str], title: str) -> int:
     assert proc.stdout
     for line in proc.stdout:
         line = line.rstrip("\n")
+        if capture is not None:
+            capture.append(line)
         if line.startswith("==>"):
             print(f"   {C_DIM}{line}{C_END}", flush=True)
         elif line.startswith(("IPA_PATH=", "IPA_SIZE=", "IPA_MD5=")):
@@ -150,13 +153,33 @@ def run_streaming(cmd: list[str], title: str) -> int:
 
 # ---------------------------------------------------------------- 版本
 def read_version() -> str:
-    text = (REPO / "project.yml").read_text(encoding="utf-8")
-    for line in text.splitlines():
-        if "MARKETING_VERSION" in line:
-            parts = line.split('"')
-            if len(parts) >= 2:
-                return parts[1]
-    die("project.yml 里读不到 MARKETING_VERSION，请用 --version 指定")
+    """尽力探测版本号；探测不到就返回空串，交给 Mac 端从产物 Info.plist 推断。
+
+    不再假定工程一定是 project.yml（那是 Melo 专属）——支持
+    project.yml / Info.plist / *.pbxproj 里的 MARKETING_VERSION、CURRENT_PROJECT_VERSION。
+    """
+    candidates = [REPO / "project.yml", REPO / "Info.plist"]
+    for p in candidates:
+        if not p.exists():
+            continue
+        text = p.read_text(encoding="utf-8", errors="replace")
+        for line in text.splitlines():
+            if "MARKETING_VERSION" in line or "CFBundleShortVersionString" in line:
+                parts = line.split('"')
+                if len(parts) >= 2:
+                    value = parts[1].strip()
+                    if value and any(c.isdigit() for c in value):
+                        return value
+    # 扫 pbxproj
+    for p in REPO.rglob("*.pbxproj"):
+        text = p.read_text(encoding="utf-8", errors="replace")
+        for line in text.splitlines():
+            if "MARKETING_VERSION" in line:
+                value = line.split("=")[-1].strip().strip(';" ')
+                if value:
+                    return value
+    warn("探测不到版本号，Mac 端将从产物 Info.plist 推断；也可 --version 指定")
+    return ""
 
 
 # ---------------------------------------------------------------- 打包
@@ -179,26 +202,25 @@ def _add_normalized(tar: tarfile.TarFile, src: Path, arcname: str) -> None:
 
 
 def make_tarball(path: Path) -> int:
+    """把整个工程递归打包，跳过构建产物目录；脚本类文件统一转 LF。
+
+    关键点：不再依赖固定的工程名 / 目录名。只要工程在 REPO 下，
+    无论项目叫什么、Scheme 是什么，都能原样送到 Mac 端由 build_ipa.sh 动态识别。
+    build_ipa.sh 本身也必须在包里（放在仓库根），Mac 端才能执行。
+    """
     count = 0
     with tarfile.open(path, "w:gz") as tar:
-        for rel in PACK_INCLUDE:
-            src = REPO / rel
-            if not src.exists():
-                warn(f"跳过不存在的 {rel}")
+        for item in sorted(REPO.rglob("*")):
+            if not item.is_file():
                 continue
-            for item in sorted(src.rglob("*")) if src.is_dir() else [src]:
-                if not item.is_file():
-                    continue
-                parts = item.relative_to(REPO).parts
-                if any(p in (".git", "build", "build-dev", "build-sim", "dist", "__pycache__") for p in parts):
-                    continue
-                _add_normalized(tar, item, str(item.relative_to(REPO)))
-                count += 1
-        for rel in PACK_EXTRA_FILES:
-            src = REPO / rel
-            if src.exists():
-                _add_normalized(tar, src, str(src.relative_to(REPO)))
-                count += 1
+            rel = item.relative_to(REPO)
+            parts = rel.parts
+            if any(p in PACK_EXCLUDE_DIRS for p in parts):
+                continue
+            if item.name in PACK_EXCLUDE_FILES:
+                continue
+            _add_normalized(tar, item, str(rel).replace("\\", "/"))
+            count += 1
     return count
 
 
@@ -273,7 +295,9 @@ def do_build(cfg: dict, version: str, build_num: str) -> Path:
     say("上传到 Mac")
     run_streaming(scp_base(cfg) + [str(tarball), f"{target(cfg)}:{remote_tar}"], "")
 
-    say("解包并编译")
+    say("解包并编译（工程名 / Scheme 由 Mac 端自动识别）")
+    # 版本号可能为空（探测不到时让 Mac 从 Info.plist 推断），只在不为空时注入，避免把空串写进产物
+    ver_env = f"MARKETING_VERSION={shlex.quote(version)} " if version else ""
     remote_cmd = f"""set -e
 mkdir -p {incoming} {stage}
 rm -rf {stage}
@@ -281,19 +305,29 @@ mkdir -p {stage}
 tar -xzf '{remote_tar}' -C {stage}
 chmod +x '{stage}/build_ipa.sh'
 cd '{stage}'
-MARKETING_VERSION={shlex.quote(version)} BUILD_NUM={shlex.quote(build_num)} bash build_ipa.sh '{stage}'
+{ver_env}BUILD_NUM={shlex.quote(build_num)} bash build_ipa.sh '{stage}'
 """
-    code = run_streaming(ssh_base(cfg) + [target(cfg), remote_cmd], "")
+    captured: list[str] = []
+    code = run_streaming(ssh_base(cfg) + [target(cfg), remote_cmd], "", capture=captured)
     shutil.rmtree(tmpdir, ignore_errors=True)
     if code != 0:
         die(
             "Mac 侧编译失败（退出码 %d）。常见原因：\n"
             "  · Xcode 版本不对（这台 2011 机器必须 14.x，15+ 会 SIGILL）\n"
             "  · 缺 xcodegen / ldid：在 Mac 上 brew install xcodegen ldid\n"
+            "  · 工程里没有可识别的 .xcodeproj/.xcworkspace 或 Scheme\n"
             "  · 磁盘满：rm -rf ~/melo-build/src/build-dev 后重试" % code
         )
 
-    remote_ipa = f"{stage}/dist/Melo-v{version}.B{build_num}.ipa"
+    # 从 build_ipa.sh 的机器可读输出拿真实 IPA 路径 —— 不再写死 Melo-v<ver>.ipa
+    remote_ipa = ""
+    for line in reversed(captured):
+        if line.startswith("IPA_PATH="):
+            remote_ipa = line.split("=", 1)[1].strip()
+            break
+    if not remote_ipa:
+        die("Mac 端没有输出 IPA_PATH=，无法定位产物。确认 build_ipa.sh 是最新版本。")
+    say(f"识别到产物: {remote_ipa}")
     out_dir = Path(cfg["outDir"])
     out_dir.mkdir(parents=True, exist_ok=True)
     local_ipa = out_dir / posixpath.basename(remote_ipa)
@@ -311,7 +345,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="从 Windows 驱动 Mac 出 IPA")
     ap.add_argument("--setup", action="store_true", help="只做 Mac 环境体检")
     ap.add_argument("--probe", action="store_true", help="只测 SSH 连通性")
-    ap.add_argument("--version", help="版本号，默认读 project.yml")
+    ap.add_argument("--version", help="版本号，默认从工程文件探测；探测不到由 Mac 从产物推断")
     ap.add_argument("--build", help="构建号，默认本地时间戳")
     ap.add_argument("--host")
     ap.add_argument("--port", type=int)
@@ -334,11 +368,12 @@ def main() -> int:
 
     version = args.version or read_version()
     build_num = args.build or time.strftime("%m%d%H%M")
-    print(f"\n{C_DIM}Melo {version} (build {build_num}) → {target(cfg)}:{cfg['port']}{C_END}\n")
+    project_name = REPO.name
+    print(f"\n{C_DIM}{project_name} {version or '(版本自动推断)'} (build {build_num}) → {target(cfg)}:{cfg['port']}{C_END}\n")
 
     ipa = do_build(cfg, version, build_num)
     print(f"\n{C_OK}完成{C_END}  {ipa}")
-    print(f"{C_DIM}下一步：发给自己的那封邮件 → python send_ipa.py \"{ipa}\" --to 13086848965@126.com{C_END}\n")
+    print(f"{C_DIM}下一步：AirDrop 到 iPhone 用 TrollStore 安装；或发邮件 → python send_ipa.py \"{ipa}\" --to 13086848965@126.com{C_END}\n")
     return 0
 
 

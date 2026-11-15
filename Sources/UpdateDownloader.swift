@@ -50,7 +50,10 @@ final class UpdateDownloader: ObservableObject {
                     self.phase = .failed(error?.localizedDescription ?? L("Download failed."))
                     return
                 }
-                let name = info.downloadUrl.split(separator: "/").last.map(String.init) ?? "Melo-update.ipa"
+                // 文件名用链接里的真实名字（Melo-v2.0.4.B128.ipa / Melo-Mac-v2.0.4.zip），
+                // 分享面板里一眼能看出下的是哪个包
+                let remoteName = URL(string: raw)?.lastPathComponent ?? ""
+                let name = remoteName.isEmpty ? "Melo-update" : remoteName
                 let dest = FileManager.default.temporaryDirectory.appendingPathComponent(name)
                 try? FileManager.default.removeItem(at: dest)
                 do {

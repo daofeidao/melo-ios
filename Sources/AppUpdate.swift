@@ -34,21 +34,44 @@ enum AppUpdate {
         let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
         guard isNewer(version, than: current) else { return nil }
 
-        var download = ""
-        if let assets = root["assets"] as? [[String: Any]] {
-            for asset in assets {
-                let name = asset["name"] as? String ?? ""
-                if name.hasSuffix(".ipa") {
-                    download = asset["browser_download_url"] as? String ?? ""
-                }
-            }
-        }
+        let download = pickAsset(root["assets"] as? [[String: Any]] ?? [])
         return Info(
             version: version,
             notes: (root["body"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "修复问题与优化体验。",
             downloadUrl: download,
             pageUrl: root["html_url"] as? String ?? ""
         )
+    }
+
+    /// 按平台挑更新包。
+    ///
+    /// 以前这里只找 `.ipa`，于是 Mac 版点「下载」拿到的是 iOS 包 ——
+    /// 双击装不上，等于白下一个十几兆。
+    /// Mac Catalyst 要的是 `Melo-Mac-vX.zip`，iOS 要的是 `Melo-vX.Bn.ipa`；
+    /// 两者都没有就返回空串，让界面退回打开发布页，而不是给一个错的文件。
+    private static func pickAsset(_ assets: [[String: Any]]) -> String {
+        var ipa = ""
+        var macZip = ""
+        var otherZip = ""
+        for asset in assets {
+            let name = (asset["name"] as? String ?? "").lowercased()
+            let url = asset["browser_download_url"] as? String ?? ""
+            guard !url.isEmpty else { continue }
+            if name.hasSuffix(".ipa") {
+                if ipa.isEmpty { ipa = url }
+            } else if name.hasSuffix(".zip") {
+                if name.contains("mac") {
+                    if macZip.isEmpty { macZip = url }
+                } else if otherZip.isEmpty {
+                    otherZip = url
+                }
+            }
+        }
+        #if targetEnvironment(macCatalyst)
+        return macZip.isEmpty ? otherZip : macZip
+        #else
+        return ipa
+        #endif
     }
 
     /// 语义比较：按「.」分段逐段比数字，段数不足当 0
