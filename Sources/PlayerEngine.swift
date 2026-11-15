@@ -794,7 +794,10 @@ final class PlayerEngine: ObservableObject {
         if let album = track.album, !album.isEmpty {
             info[MPMediaItemPropertyAlbumTitle] = album
         }
-        if let urlString = track.artwork, let image = artworkCache[urlString] {
+        // 封面尺寸为 0 时 MPMediaItemArtwork 也会抛异常（网络图偶尔是空图），所以先判
+        if let urlString = track.artwork,
+           let image = artworkCache[urlString],
+           image.size.width > 0, image.size.height > 0 {
             info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
         }
         // 所有 MediaPlayer 写操作都走桥：Catalyst 上 playbackState 这类 setter
