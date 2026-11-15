@@ -492,9 +492,9 @@ jobs:
             build -quiet
       - name: Package .app
         run: |
-          APP=$(find build-mac/Build/Products/Release -maxdepth 1 -name '*.app' | head -1)
+          APP=$(find build-mac/Build/Products -maxdepth 3 -name '*.app' -path '*Release*' | head -1)
           test -n "$APP"
-          echo "MAC_APP=$APP" >> "$GITHUB_ENV"
+          echo "APP_DIR=$APP" >> "$GITHUB_ENV"
           codesign --force --deep --sign - "$APP" || true
           VERSION=$(grep -A1 'MARKETING_VERSION: ' project.yml | head -1 | sed 's/.*"\(.*\)"/\1/')
           cd "$(dirname "$APP")"
