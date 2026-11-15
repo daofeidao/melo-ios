@@ -105,6 +105,8 @@ func extractArtists(term: String, tracks: [Track]) -> [String] {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let lower = primary.lowercased()
         guard !primary.isEmpty, lower != "unknown artist", primary != "未知艺人" else { continue }
+        // 翻唱者带出的乱名（「RyaVocal 原唱 周杰伦」整串、DJ 版、网络歌手…）在这里挡掉
+        guard isPlausibleArtist(primary) else { continue }
         if let slot = index[lower] {
             counts[slot].1 += 1
         } else {
@@ -116,6 +118,30 @@ func extractArtists(term: String, tracks: [Track]) -> [String] {
     // 只用「查询词对得上」的艺人，避免把翻唱者当成搜索结果里的艺人
     let related = sorted.filter { artistMatches(term: term, artist: $0) }
     return Array(related.prefix(6))
+}
+
+/// 像不像一个正常艺人名。搜索/收藏来的艺人名混着大量翻唱者、版本说明与凑数内容，
+/// （「RyaVocal 原唱 周杰伦」「DJ阿伟」「网络歌手」「群星」「123456」…），
+/// 这些进艺人宫格就是「乱名乱入」。所有入口统一走这一个检查。
+func isPlausibleArtist(_ raw: String) -> Bool {
+    let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard clean.count >= 2, clean.count <= 24 else { return false }
+    guard !clean.contains("://") else { return false }
+    let lower = clean.lowercased()
+    let blocked = [
+        "原唱", "翻唱", "翻自", "原曲", "cover", "remix", "伴奏", "纯音乐", "inst",
+        "karaoke", "ktv", "dj", "live", "现场", "演唱会", "串烧", "合唱", "对唱",
+        "铃声", "片段", "试听", "钢琴版", "吉他版", "小提琴版", "古筝版", "女声版",
+        "男声版", "抖音", "快手", "车载", "慢摇", "的士高", "disco", "网络歌手",
+        "群星", "华语群星", "various", "unknown", "未知艺人", "佚名", "bgm",
+        "八音盒", "合集", "歌单", "无损", "flac", "320k", "128k", "高清",
+        "完整版", "重制", "重置", "改编", "remake", "piano", "ver.", "version",
+        "混音", "纯享", "纯人声", "acoustic", "instrumental", "cover版",
+    ]
+    if blocked.contains(where: { lower.contains($0) }) { return false }
+    // 纯数字 / 纯符号不是艺人名
+    guard clean.contains(where: { $0.isLetter }) else { return false }
+    return true
 }
 
 /// 艺人名匹配。

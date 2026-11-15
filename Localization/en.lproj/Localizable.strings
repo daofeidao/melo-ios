@@ -379,3 +379,18 @@
 "Songs you play will show up here." = "Songs you play will show up here.";
 "Tap ♥ or long-press a song to add it to favorites." = "Tap ♥ or long-press a song to add it to favorites.";
 "Long-press an artist to remove." = "Long-press an artist to remove.";
+
+/* 账号与更新 */
+"Account" = "Account";
+"Add Netease Account" = "Add Netease Cloud Account";
+"Log Out" = "Log Out";
+"Not signed in" = "Not signed in";
+"Tap to switch" = "Tap to switch";
+"In Use" = "In Use";
+"Check for Updates" = "Check for Updates";
+"Checking…" = "Checking…";
+"New version %@" = "New version %@";
+"Download" = "Download";
+"Up to date" = "Up to date";
+"You are on the latest version." = "You are on the latest version.";
+"Account cookies are stored only in this device's app sandbox and are never uploaded. Others can log in with their own account and you can switch back anytime." = "Account cookies are stored only in this device's app sandbox and are never uploaded. Others can log in with their own account and you can switch back anytime.";

@@ -462,3 +462,47 @@ jobs:
 
       # CI 里不要加发邮件：macOS runner 在 Azure 上，平台封禁出站 SMTP，
       # 投递由本机脚本负责。
+
+  # Mac（Catalyst）版：同一套 SwiftUI 代码编译成 macOS App（Intel/Apple Silicon 通用）。
+  # ad-hoc 签名，首次打开右键→打开（或 xattr -cr 绕过 Gatekeeper）。
+  build-mac:
+    runs-on: macos-15
+    timeout-minutes: 45
+    if: inputs.verify_only == false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          xcodebuild -version
+          command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Build for Mac (Catalyst)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Melo.xcodeproj \
+            -scheme Melo \
+            -configuration Release \
+            -destination 'platform=macOS,variant=Mac Catalyst' \
+            -derivedDataPath build-mac \
+            CODE_SIGNING_ALLOWED=NO \
+            CURRENT_PROJECT_VERSION=${GITHUB_RUN_NUMBER} \
+            build -quiet
+      - name: Package .app
+        run: |
+          APP=$(find build-mac/Build/Products/Release -maxdepth 1 -name '*.app' | head -1)
+          test -n "$APP"
+          echo "MAC_APP=$APP" >> "$GITHUB_ENV"
+          codesign --force --deep --sign - "$APP" || true
+          VERSION=$(grep -A1 'MARKETING_VERSION: ' project.yml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          cd "$(dirname "$APP")"
+          zip -qry "${GITHUB_WORKSPACE}/Melo-Mac-v${VERSION}.zip" "$(basename "$APP")"
+          echo "MAC_ZIP=${GITHUB_WORKSPACE}/Melo-Mac-v${VERSION}.zip" >> "$GITHUB_ENV"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: melo-mac
+          path: ${{ env.MAC_ZIP }}
+          if-no-files-found: error

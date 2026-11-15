@@ -97,9 +97,12 @@ final class PlayerEngine: ObservableObject {
     // MARK: - Setup
 
     private func configureSession() {
+        // macOS Catalyst 没有 AVAudioSession（音频路由由系统管），跳过会话配置
+        #if !targetEnvironment(macCatalyst)
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .default, options: [])
         try? session.setActive(true)
+        #endif
     }
 
     private func observePlayer() {
@@ -150,6 +153,7 @@ final class PlayerEngine: ObservableObject {
             self.handleTrackEnded()
         }
 
+        #if !targetEnvironment(macCatalyst)
         interruptionObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.interruptionNotification,
             object: nil,
@@ -186,6 +190,7 @@ final class PlayerEngine: ObservableObject {
                 self.player.pause()
             }
         }
+        #endif
 
         // 直链过期导致播放失败时，静默重新解析一次
         failureObserver = NotificationCenter.default.addObserver(
@@ -200,6 +205,7 @@ final class PlayerEngine: ObservableObject {
         }
 
         // 媒体服务被系统重置（来电、其他 App 抢占等极端情况）：重建会话并续播
+        #if !targetEnvironment(macCatalyst)
         mediaResetObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.mediaServicesWereResetNotification,
             object: nil,
@@ -212,6 +218,7 @@ final class PlayerEngine: ObservableObject {
                 self.load(autoPlay: wasPlaying, resetBudget: true)
             }
         }
+        #endif
     }
 
     private func retryCurrentTrack() {
@@ -301,7 +308,9 @@ final class PlayerEngine: ObservableObject {
             loadCurrent(autoPlay: true)
             return
         }
+        #if !targetEnvironment(macCatalyst)
         try? AVAudioSession.sharedInstance().setActive(true)
+        #endif
         player.play()
     }
 

@@ -26,6 +26,8 @@ enum ArtistStore {
         for name in load() + builtIn {
             let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
+            // 历史版本存进去的乱名（翻唱者 / DJ 版 / 凑数内容）在这里一并清掉
+            guard isPlausibleArtist(trimmed) else { continue }
             let lower = trimmed.lowercased()
             if seen.insert(lower).inserted { out.append(trimmed) }
             if out.count >= max { break }
@@ -40,6 +42,8 @@ enum ArtistStore {
     static func remember(_ name: String) {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard clean.count >= 2, clean != L("Unknown Artist") else { return }
+        // 乱名别写进宫格：翻唱者带出的整串、DJ 版、纯数字等
+        guard isPlausibleArtist(clean) else { return }
         var list = load().filter { $0.caseInsensitiveCompare(clean) != .orderedSame }
         list.insert(clean, at: 0)
         if list.count > max { list = Array(list.prefix(max)) }

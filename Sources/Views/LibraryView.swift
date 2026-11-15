@@ -108,6 +108,7 @@ private enum AboutPage: String, Identifiable {
 
 struct SettingsView: View {
     @EnvironmentObject private var library: Library
+    @Environment(\.openURL) private var openURL
 
     @AppStorage("melo.appearance") private var appearance: String = AppearanceMode.system.rawValue
     @AppStorage(AudioCache.enabledKey) private var cacheAudio = true
@@ -115,6 +116,11 @@ struct SettingsView: View {
     @AppStorage(DomesticSource.strictMatchKey) private var strictMatch = false
     @State private var cacheBytes: Int64 = 0
     @State private var showClearCacheConfirm = false
+
+    // 检查更新
+    @State private var checkingUpdate = false
+    @State private var updateOffer: AppUpdate.Info?
+    @State private var showUpToDate = false
 
     // 备份 / 恢复
     @State private var exporting = false
@@ -143,6 +149,19 @@ struct SettingsView: View {
                 .labelsHidden()
             } header: {
                 Text(L("Appearance"))
+            }
+
+            Section {
+                NavigationLink(destination: AccountsView()) {
+                    HStack {
+                        Text(L("Account"))
+                        Spacer()
+                        Text(AccountsStore.shared.activeAccount?.nickname ?? L("Not signed in"))
+                            .foregroundColor(Theme.secondaryLabel)
+                    }
+                }
+            } header: {
+                Text(L("Account"))
             }
 
             Section {
@@ -213,6 +232,23 @@ struct SettingsView: View {
             }
 
             Section {
+                Button {
+                    guard !checkingUpdate else { return }
+                    checkingUpdate = true
+                    Task {
+                        updateOffer = await AppUpdate.check(current: AppUpdate.currentVersion)
+                        checkingUpdate = false
+                        if updateOffer == nil { showUpToDate = true }
+                    }
+                } label: {
+                    HStack {
+                        Text(L("Check for Updates"))
+                        Spacer()
+                        Text(checkingUpdate ? L("Checking…") : "v\(AppUpdate.currentVersion)")
+                            .foregroundColor(Theme.secondaryLabel)
+                    }
+                }
+
                 HStack {
                     Text(L("Version"))
                     Spacer()
@@ -303,6 +339,27 @@ struct SettingsView: View {
                     message: String(format: L("Restore failed: %@"), error.localizedDescription)
                 )
             }
+        }
+        .alert(
+            updateOffer.map { String(format: L("New version %@"), $0.version) } ?? "",
+            isPresented: Binding(
+                get: { updateOffer != nil },
+                set: { if !$0 { updateOffer = nil } }
+            ),
+            presenting: updateOffer
+        ) { info in
+            Button(L("Download")) {
+                let url = info.downloadUrl.isEmpty ? info.pageUrl : info.downloadUrl
+                if let target = URL(string: url) { openURL(target) }
+            }
+            Button(L("Cancel"), role: .cancel) {}
+        } message: { info in
+            Text(String(info.notes.prefix(600)))
+        }
+        .alert(L("Up to date"), isPresented: $showUpToDate) {
+            Button(L("Done"), role: .cancel) {}
+        } message: {
+            Text(L("You are on the latest version."))
         }
         .alert(alertTitle, isPresented: $showAlert) {
             Button(L("Done"), role: .cancel) {}
