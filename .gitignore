@@ -13,3 +13,8 @@ scripts/_secrets/
 
 # CI 下载的截图/产物，不要进仓库
 art*/
+
+# 本机 Mac 构建配置（含机器信息，不进仓库）
+scripts/mac-build.json
+# 本地构建产物
+dist/

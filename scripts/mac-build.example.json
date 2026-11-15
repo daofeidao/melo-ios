@@ -1,0 +1,11 @@
+{
+  "_说明": "把下面几项改成你自己的 Mac。首次请先在 Mac 上执行 bash mac-setup.sh，用它的输出填这里。",
+  "_host 取值": "UU 端口映射出来的是本机地址则填 127.0.0.1；同网段直连填 Mac 的局域网 IP",
+  "host": "127.0.0.1",
+  "port": 10022,
+  "user": "换成Mac的登录用户名",
+  "remoteStage": "~/melo-build/src",
+  "remoteIncoming": "~/melo-build/incoming",
+  "outDir": "D:/wb/downloads/melo",
+  "identity": ""
+}
