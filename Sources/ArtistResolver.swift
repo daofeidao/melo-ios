@@ -35,10 +35,14 @@ enum ArtistResolver {
     }
 
     private static func saveStore(_ store: [String: Entry]) {
-        // 顺手清理过期项，避免无限增长
+        // 顺手清理过期项，避免无限增长。
+        // 注意别用 `store.filter { entry in entry.ts ... }`：字典元素是带标签的元组，
+        // `entry.ts` 不成立，编译器会转而尝试 Predicate 重载并报错。
         let now = Date().timeIntervalSince1970
-        let fresh = store.filter { entry in
-            now - entry.ts < (entry.id > 0 ? positiveTTL : negativeTTL)
+        var fresh: [String: Entry] = [:]
+        for (key, entry) in store {
+            let ttl = entry.id > 0 ? positiveTTL : negativeTTL
+            if now - entry.ts < ttl { fresh[key] = entry }
         }
         if let data = try? JSONEncoder().encode(fresh) {
             UserDefaults.standard.set(data, forKey: storeKey)
