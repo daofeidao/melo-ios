@@ -360,6 +360,35 @@ struct ArtistCircleTile: View {
     }
 }
 
+// MARK: - 添加艺人
+
+/// 「喜欢艺人」行尾的添加入口：虚线圆 + 加号，与艺人头像同尺寸，视觉上排在同一行。
+struct AddArtistTile: View {
+    var size: CGFloat = 88
+
+    var body: some View {
+        VStack(spacing: 7) {
+            ZStack {
+                Circle()
+                    .strokeBorder(
+                        Theme.tertiaryLabel.opacity(0.55),
+                        style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])
+                    )
+                Image(systemName: "plus")
+                    .font(.system(size: size * 0.3, weight: .light))
+                    .foregroundColor(Theme.secondaryLabel)
+            }
+            .frame(width: size, height: size)
+
+            Text(L("Add"))
+                .font(.system(size: 13))
+                .foregroundColor(Theme.secondaryLabel)
+                .lineLimit(1)
+        }
+        .frame(width: size + 8)
+    }
+}
+
 // MARK: - 进度条
 
 struct Scrubber: View {

@@ -20,7 +20,9 @@ enum ArtistResolver {
         var ts: Double
     }
 
-    private static let storeKey = "melo.artistIndex.v1"
+    /// v2：准入规则收紧过（电台号 / 截断残渣），旧缓存里存着被误判为「是艺人」的结果，
+    /// 换 key 直接作废，让这些名字重新过一遍新规则。
+    private static let storeKey = "melo.artistIndex.v2"
     private static let positiveTTL: Double = 90 * 24 * 3600
     private static let negativeTTL: Double = 7 * 24 * 3600
     private static let lock = NSLock()

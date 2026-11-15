@@ -8,6 +8,7 @@ struct ListenNowView: View {
     @State private var loading = false
     @State private var error: String?
     @State private var showClearRecentConfirm = false
+    @State private var showAddArtist = false
 
     var body: some View {
         NavigationView {
@@ -116,6 +117,10 @@ struct ListenNowView: View {
             }
             Button(L("Cancel"), role: .cancel) {}
         }
+        .sheet(isPresented: $showAddArtist) {
+            AddLikedArtistSheet()
+                .environmentObject(library)
+        }
     }
 
     /// 固定分区：标题 + 内容；内容为空时显示一行灰字，不再整块消失
@@ -179,29 +184,35 @@ struct ListenNowView: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(title: L("Liked Artists"))
             if library.likedArtists.isEmpty {
-                Text(L("Long-press an artist to remove."))
+                Text(L("Tap ＋ to add an artist."))
                     .font(.system(size: 12))
                     .foregroundColor(Theme.tertiaryLabel)
                     .padding(.horizontal, 16)
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 14) {
-                        ForEach(library.likedArtists, id: \.self) { name in
-                            NavigationLink(destination: ArtistDetailView(name: name)) {
-                                ArtistCircleTile(name: name)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .contextMenu {
-                                Button {
-                                    library.removeLikedArtist(name)
-                                } label: {
-                                    Label(L("Remove"), systemImage: "person.slash")
-                                }
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 14) {
+                    ForEach(library.likedArtists, id: \.self) { name in
+                        NavigationLink(destination: ArtistDetailView(name: name)) {
+                            ArtistCircleTile(name: name)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .contextMenu {
+                            Button {
+                                library.removeLikedArtist(name)
+                            } label: {
+                                Label(L("Remove"), systemImage: "person.slash")
                             }
                         }
                     }
-                    .padding(.horizontal, 16)
+                    // 添加入口放在行尾：不用先进艺人页、也不用长按碰运气
+                    Button {
+                        showAddArtist = true
+                    } label: {
+                        AddArtistTile(size: 88)
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
+                .padding(.horizontal, 16)
             }
         }
     }

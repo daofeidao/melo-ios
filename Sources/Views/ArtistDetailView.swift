@@ -11,6 +11,7 @@ struct ArtistDetailView: View {
     let name: String
 
     @EnvironmentObject private var player: PlayerEngine
+    @EnvironmentObject private var library: Library
     @State private var profile: ArtistInfo.Profile?
     @State private var albums: [DomesticSource.DomesticAlbum] = []
     @State private var tracks: [Track] = []
@@ -23,6 +24,9 @@ struct ArtistDetailView: View {
     /// 视图仍活着、@State 还在，但 .task 每次出现都会重跑 → 又拉一遍全部数据，
     /// 看着就像「返回很慢、重载了一遍」。用这个标记跳过重复加载。
     @State private var didLoad = false
+    /// 喜欢按钮：点下后先过白名单校验，校验期间转圈，失败给个明确提示
+    @State private var likeBusy = false
+    @State private var likeMessage: String?
 
     private let albumPreview = 5
     private let trackPreview = 8
@@ -80,9 +84,67 @@ struct ArtistDetailView: View {
             Text(heroSubtitle)
                 .font(.system(size: 13))
                 .foregroundColor(Theme.secondaryLabel)
+
+            likeButton
+            if let likeMessage {
+                Text(likeMessage)
+                    .font(.system(size: 12))
+                    .foregroundColor(Color(hex: 0xE0455E))
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 8)
+    }
+
+    // MARK: - 喜欢
+
+    private var isLiked: Bool { library.isLikedArtist(name) }
+
+    private var likeButton: some View {
+        Button(action: toggleLike) {
+            HStack(spacing: 6) {
+                if likeBusy {
+                    ProgressView().scaleEffect(0.7)
+                } else {
+                    Image(systemName: isLiked ? "heart.fill" : "heart")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                Text(isLiked ? L("Liked") : L("Like"))
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundColor(isLiked ? .white : Theme.accent)
+            .padding(.horizontal, 16)
+            .frame(height: 32)
+            .background(
+                Capsule().fill(isLiked ? Theme.accent : Theme.accent.opacity(0.12))
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .disabled(likeBusy)
+        .padding(.top, 2)
+    }
+
+    /// 取消喜欢立刻生效；加喜欢要先确认这名字在艺人库里真实存在，
+    /// 否则用户从搜索结果误点到派生账号，会把它永久塞进首页。
+    private func toggleLike() {
+        guard !likeBusy else { return }
+        likeMessage = nil
+        if isLiked {
+            library.removeLikedArtist(name)
+            return
+        }
+        likeBusy = true
+        Task {
+            let ok = await ArtistResolver.resolve(name) != nil
+            await MainActor.run {
+                likeBusy = false
+                if ok {
+                    library.addLikedArtist(name)
+                } else {
+                    likeMessage = L("Can't add: this name isn't in the artist library.")
+                }
+            }
+        }
     }
 
     private var heroSubtitle: String {

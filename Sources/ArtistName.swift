@@ -139,8 +139,24 @@ enum ArtistName {
         // 直接抹掉，别让用户在宫格里看到 `孙楠\`
         text = text.replacingOccurrences(of: "\\", with: "")
         if text.contains("\\u") { return "" }
-        let quotes = CharacterSet(charactersIn: "\"'“”‘’《》")
-        return text.trimmingCharacters(in: quotes)
+        // 首尾的连接符一起抹掉：音源常把名字截断成 `孙-`、`周杰伦·`、`《林俊杰》-`，
+        // 留着不但难看，还会让「去标点后只剩一个字」的残渣混过下面的长度检查。
+        return trimEdgeJunk(text)
+    }
+
+    /// 首尾要抹掉的字符：引号、书名号、各种连字符与分隔符。
+    /// 只处理两端，`A-Lin`、`G.E.M.` 这种名字内部的符号不动。
+    private static let edgeJunk = CharacterSet(charactersIn: "\"'“”‘’《》-—–－_·・.．…,，、;；:：|｜/／+*#~ 　")
+
+    private static func trimEdgeJunk(_ input: String) -> String {
+        var out = input
+        while let first = out.unicodeScalars.first, edgeJunk.contains(first) {
+            out.removeFirst()
+        }
+        while let last = out.unicodeScalars.last, edgeJunk.contains(last) {
+            out.removeLast()
+        }
+        return out
     }
 
     /// 归一化 key：小写 + 繁转简 + 去掉空白与常见标点，用于「是不是同一个人」的判断。
@@ -163,6 +179,9 @@ enum ArtistName {
         guard !clean.contains("://"), !clean.contains("<") else { return false }
         // 必须至少有一个字母或汉字
         guard clean.rangeOfCharacter(from: .letters) != nil else { return false }
+        // 去标点后至少两个字：`孙-`、`A·`、`周.` 这类截断后的残渣挡掉。
+        // 中文单字艺人在曲库里几乎不存在，宁可搜不到也不显示一个假名字。
+        guard key(clean).count >= 2 else { return false }
 
         let lower = clean.lowercased()
         let blocked = [
@@ -176,6 +195,15 @@ enum ArtistName {
             "混音", "纯享", "纯人声", "acoustic", "instrumental"
         ]
         if blocked.contains(where: { lower.contains($0) }) { return false }
+        // 派生账号几乎都是「真艺人名 + 一个频道词」：`周杰伦电台`、`周杰伦微博台`、
+        // `单田芳评书`、`××粉丝团`。只在**结尾**命中才算，否则会误杀
+        // 「电台司令」这种本来就带频道词的合法乐队名。
+        let derivedSuffixes = [
+            "电台", "广播", "频道", "音乐台", "微博", "微博台", "贴吧", "粉丝团",
+            "后援会", "歌迷会", "工作室", "官方", "专辑", "评书", "相声", "播客",
+            "有声书", "听书", "朗读", "解说"
+        ]
+        if derivedSuffixes.contains(where: { lower.hasSuffix($0) }) { return false }
         return true
     }
 }

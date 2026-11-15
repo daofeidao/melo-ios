@@ -21,8 +21,30 @@ final class Library: ObservableObject {
         favorites = Self.load(favoritesKey)
         savedCollections = Self.loadCollections(savedCollectionsKey)
         let savedArtists = UserDefaults.standard.stringArray(forKey: likedArtistsKey)
-        likedArtists = savedArtists ?? Self.defaultLikedArtists
+        let cleaned = Self.cleanLikedArtists(savedArtists ?? Self.defaultLikedArtists)
+        likedArtists = cleaned
+        // 洗出差异就写回：旧版本存过 `周杰伦电台`、`孙-` 这类脏名，
+        // 不写回的话每次启动都会重新读出来一遍。
+        if cleaned != savedArtists {
+            UserDefaults.standard.set(cleaned, forKey: likedArtistsKey)
+        }
         seedDefaultsIfNeeded()
+    }
+
+    /// 读盘统一清洗：拆合唱、去截断残渣、挡派生账号、去重。
+    /// 和 ArtistStore.all() 是同一套规则，两个「艺人列表」不会一边干净一边脏。
+    private static func cleanLikedArtists(_ raw: [String]) -> [String] {
+        var out: [String] = []
+        var seen = Set<String>()
+        for name in raw {
+            let clean = ArtistName.primary(name)
+            guard ArtistName.isPlausible(clean) else { continue }
+            guard ArtistResolver.cachedKnown(clean) != false else { continue }
+            let key = ArtistName.key(clean)
+            guard !key.isEmpty, seen.insert(key).inserted else { continue }
+            out.append(clean)
+        }
+        return out
     }
 
     /** 首次启动的喜欢艺人种子 */
@@ -100,12 +122,17 @@ final class Library: ObservableObject {
     // MARK: - 喜欢艺人
 
     func isLikedArtist(_ name: String) -> Bool {
-        likedArtists.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+        let key = ArtistName.key(ArtistName.primary(name))
+        guard !key.isEmpty else { return false }
+        return likedArtists.contains { ArtistName.key($0) == key }
     }
 
     func toggleLikedArtist(_ name: String) {
-        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let index = likedArtists.firstIndex(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
+        let clean = ArtistName.primary(name)
+        guard ArtistName.isPlausible(clean) else { return }
+        if let index = likedArtists.firstIndex(where: {
+            ArtistName.key($0) == ArtistName.key(clean)
+        }) {
             likedArtists.remove(at: index)
         } else {
             likedArtists.insert(clean, at: 0)
@@ -113,8 +140,20 @@ final class Library: ObservableObject {
         saveLikedArtists()
     }
 
+    /// 明确「喜欢」：添加面板里点一次就该是加上，不做 toggle。
+    /// 已经喜欢过的直接忽略，避免重复项。
+    func addLikedArtist(_ name: String) {
+        let clean = ArtistName.primary(name)
+        guard ArtistName.isPlausible(clean) else { return }
+        let key = ArtistName.key(clean)
+        guard !likedArtists.contains(where: { ArtistName.key($0) == key }) else { return }
+        likedArtists.insert(clean, at: 0)
+        saveLikedArtists()
+    }
+
     func removeLikedArtist(_ name: String) {
-        likedArtists.removeAll { $0.caseInsensitiveCompare(name) == .orderedSame }
+        let key = ArtistName.key(ArtistName.primary(name))
+        likedArtists.removeAll { ArtistName.key($0) == key }
         saveLikedArtists()
     }
 

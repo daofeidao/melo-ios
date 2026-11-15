@@ -421,3 +421,16 @@
 "Download failed." = "下载失败。";
 "Downloading %d%%" = "下载中 %d%%";
 "Invalid download link." = "下载地址无效。";
+
+/* 喜欢艺人：添加面板 */
+"Add Artist" = "添加艺人";
+"Artist name" = "艺人名字";
+"Suggestions" = "推荐";
+"Like" = "喜欢";
+"Liked" = "已喜欢";
+"Added %@" = "已添加 %@";
+"Tap ＋ to add an artist." = "点 ＋ 添加艺人。";
+"This doesn't look like an artist name. Try the name only, without 「radio」 or version notes." = "这不像一个艺人名。只填名字本身，别带「电台」「完整版」这类后缀。";
+"%@ is already in Liked Artists." = "%@ 已经在喜欢艺人里了。";
+"No such artist in the library: %@" = "艺人库里没有「%@」这位艺人。";
+"Can't add: this name isn't in the artist library." = "加不了：艺人库里没有这个名字。";

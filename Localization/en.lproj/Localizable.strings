@@ -420,3 +420,16 @@
 "Download failed." = "Download failed.";
 "Downloading %d%%" = "Downloading %d%%";
 "Invalid download link." = "Invalid download link.";
+
+/* Liked artists: add sheet */
+"Add Artist" = "Add Artist";
+"Artist name" = "Artist name";
+"Suggestions" = "Suggestions";
+"Like" = "Like";
+"Liked" = "Liked";
+"Added %@" = "Added %@";
+"Tap ＋ to add an artist." = "Tap ＋ to add an artist.";
+"This doesn't look like an artist name. Try the name only, without 「radio」 or version notes." = "This doesn't look like an artist name. Try the name only, without 「radio」 or version notes.";
+"%@ is already in Liked Artists." = "%@ is already in Liked Artists.";
+"No such artist in the library: %@" = "No such artist in the library: %@";
+"Can't add: this name isn't in the artist library." = "Can't add: this name isn't in the artist library.";
