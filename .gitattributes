@@ -1,0 +1,7 @@
+# 强制 shell / python 脚本按 LF 存盘：Mac 侧若有 CRLF 会报 $'\r': command not found
+*.sh   text eol=lf
+*.py   text eol=lf
+*.json text eol=lf
+*.yml  text eol=lf
+*.swift text eol=lf
+*.strings text eol=lf

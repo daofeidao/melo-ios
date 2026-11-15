@@ -21,3 +21,19 @@ python scripts/gen_strings.py
 构建见 `.github/workflows/build.yml`，产物为未签名 IPA（TrollStore 直装）。
 CI 会跑模拟器冒烟测试并出七张截图：中文首页、设置页、迷你播放器、播放页、
 英文+深色、资料库歌单、导入页。
+
+## 本地出包（2011 MacBook Pro + Xcode 14）
+
+CI 之外还有一条离线链路，用本机 Mac 的 Xcode 直接出 IPA，不依赖 Mac 访问 GitHub：
+
+```
+Windows: python scripts/mac_build.py          # 打包→上传→远程编译→拉回 IPA
+Mac    : ./build_ipa.sh                       # 也可在 Mac 上直接跑
+```
+
+一次性准备（Mac 上执行 `bash scripts/mac-bootstrap-ssh.sh`，再开「共享 → 远程登录」，
+UU 里给 22 端口做映射），把用户名/端口填进 `scripts/mac-build.json`
+（模板见 `scripts/mac-build.example.json`，该文件不进仓库）。
+
+注意：这台 2011 机器是 Sandy Bridge，**没有 AVX2，只能装 Xcode 14.x**；
+Xcode 15+ 的 Swift 前端会 SIGILL 崩溃，`build_ipa.sh` 会在编译前拦下并提示。

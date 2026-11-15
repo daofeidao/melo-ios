@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import posixpath
@@ -159,6 +160,24 @@ def read_version() -> str:
 
 
 # ---------------------------------------------------------------- 打包
+def _add_normalized(tar: tarfile.TarFile, src: Path, arcname: str) -> None:
+    """脚本类文件统一转成 LF 再进包。
+
+    Windows 上 core.autocrlf=true 时，检出可能是 CRLF；到了 Mac 上 bash 会
+    报 `$'\\r': command not found`。在打包这一层直接抹掉 CR，比让用户去
+    git config 靠谱。
+    """
+    if src.suffix in (".sh", ".py"):
+        data = src.read_bytes().replace(b"\r\n", b"\n")
+        info = tarfile.TarInfo(arcname)
+        info.size = len(data)
+        info.mtime = int(src.stat().st_mtime)
+        info.mode = 0o755
+        tar.addfile(info, io.BytesIO(data))
+        return
+    tar.add(src, arcname=arcname)
+
+
 def make_tarball(path: Path) -> int:
     count = 0
     with tarfile.open(path, "w:gz") as tar:
@@ -173,12 +192,12 @@ def make_tarball(path: Path) -> int:
                 parts = item.relative_to(REPO).parts
                 if any(p in (".git", "build", "build-dev", "build-sim", "dist", "__pycache__") for p in parts):
                     continue
-                tar.add(item, arcname=str(item.relative_to(REPO)))
+                _add_normalized(tar, item, str(item.relative_to(REPO)))
                 count += 1
         for rel in PACK_EXTRA_FILES:
             src = REPO / rel
             if src.exists():
-                tar.add(src, arcname=str(src.relative_to(REPO)))
+                _add_normalized(tar, src, str(src.relative_to(REPO)))
                 count += 1
     return count
 
