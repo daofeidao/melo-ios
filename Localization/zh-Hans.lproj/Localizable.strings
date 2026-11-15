@@ -434,3 +434,9 @@
 "%@ is already in Liked Artists." = "%@ 已经在喜欢艺人里了。";
 "No such artist in the library: %@" = "艺人库里没有「%@」这位艺人。";
 "Can't add: this name isn't in the artist library." = "加不了：艺人库里没有这个名字。";
+
+/* 添加艺人：网络校验失败时的兜底提示 */
+"Couldn't reach the artist library. Added %@ as typed; it will be verified when you are online." = "没连上艺人库，已按「%@」加入；联网后会再校验。";
+
+/* 排行榜：YouTube 榜单区标题 */
+"YouTube Charts" = "YouTube 榜单";

@@ -433,3 +433,9 @@
 "%@ is already in Liked Artists." = "%@ is already in Liked Artists.";
 "No such artist in the library: %@" = "No such artist in the library: %@";
 "Can't add: this name isn't in the artist library." = "Can't add: this name isn't in the artist library.";
+
+/* Add artist: fallback when the lookup request fails */
+"Couldn't reach the artist library. Added %@ as typed; it will be verified when you are online." = "Couldn't reach the artist library. Added %@ as typed; it will be verified when you are online.";
+
+/* Charts: YouTube section title */
+"YouTube Charts" = "YouTube Charts";

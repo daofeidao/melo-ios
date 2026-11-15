@@ -12,6 +12,12 @@ struct ChangelogEntry: Identifiable {
 enum Changelog {
     static var entries: [ChangelogEntry] {
         [
+            ChangelogEntry(version: "2.0.5", date: "2026-11-16", notes: [
+                "修 Mac 版「一按播放就闪退」：起播代码里还有一处没做平台判断的 AVAudioSession 调用（`setActive(true)`），Catalyst 上没有这个会话，走到那一行就是硬崩。会话配置、打断通知、路由变化这三处早就加了 `#if !targetEnvironment(macCatalyst)`，唯独起播这一处漏了。",
+                "修「艺人库里明明有，却加不进去」：手打名字过去只做**严格同名**比对，而库里常是带别名的官方名（输入「邓紫棋」，网易云登记的是「G.E.M.邓紫棋」），于是被判「库里没有」。现在分两档——先严格匹配，再接受「互相包含」且合规的结果，并且**存库里的官方名**，之后艺人页按官方名解析不会失效。",
+                "同一处还有个更隐蔽的问题：网络超时也被当成「没有这个艺人」。现在区分「查到了但没有」和「请求失败」——网络不通时先按你输入的名字加进去，并提示联网后会再校验。",
+                "排行榜里的 YouTube 榜单抓失败时不再整块消失，会显示「YouTube 榜单 · 暂时不可用」和具体原因。国内网络没开代理时 youtubei 基本必挂，这很常见，不说明的话看着像功能没做。",
+            ]),
             ChangelogEntry(version: "2.0.4", date: "2026-11-16", notes: [
                 "修 Mac 版「检查更新」下错包：以前更新源只认 `.ipa` 附件，Mac 上点「下载」拿到的是 iOS 的 IPA，双击装不上。现在按平台挑——Mac Catalyst 取 `Melo-Mac-vX.zip`，iOS 取 `Melo-vX.Bn.ipa`；两者都缺就退回打开发布页，不再给错的文件。",
                 "下载后的文件名用链接里的真实名字（`Melo-Mac-v2.0.4.zip` / `Melo-v2.0.4.Bn.ipa`），分享面板里一眼能看出下到的是哪个包，不会再出现「Melo-update.ipa」这种看不出平台的临时名。",

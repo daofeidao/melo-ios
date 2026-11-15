@@ -125,15 +125,22 @@ struct AddLikedArtistSheet: View {
         }
         busy = true
         Task {
-            let found = await ArtistResolver.resolve(clean) != nil
+            let result = await ArtistInfo.lookup(clean)
             await MainActor.run {
                 busy = false
-                if found {
-                    library.addLikedArtist(clean)
-                    addedName = clean
+                switch result {
+                case .found(_, let canonical, _):
+                    // 加的是网易云的官方名：用户打「邓紫棋」，库里是「G.E.M.邓紫棋」，
+                    // 就存官方名，之后艺人页按官方名精确解析才不会失效
+                    library.addLikedArtist(canonical)
+                    addedName = canonical
                     query = ""
-                } else {
+                case .notFound:
                     errorText = String(format: L("No such artist in the library: %@"), clean)
+                case .unavailable:
+                    // 网络问题不能判「没有这个艺人」——先按用户输入加进去
+                    library.addLikedArtist(clean)
+                    errorText = String(format: L("Couldn't reach the artist library. Added %@ as typed; it will be verified when you are online."), clean)
                 }
             }
         }

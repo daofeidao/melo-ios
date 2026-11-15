@@ -719,7 +719,11 @@ final class PlayerEngine: ObservableObject {
         loadArtworkIfNeeded()
 
         if autoPlay {
+            // Catalyst 上没有 AVAudioSession 这回事（音频路由交给系统），
+            // 这里以前漏了平台判断：Mac 版一点播放就走到这一行，直接崩。
+            #if !targetEnvironment(macCatalyst)
             try? AVAudioSession.sharedInstance().setActive(true)
+            #endif
             player.play()
         }
         updateNowPlaying()

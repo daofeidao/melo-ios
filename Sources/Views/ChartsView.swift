@@ -24,6 +24,24 @@ struct ChartsView: View {
                         CarouselSection(title: shelf.title, items: shelf.items)
                     }
 
+                    // YouTube 榜单抓失败时以前是整块消失，看着像「这个功能没做」。
+                    // 现在留一行说明：国内网络没代理时 youtubei 基本必挂，这很常见。
+                    if ytShelves.isEmpty, let reason = failures["youtube"] {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 8) {
+                                SectionHeader(title: L("YouTube Charts"))
+                                Text(L("Temporarily unavailable"))
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.red)
+                            }
+                            Text(reason)
+                                .font(.system(size: 12))
+                                .foregroundColor(Theme.secondaryLabel)
+                                .lineLimit(2)
+                        }
+                        .padding(.horizontal, 16)
+                    }
+
                     ForEach(platforms) { platform in
                         if let items = external[platform.rawValue], !items.isEmpty {
                             platformSection(platform: platform, items: items)

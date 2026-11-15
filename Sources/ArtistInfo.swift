@@ -54,6 +54,67 @@ enum ArtistInfo {
         return nil
     }
 
+    /// 手动添加艺人时用的宽松解析。
+    ///
+    /// 为什么要分两档：白名单校验（`neteaseMatch`）必须严格，否则派生号会混进艺人区；
+    /// 但用户手打名字时，库里常是**带别名的官方名**——比如输入「邓紫棋」，
+    /// 网易云登记的是「G.E.M.邓紫棋」。严格比对会判「库里没有这位艺人」，
+    /// 用户看到的却是「明明就有」，这就是之前那个 bug。
+    ///
+    /// 所以这里的策略是：
+    ///   1. 先严格比一遍（同名优先）；
+    ///   2. 再接受「互相包含」且自身合规的结果，并返回**官方名** ——
+    ///      加进去的是官方名，之后艺人页按官方名精确解析，不会失效；
+    ///   3. 网络失败单独返回 `unavailable`，不能当成「没有这个艺人」。
+    enum Lookup {
+        case found(id: Int, name: String, avatar: String?)
+        case notFound
+        case unavailable
+    }
+
+    static func lookup(_ name: String) async -> Lookup {
+        let query = ArtistName.key(ArtistName.primary(name))
+        guard !query.isEmpty else { return .notFound }
+        guard let encoded = ArtistName.primary(name)
+                .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let searchURL = URL(string: "https://music.163.com/api/search/get?s=\(encoded)&type=100&limit=20") else {
+            return .notFound
+        }
+        // 请求本身失败（超时 / 断网 / 被限流）和「查到了但没有这个人」必须分开，
+        // 否则用户在家网差一点就会被判「艺人库里没有」
+        guard let searchData = await get(searchURL) else { return .unavailable }
+        guard let searchRoot = (try? JSONSerialization.jsonObject(with: searchData)) as? [String: Any] else {
+            return .unavailable
+        }
+        guard let rawArtists = JS.array(JS.dict(searchRoot["result"])?["artists"]) else {
+            return .notFound
+        }
+
+        var loose: (id: Int, name: String, avatar: String?)?
+        for raw in rawArtists {
+            guard let node = JS.dict(raw),
+                  let id = JS.int(node["id"]), id > 0,
+                  let rawName = JS.string(node["name"]) else { continue }
+            let clean = ArtistName.sanitize(rawName)
+            guard !clean.isEmpty, ArtistName.isPlausible(clean) else { continue }
+            let avatar = (JS.string(node["picUrl"]) ?? JS.string(node["img1v1Url"]))
+                .flatMap { $0.hasPrefix("http") ? $0 : nil }
+            let key = ArtistName.key(clean)
+            if key == query {
+                return .found(id: id, name: clean, avatar: avatar)
+            }
+            // 官方名带别名（`G.E.M.邓紫棋` vs `邓紫棋`）时留一个候选，
+            // 严格匹配全部走完还空着才用它
+            if loose == nil, key.contains(query) || query.contains(key) {
+                loose = (id, clean, avatar)
+            }
+        }
+        if let candidate = loose {
+            return .found(id: candidate.id, name: candidate.name, avatar: candidate.avatar)
+        }
+        return .notFound
+    }
+
     /// 只要 id（艺人准入校验用）
     static func neteaseArtistID(name: String) async -> Int? {
         await neteaseMatch(name)?.id
