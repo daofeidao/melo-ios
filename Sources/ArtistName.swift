@@ -135,7 +135,9 @@ enum ArtistName {
             text = text.replacingOccurrences(of: "  ", with: " ")
         }
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // 残留的双转义（`\\u0026` 还原一层后仍是 `\u0026`）直接判死，别让它上屏
+        // 解完还剩反斜杠的，都是「两层转义」留下的渣（`孙楠\\u0026那英` → `孙楠\&那英`），
+        // 直接抹掉，别让用户在宫格里看到 `孙楠\`
+        text = text.replacingOccurrences(of: "\\", with: "")
         if text.contains("\\u") { return "" }
         let quotes = CharacterSet(charactersIn: "\"'“”‘’《》")
         return text.trimmingCharacters(in: quotes)

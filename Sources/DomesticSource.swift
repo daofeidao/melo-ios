@@ -531,7 +531,7 @@ enum DomesticSource {
                 .replacingOccurrences(of: "MUSIC_", with: "")
             guard !rid.isEmpty else { return nil }
 
-            let artist = ArtistName.sanitize(JS.string(item["ARTIST"]))
+            let artist = ArtistName.sanitize(JS.string(item["ARTIST"]) ?? "")
             let album = decodeEntities(JS.string(item["ALBUM"]))
 
             return Track(
