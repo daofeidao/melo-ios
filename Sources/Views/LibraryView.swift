@@ -152,19 +152,6 @@ struct SettingsView: View {
             }
 
             Section {
-                NavigationLink(destination: AccountsView()) {
-                    HStack {
-                        Text(L("Account"))
-                        Spacer()
-                        Text(AccountsStore.shared.activeAccount?.nickname ?? L("Not signed in"))
-                            .foregroundColor(Theme.secondaryLabel)
-                    }
-                }
-            } header: {
-                Text(L("Account"))
-            }
-
-            Section {
                 Toggle(L("Strict matching"), isOn: $strictMatch)
             } header: {
                 Text(L("Fallback Matching"))

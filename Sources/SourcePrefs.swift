@@ -10,10 +10,24 @@ final class SourcePrefs: ObservableObject {
 
     static let shared = SourcePrefs()
 
+    /// 这个源需不需要（以及值不值得）登录。
+    ///
+    /// 以前只有一个 `needsLogin` 布尔：网易云和 QQ 显示「登录」，酷我酷狗什么都不显示。
+    /// 但酷我匿名只有 320k、酷狗拿不到部分 VIP 曲目，登录是**可选增强**；
+    /// 歌曲宝根本不是登录而是人机验证。分成四档，界面才能给出正确的措辞。
+    enum LoginLevel: Equatable {
+        case none        // 不需要
+        case required    // 不登录基本只有 128k / 拿不到会员曲目
+        case optional    // 登录能解无损或 VIP 曲目，不登录也能用
+        case verify      // 不是登录，是过 Cloudflare 人机验证
+    }
+
     struct SourceInfo: Identifiable {
         let id: String
         let name: String
-        let needsLogin: Bool
+        let login: LoginLevel
+
+        var needsLogin: Bool { login == .required || login == .optional }
     }
 
     struct CustomSource: Codable, Identifiable {
@@ -24,15 +38,17 @@ final class SourcePrefs: ObservableObject {
 
     /// 内置源，顺序即兜底优先级
     let builtIn: [SourceInfo] = [
-        SourceInfo(id: "kugou", name: "酷狗音乐", needsLogin: false),
-        SourceInfo(id: "kuwo", name: "酷我音乐", needsLogin: false),
+        // 酷我：匿名就能拿 320k，登录后才有无损 → 可选
+        SourceInfo(id: "kugou", name: "酷狗音乐", login: .optional),
+        SourceInfo(id: "kuwo", name: "酷我音乐", login: .optional),
         // 排在酷我之后：它其实也是拿酷我的资源，但能补上 320 / flac 两档
-        SourceInfo(id: "flachi", name: "Hi·FLAC 无损", needsLogin: false),
-        SourceInfo(id: "netease", name: "网易云音乐", needsLogin: true),
-        SourceInfo(id: "qq", name: "QQ 音乐", needsLogin: true),
-        SourceInfo(id: "youtube", name: "YouTube Music", needsLogin: false),
+        SourceInfo(id: "flachi", name: "Hi·FLAC 无损", login: .none),
+        // 网易云 / QQ：不登录基本只有 128k，且网易云匿名会撞 -462 限流 → 需要
+        SourceInfo(id: "netease", name: "网易云音乐", login: .required),
+        SourceInfo(id: "qq", name: "QQ 音乐", login: .required),
+        SourceInfo(id: "youtube", name: "YouTube Music", login: .none),
         // 最后兜底：走歌曲宝的网页取流，回到酷我 CDN 的 128k。不开也能正常用，只是少救几首
-        SourceInfo(id: "gequbao", name: "歌曲宝（128k 兜底）", needsLogin: false)
+        SourceInfo(id: "gequbao", name: "歌曲宝（128k 兜底）", login: .verify)
     ]
 
     @Published private(set) var enabled: [String: Bool] = [:]

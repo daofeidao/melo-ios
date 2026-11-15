@@ -1,29 +1,28 @@
 import SwiftUI
 
-/// 数据来源：内置音源开关、需要登录的源的凭据录入、自定义解析源。
-/// 从「设置 → 关于 → 数据来源」进入。
+/// 数据来源：内置音源开关、各源登录 / 验证入口、自定义解析源。
+/// 从「设置 → 数据来源」进入。
+///
+/// 这里是**唯一的**凭据入口：网易云、QQ 音乐、酷我、酷狗的登录，以及歌曲宝的
+/// 人机验证，全部在这一页完成。设置里不再单独有一个「账号」页——
+/// 之前那个页面写的是同一份 Cookie，两处入口只会让人误以为存在两种账号。
 struct DataSourceSettingsView: View {
     @ObservedObject private var prefs = SourcePrefs.shared
 
     /// iOS 15 同一视图只允许挂一个 .sheet，所以用枚举区分
     private enum ActiveSheet: Identifiable {
         case webLogin(SourcePrefs.SourceInfo)
-        case login(SourcePrefs.SourceInfo)
         case newCustom
 
         var id: String {
             switch self {
             case .webLogin(let info): return "web-\(info.id)"
-            case .login(let info): return "login-\(info.id)"
             case .newCustom: return "new-custom"
             }
         }
     }
 
     @State private var activeSheet: ActiveSheet?
-    /// 点「登录」先问用哪种方式，选中后才决定弹哪个 sheet
-    @State private var loginChooser: SourcePrefs.SourceInfo?
-    @State private var loginText = ""
     @State private var customName = ""
     @State private var customTemplate = ""
 
@@ -40,9 +39,14 @@ struct DataSourceSettingsView: View {
                                 .foregroundColor(Theme.secondaryLabel)
                         }
                         Spacer(minLength: 8)
-                        if info.needsLogin {
-                            Button(prefs.cookie(info.id) == nil ? L("Sign In") : L("Replace")) {
-                                loginChooser = info
+                        if info.login != .none {
+                            // 直接弹登录页。
+                            // 以前是「点登录 → confirmationDialog 选方式 → sheet」，
+                            // iOS 15 上前一个弹窗还没收起就 present 第二个会被静默丢弃，
+                            // 表现就是「点了登录没反应、网页调不起来」。
+                            // 现在一步到位，「粘贴 Cookie」收进登录页里当备用入口。
+                            Button(actionText(info)) {
+                                activeSheet = .webLogin(info)
                             }
                             .font(.system(size: 14))
                             .buttonStyle(PlainButtonStyle())
@@ -57,7 +61,7 @@ struct DataSourceSettingsView: View {
             } header: {
                 Text(L("Built-in Sources"))
             } footer: {
-                Text(L("Turned-off sources are skipped in search and fallback. Tap Sign In to open the platform's own login page inside the app; the Cookie is captured automatically. Sign in with a membership account to unlock 320 kbps and lossless."))
+                Text(L("Sign in inside the app: the platform's own login page opens in a browser view and the resulting Cookie is captured automatically. Melo never sees your password. A membership account unlocks 320 kbps and lossless."))
             }
 
             Section {
@@ -95,67 +99,14 @@ struct DataSourceSettingsView: View {
         .listStyle(InsetGroupedListStyle())
         .navigationTitle(L("Data Sources"))
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog(
-            L("Sign In"),
-            isPresented: Binding(
-                get: { loginChooser != nil },
-                set: { if !$0 { loginChooser = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button(L("Sign in with the web page")) {
-                if let info = loginChooser { activeSheet = .webLogin(info) }
-                loginChooser = nil
-            }
-            Button(L("Paste Cookie")) {
-                if let info = loginChooser {
-                    loginText = prefs.cookie(info.id) ?? ""
-                    activeSheet = .login(info)
-                }
-                loginChooser = nil
-            }
-            Button(L("Cancel"), role: .cancel) { loginChooser = nil }
-        }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .webLogin(let info):
                 WebLoginView(platform: info)
-            case .login(let info):
-                loginSheet(info)
             case .newCustom:
                 customSheet()
             }
         }
-    }
-
-    private func loginSheet(_ info: SourcePrefs.SourceInfo) -> some View {
-        NavigationView {
-            Form {
-                Section {
-                    // iOS 15 没有 TextField(axis:)，多行输入用 TextEditor
-                    TextEditor(text: $loginText)
-                        .frame(minHeight: 90)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                } footer: {
-                    Text(L("Use the web page sign-in unless you already have a Cookie header at hand. The app never sees your password - only the resulting Cookie is stored, on this device."))
-                }
-            }
-            .navigationTitle(L("Sign In"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L("Cancel")) { activeSheet = nil }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L("Save")) {
-                        prefs.setCookie(info.id, loginText)
-                        activeSheet = nil
-                    }
-                }
-            }
-        }
-        .navigationViewStyle(StackNavigationViewStyle())
     }
 
     private func customSheet() -> some View {
@@ -187,13 +138,31 @@ struct DataSourceSettingsView: View {
         .navigationViewStyle(StackNavigationViewStyle())
     }
 
+    /// 右侧按钮文案
+    private func actionText(_ info: SourcePrefs.SourceInfo) -> String {
+        let signed = prefs.cookie(info.id) != nil
+        if info.login == .verify {
+            return signed ? L("Verified") : L("Verify")
+        }
+        if signed { return L("Signed In") }
+        return info.login == .required ? L("Sign In") : L("Sign In (Optional)")
+    }
+
+    /// 左侧状态副标题：把「登不登录，差别在哪」写清楚，不用用户猜
     private func statusText(_ info: SourcePrefs.SourceInfo) -> String {
         if !prefs.isEnabled(info.id) { return L("Disabled") }
-        // 这一项是自己后端代取的聚合源，把域名写出来，用户才知道它是什么
+        // 这一项是自建聚合源，把域名写出来，用户才知道它是什么
         if info.id == "flachi" { return "flac.music.hi.cn · " + L("No sign-in needed") }
-        if info.needsLogin {
-            return prefs.cookie(info.id) == nil ? L("Not signed in") : L("Signed in")
+        let signed = prefs.cookie(info.id) != nil
+        switch info.login {
+        case .none:
+            return L("No sign-in needed")
+        case .required:
+            return signed ? L("Signed in · lossless available") : L("Not signed in · 128 kbps only")
+        case .optional:
+            return signed ? L("Signed in · lossless available") : L("Not signed in · 320 kbps available")
+        case .verify:
+            return signed ? L("Verified · direct link available") : L("Not verified · may be blocked")
         }
-        return L("No sign-in needed")
     }
 }

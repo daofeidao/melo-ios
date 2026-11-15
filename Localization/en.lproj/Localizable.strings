@@ -394,3 +394,17 @@
 "Up to date" = "Up to date";
 "You are on the latest version." = "You are on the latest version.";
 "Account cookies are stored only in this device's app sandbox and are never uploaded. Others can log in with their own account and you can switch back anytime." = "Account cookies are stored only in this device's app sandbox and are never uploaded. Others can log in with their own account and you can switch back anytime.";
+
+/* Data source sign-in entries */
+"Sign In (Optional)" = "Sign In (Optional)";
+"Signed In" = "Signed In";
+"Verify" = "Verify";
+"Verified" = "Verified";
+"Signed in · lossless available" = "Signed in · lossless available";
+"Not signed in · 128 kbps only" = "Not signed in · 128 kbps only";
+"Not signed in · 320 kbps available" = "Not signed in · 320 kbps available";
+"Verified · direct link available" = "Verified · direct link available";
+"Not verified · may be blocked" = "Not verified · may be blocked";
+"Use the web page" = "Use the web page";
+"Sign in inside the app: the platform's own login page opens in a browser view and the resulting Cookie is captured automatically. Melo never sees your password. A membership account unlocks 320 kbps and lossless." = "Sign in inside the app: the platform's own login page opens in a browser view and the resulting Cookie is captured automatically. Melo never sees your password. A membership account unlocks 320 kbps and lossless.";
+"Paste a Cookie header from the platform's website if the in-app sign-in does not work. The app never sees your password - only the resulting Cookie is stored, on this device." = "Paste a Cookie header from the platform's website if the in-app sign-in does not work. The app never sees your password - only the resulting Cookie is stored, on this device.";

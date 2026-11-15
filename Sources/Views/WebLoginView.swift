@@ -10,61 +10,36 @@ import WebKit
 struct WebLoginView: View {
     let platform: SourcePrefs.SourceInfo
 
+    private enum Mode { case web, paste }
+
     @ObservedObject private var prefs = SourcePrefs.shared
     @Environment(\.dismiss) private var dismiss
 
+    /// 默认走网页登录；「粘贴 Cookie」是备用入口。
+    /// 以前这两种方式是「弹菜单二选一」，iOS 15 上在菜单收起时再 present sheet
+    /// 会被丢掉 —— 现在合并进同一个页面，用顶部按钮切换，不会再出现点了没反应。
+    @State private var mode: Mode = .web
     @State private var saved = false
     @State private var pageLoading = true
+    @State private var pasted = ""
 
     var body: some View {
         NavigationView {
-            ZStack(alignment: .top) {
-                LoginWebView(
-                    urlString: prefs.loginURL(platform.id),
-                    domain: prefs.cookieDomain(platform.id),
-                    hint: prefs.cookieHint(platform.id),
-                    onCookieFound: { header in
-                        prefs.setCookie(platform.id, header)
-                        // 歌曲宝是「人机验证」不是「登录」：验证通过（拿到 cf_clearance）
-                        // 就清掉待验证状态，播放页的提示按钮自动消失。
-                        if platform.id == "gequbao" { Gequbao.onVerified() }
-                        saved = true
-                    },
-                    onLoaded: { pageLoading = false }
-                )
-
-                if pageLoading {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle())
-                        .padding(.top, 6)
-                }
-
-                if saved {
-                    VStack(spacing: 6) {
-                        Text(L("Sign-in saved"))
-                            .font(.system(size: 17, weight: .semibold))
-                        Text(L("Requests will carry it automatically from now on."))
-                            .font(.system(size: 13))
-                            .foregroundColor(Theme.secondaryLabel)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Theme.groupedBackground.opacity(0.94))
-                }
+            Group {
+                if mode == .web { webContent } else { pasteContent }
             }
-            .navigationTitle("\(L("Sign In")) · \(platform.name)")
+            .navigationTitle("\(platform.login == .verify ? L("Verify") : L("Sign In")) · \(platform.name)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L("Cancel")) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(L("Done")) {
-                        // 手动兜底：有的平台登录后 Cookie 延迟写入，自动检测可能错过
-                        LoginWebView.collectCookie(domainSuffix: prefs.cookieDomain(platform.id)) { header in
-                            if !header.isEmpty { prefs.setCookie(platform.id, header) }
+                    HStack(spacing: 14) {
+                        Button(mode == .web ? L("Paste Cookie") : L("Use the web page")) {
+                            mode = (mode == .web) ? .paste : .web
                         }
-                        if platform.id == "gequbao" { Gequbao.onVerified() }
-                        dismiss()
+                        Button(L("Done")) { finish() }
                     }
                 }
             }
@@ -74,6 +49,73 @@ struct WebLoginView: View {
             guard value else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { dismiss() }
         }
+    }
+
+    private var webContent: some View {
+        ZStack(alignment: .top) {
+            LoginWebView(
+                urlString: prefs.loginURL(platform.id),
+                domain: prefs.cookieDomain(platform.id),
+                hint: prefs.cookieHint(platform.id),
+                onCookieFound: { header in
+                    prefs.setCookie(platform.id, header)
+                    // 歌曲宝是「人机验证」不是「登录」：验证通过（拿到 cf_clearance）
+                    // 就清掉待验证状态，播放页的提示按钮自动消失。
+                    if platform.id == "gequbao" { Gequbao.onVerified() }
+                    saved = true
+                },
+                onLoaded: { pageLoading = false }
+            )
+
+            if pageLoading {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle())
+                    .padding(.top, 6)
+            }
+
+            if saved {
+                VStack(spacing: 6) {
+                    Text(L("Sign-in saved"))
+                        .font(.system(size: 17, weight: .semibold))
+                    Text(L("Requests will carry it automatically from now on."))
+                        .font(.system(size: 13))
+                        .foregroundColor(Theme.secondaryLabel)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Theme.groupedBackground.opacity(0.94))
+            }
+        }
+    }
+
+    private var pasteContent: some View {
+        Form {
+            Section {
+                // iOS 15 没有 TextField(axis:)，多行输入用 TextEditor
+                TextEditor(text: $pasted)
+                    .frame(minHeight: 120)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                    .font(.system(size: 13, design: .monospaced))
+            } footer: {
+                Text(L("Paste a Cookie header from the platform's website if the in-app sign-in does not work. The app never sees your password - only the resulting Cookie is stored, on this device."))
+            }
+        }
+    }
+
+    private func finish() {
+        if mode == .paste {
+            let text = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty { prefs.setCookie(platform.id, text) }
+            if platform.id == "gequbao" { Gequbao.onVerified() }
+            dismiss()
+            return
+        }
+        // 手动兜底：有的平台登录后 Cookie 延迟写入，自动检测可能错过
+        LoginWebView.collectCookie(domainSuffix: prefs.cookieDomain(platform.id)) { header in
+            if !header.isEmpty { prefs.setCookie(platform.id, header) }
+        }
+        if platform.id == "gequbao" { Gequbao.onVerified() }
+        dismiss()
     }
 }
 

@@ -395,3 +395,17 @@
 "Up to date" = "已是最新版本";
 "You are on the latest version." = "当前已是最新版本。";
 "Account cookies are stored only in this device's app sandbox and are never uploaded. Others can log in with their own account and you can switch back anytime." = "账号 Cookie 只存在本机 App 沙盒里，不上传任何服务器。别人用这台设备时登录他自己的账号即可，互不影响、随时切回。";
+
+/* 数据来源：登录 / 验证入口 */
+"Sign In (Optional)" = "登录（可选）";
+"Signed In" = "已登录";
+"Verify" = "去验证";
+"Verified" = "已验证";
+"Signed in · lossless available" = "已登录 · 可用无损";
+"Not signed in · 128 kbps only" = "未登录 · 仅 128k";
+"Not signed in · 320 kbps available" = "未登录 · 可用 320k";
+"Verified · direct link available" = "已验证 · 可取直链";
+"Not verified · may be blocked" = "未验证 · 可能被拦截";
+"Use the web page" = "用网页登录";
+"Sign in inside the app: the platform's own login page opens in a browser view and the resulting Cookie is captured automatically. Melo never sees your password. A membership account unlocks 320 kbps and lossless." = "在 App 内登录：打开平台自己的登录页，登录后自动取回 Cookie 并保存，Melo 看不到你的密码。用会员账号登录可解锁 320 kbps 与无损。";
+"Paste a Cookie header from the platform's website if the in-app sign-in does not work. The app never sees your password - only the resulting Cookie is stored, on this device." = "App 内登录打不开时，可从平台网页复制 Cookie 头粘贴到这里。Melo 看不到你的密码，只保存 Cookie，且仅存在本机。";

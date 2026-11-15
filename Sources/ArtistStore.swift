@@ -19,32 +19,53 @@ enum ArtistStore {
         UserDefaults.standard.stringArray(forKey: key) ?? []
     }
 
-    /// 最近保存的排前面，内置补齐，去重
+    /// 最近保存的排前面，内置补齐，去重。
+    ///
+    /// 顺手做存量清理：历史版本存过 `孙楠\u0026那英`、`单田芳评书&喜马拉雅`
+    /// 这类脏名（转义未还原、合唱拼成一串），它们在旧版已经被写进 UserDefaults，
+    /// 光靠入口过滤是清不掉的 —— 这里读一次就洗一遍，洗完写回，之后不会再复活。
     static func all() -> [String] {
-        var out: [String] = []
-        var seen = Set<String>()
-        for name in load() + builtIn {
-            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            // 历史版本存进去的乱名（翻唱者 / DJ 版 / 凑数内容）在这里一并清掉
-            guard isPlausibleArtist(trimmed) else { continue }
-            let lower = trimmed.lowercased()
-            if seen.insert(lower).inserted { out.append(trimmed) }
-            if out.count >= max { break }
+        let raw = load()
+
+        // 1) 先把存量洗干净（只洗 saved，builtIn 是代码里的常量，不用动）
+        var cleanedSaved: [String] = []
+        var seenSaved = Set<String>()
+        for name in raw {
+            let clean = ArtistName.primary(name)
+            guard ArtistName.isPlausible(clean) else { continue }
+            let id = ArtistName.key(clean)
+            guard !id.isEmpty, seenSaved.insert(id).inserted else { continue }
+            cleanedSaved.append(clean)
         }
-        return out
+        // 2) 洗出差异就写回，避免每次启动重复洗、也避免脏名一直留在列表里
+        if cleanedSaved != raw {
+            UserDefaults.standard.set(Array(cleanedSaved.prefix(max)), forKey: key)
+        }
+
+        // 3) 合并内置艺人一起展示
+        var out = cleanedSaved
+        var seen = seenSaved
+        for name in builtIn where out.count < max {
+            let id = ArtistName.key(name)
+            guard !id.isEmpty, seen.insert(id).inserted else { continue }
+            out.append(name)
+        }
+        return Array(out.prefix(max))
     }
 
     static func isSaved(_ name: String) -> Bool {
-        load().contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+        let target = ArtistName.key(ArtistName.primary(name))
+        guard !target.isEmpty else { return false }
+        return load().contains { ArtistName.key(ArtistName.primary($0)) == target }
     }
 
     static func remember(_ name: String) {
-        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard clean.count >= 2, clean != L("Unknown Artist") else { return }
-        // 乱名别写进宫格：翻唱者带出的整串、DJ 版、纯数字等
-        guard isPlausibleArtist(clean) else { return }
-        var list = load().filter { $0.caseInsensitiveCompare(clean) != .orderedSame }
+        let clean = ArtistName.primary(name)
+        guard ArtistName.isPlausible(clean) else { return }
+        guard clean.caseInsensitiveCompare(L("Unknown Artist")) != .orderedSame else { return }
+
+        let target = ArtistName.key(clean)
+        var list = load().filter { ArtistName.key(ArtistName.primary($0)) != target }
         list.insert(clean, at: 0)
         if list.count > max { list = Array(list.prefix(max)) }
         UserDefaults.standard.set(list, forKey: key)

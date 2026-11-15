@@ -171,11 +171,12 @@ struct SearchView: View {
         }
     }
 
+    /// 点歌曲行里的艺人名 → 进艺人页。
+    /// 走统一拆分：`孙楠\u0026那英` / `孙楠&那英` 都能取到「孙楠」，
+    /// 否则会把整串当成艺人名去查，查不到就落到别人的页面上。
     private func firstArtist(_ artist: String) -> String {
-        artist
-            .components(separatedBy: CharacterSet(charactersIn: ",，/、&·"))
-            .first?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? artist
+        let primary = ArtistName.primary(artist)
+        return primary.isEmpty ? artist : primary
     }
 
     private var playlistCollections: [MediaCollection] {

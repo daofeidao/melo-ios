@@ -92,7 +92,9 @@ enum DomesticSource {
                   let title = JS.string(item["SongName"]), !title.isEmpty
             else { return nil }
 
-            let artist = JS.string(item["SingerName"]) ?? ""
+            // 酷狗这条路径以前把 SingerName 裸着用：转义（\u0026）和 HTML 实体
+            // 都会原样上屏，是「孙楠\u0026那英」这类乱名的高发地。
+            let artist = ArtistName.sanitize(JS.string(item["SingerName"]) ?? "")
             let seconds = JS.int(item["Duration"]) ?? 0
             // 酷狗的 Image 是模板串（含 {size} 占位），AlbumImage 才是专辑图。
             // 以前直接拿 Image 当 URL，界面就一直是占位符。
@@ -156,10 +158,12 @@ enum DomesticSource {
                   let title = JS.string(song["name"]), !title.isEmpty
             else { return nil }
 
-            let artists = (JS.array(song["artists"]) ?? [])
-                .compactMap { JS.dict($0) }
-                .compactMap { JS.string($0["name"]) }
-                .joined(separator: ", ")
+            let artists = ArtistName.sanitize(
+                (JS.array(song["artists"]) ?? [])
+                    .compactMap { JS.dict($0) }
+                    .compactMap { JS.string($0["name"]) }
+                    .joined(separator: ", ")
+            )
 
             let albumNode = JS.dict(song["album"])
             let artwork = JS.string(albumNode?["picUrl"] ?? "")
@@ -527,7 +531,7 @@ enum DomesticSource {
                 .replacingOccurrences(of: "MUSIC_", with: "")
             guard !rid.isEmpty else { return nil }
 
-            let artist = decodeEntities(JS.string(item["ARTIST"]))
+            let artist = ArtistName.sanitize(JS.string(item["ARTIST"]))
             let album = decodeEntities(JS.string(item["ALBUM"]))
 
             return Track(
