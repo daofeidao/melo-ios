@@ -454,3 +454,8 @@
 "Off keeps the mini bar only, so you can pick a track without opening the full player." = "关掉后只出迷你播放条，点歌不会弹全屏播放页。";
 "If Melo quits right after a track starts, turn these off to narrow it down." = "如果一点播放就退出，把这两项关掉再试，能快速缩小范围。";
 "Last session ended unexpectedly (%@). Melo may have turned these off by itself." = "上次是异常退出（%@）。这两项可能已被自动关闭。";
+
+/* 播放手势 */
+"Playback" = "播放";
+"Volume buttons: double-press to skip" = "音量键双击切歌";
+"Double-press volume up for the next track, volume down for the previous one. Works while a track is playing; the volume itself is put back where it was." = "音量+ 双击下一首，音量- 双击上一首。正在播放时才生效，音量会被拨回原处。";

@@ -113,6 +113,7 @@ struct SettingsView: View {
     @AppStorage("melo.appearance") private var appearance: String = AppearanceMode.system.rawValue
     @AppStorage(AudioCache.enabledKey) private var cacheAudio = true
     @AppStorage(AudioCache.limitKey) private var cacheLimitMB = AudioCache.defaultLimitMB
+    @AppStorage(VolumeShortcut.enabledKey) private var volumeSkipEnabled = true
     @State private var cacheBytes: Int64 = 0
     @State private var showClearCacheConfirm = false
 
@@ -179,6 +180,19 @@ struct SettingsView: View {
             } header: {
                 Text(L("Storage"))
             }
+
+            #if !targetEnvironment(macCatalyst)
+            Section {
+                Toggle(L("Volume buttons: double-press to skip"), isOn: $volumeSkipEnabled)
+                    .onChange(of: volumeSkipEnabled) { value in
+                        VolumeShortcut.isEnabled = value
+                    }
+            } header: {
+                Text(L("Playback"))
+            } footer: {
+                Text(L("Double-press volume up for the next track, volume down for the previous one. Works while a track is playing; the volume itself is put back where it was."))
+            }
+            #endif
 
             // 清空最近播放已挪到「现在就听 → 最近播放」标题右侧
 

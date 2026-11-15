@@ -453,3 +453,8 @@
 "Off keeps the mini bar only, so you can pick a track without opening the full player." = "Off keeps the mini bar only, so you can pick a track without opening the full player.";
 "If Melo quits right after a track starts, turn these off to narrow it down." = "If Melo quits right after a track starts, turn these off to narrow it down.";
 "Last session ended unexpectedly (%@). Melo may have turned these off by itself." = "Last session ended unexpectedly (%@). Melo may have turned these off by itself.";
+
+/* Playback gestures */
+"Playback" = "Playback";
+"Volume buttons: double-press to skip" = "Volume buttons: double-press to skip";
+"Double-press volume up for the next track, volume down for the previous one. Works while a track is playing; the volume itself is put back where it was." = "Double-press volume up for the next track, volume down for the previous one. Works while a track is playing; the volume itself is put back where it was.";

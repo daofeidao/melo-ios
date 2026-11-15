@@ -92,6 +92,12 @@ final class PlayerEngine: ObservableObject {
         observeNotifications()
         setupRemoteCommands()
         UIApplication.shared.beginReceivingRemoteControlEvents()
+        // 音量键双击：音量+ 下一曲 / 音量- 上一曲（Mac 上是空壳）
+        VolumeShortcut.shared.start(
+            onNext: { [weak self] in self?.next() },
+            onPrevious: { [weak self] in self?.previous() },
+            canTrigger: { [weak self] in self?.hasTrack ?? false }
+        )
     }
 
     // MARK: - Setup
