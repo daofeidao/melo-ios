@@ -6,6 +6,14 @@ import UIKit
 struct AdvancedDiagnosticsView: View {
     @ObservedObject private var model = DiagnosticsModel.shared
     @State private var trace: String = Diagnostics.tail(40)
+    @State private var nowPlayingOn: Bool = NowPlayingBridge.isEnabled
+    @State private var autoOpenPlayer: Bool = SafeMode.autoOpenPlayer
+
+    private static let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MM-dd HH:mm"
+        return f
+    }()
 
     var body: some View {
         List {
@@ -40,6 +48,44 @@ struct AdvancedDiagnosticsView: View {
             } footer: {
                 Text(L("The last few steps before a crash are recorded here. If the app quits unexpectedly, copy this and send it over."))
             }
+
+            #if targetEnvironment(macCatalyst)
+            // Mac 版「一按播放就退」的现场开关：不用再等一版新包，
+            // 在这里就能把媒体中心集成和自动弹播放页分别关掉试。
+            Section {
+                Toggle(isOn: $nowPlayingOn) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(L("Now Playing integration"))
+                        Text(L("Shows the track in the menu bar and responds to the media keys."))
+                            .font(.system(size: 11))
+                            .foregroundColor(Theme.secondaryLabel)
+                    }
+                }
+                .onChange(of: nowPlayingOn) { value in
+                    NowPlayingBridge.isEnabled = value
+                }
+
+                Toggle(isOn: $autoOpenPlayer) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(L("Open the player on play"))
+                        Text(L("Off keeps the mini bar only, so you can pick a track without opening the full player."))
+                            .font(.system(size: 11))
+                            .foregroundColor(Theme.secondaryLabel)
+                    }
+                }
+                .onChange(of: autoOpenPlayer) { value in
+                    SafeMode.autoOpenPlayer = value
+                }
+            } header: {
+                Text(L("Mac Compatibility"))
+            } footer: {
+                if let at = SafeMode.lastCrashAt {
+                    Text(String(format: L("Last session ended unexpectedly (%@). Melo may have turned these off by itself."), Self.formatter.string(from: at)))
+                } else {
+                    Text(L("If Melo quits right after a track starts, turn these off to narrow it down."))
+                }
+            }
+            #endif
 
             Section {
                 Button {

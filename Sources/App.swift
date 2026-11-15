@@ -10,8 +10,15 @@ struct MeloApp: App {
     /// 外观偏好：system / light / dark，持久化在 UserDefaults
     @AppStorage("melo.appearance") private var appearance = AppearanceMode.system.rawValue
 
+    @UIApplicationDelegateAdaptor(MeloAppDelegate.self) private var appDelegate
+
     init() {
         Diagnostics.install()
+        // 上次是闪退的话，这次启动就自动降级（关媒体中心集成、不自动弹播放页），
+        // 先让它能用，再靠运行日志定位。
+        if SafeMode.beginSession() {
+            SafeMode.degrade()
+        }
         MeloAppearance.apply()
     }
 
@@ -24,6 +31,14 @@ struct MeloApp: App {
                 .accentColor(Theme.accent)
                 .preferredColorScheme((AppearanceMode(rawValue: appearance) ?? .system).colorScheme)
         }
+    }
+}
+
+/// 只在进程正常结束时清掉「会话进行中」标记 —— 清不掉就说明这次是闪退。
+final class MeloAppDelegate: NSObject, UIApplicationDelegate {
+    func applicationWillTerminate(_ application: UIApplication) {
+        Diagnostics.mark("── 正常退出")
+        SafeMode.endSession()
     }
 }
 

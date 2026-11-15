@@ -279,14 +279,14 @@ final class PlayerEngine: ObservableObject {
         index = min(max(0, startIndex), tracks.count - 1)
         loadCurrent(autoPlay: true)
         // 用户点了歌就直接给播放页，不要让他再点一次迷你播放器
-        if !SmokeTest.suppressesAutoPlayer { opensFullPlayer = true }
+        if !SmokeTest.suppressesAutoPlayer, SafeMode.autoOpenPlayer { opensFullPlayer = true }
     }
 
     func playSingle(_ track: Track) {
         if let existing = queue.firstIndex(of: track) {
             index = existing
             loadCurrent(autoPlay: true)
-            if !SmokeTest.suppressesAutoPlayer { opensFullPlayer = true }
+            if !SmokeTest.suppressesAutoPlayer, SafeMode.autoOpenPlayer { opensFullPlayer = true }
         } else {
             play(tracks: [track], startAt: 0)
         }
@@ -779,7 +779,7 @@ final class PlayerEngine: ObservableObject {
 
     private func updateNowPlaying() {
         guard let track = currentTrack else {
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            NowPlayingBridge.clear()
             return
         }
 
@@ -797,11 +797,9 @@ final class PlayerEngine: ObservableObject {
         if let urlString = track.artwork, let image = artworkCache[urlString] {
             info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
         }
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-        // macOS 的「正在播放」还读播放状态（不只是 rate），不设的话菜单栏会显示成暂停
-        #if targetEnvironment(macCatalyst)
-        MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
-        #endif
+        // 所有 MediaPlayer 写操作都走桥：Catalyst 上 playbackState 这类 setter
+        // 可能不存在，直接调就是 unrecognized selector → 进程当场退出。
+        NowPlayingBridge.publish(info, playing: isPlaying)
         Diagnostics.mark("nowPlaying ← \(track.title)")
     }
 

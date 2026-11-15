@@ -12,6 +12,13 @@ struct ChangelogEntry: Identifiable {
 enum Changelog {
     static var entries: [ChangelogEntry] {
         [
+            ChangelogEntry(version: "2.0.7", date: "2026-11-16", notes: [
+                "Mac 起播闪退：找到了一个能直接杀进程的写法。2.0.6 给菜单栏补播放状态时用了 `MPNowPlayingInfoCenter.playbackState`，这个属性是 macOS 的，Catalyst 运行时不一定实现了它的 setter——直接调用就是「无法识别的消息」，Swift 的 `try?` 拦不住，进程当场退出，表现正是「歌一开始放就没了」。现在调用前先问运行时有没有这个方法，没有就跳过；播放进度仍由 `playbackRate` 提供，菜单栏照常显示。",
+                "所有 MediaPlayer 的写操作都收进了一个平台文件（Sources/Platform/Mac/NowPlayingBridge.swift），每次写都留痕迹：日志里能区分是「写元数据」崩、「写播放状态」崩，还是根本没走到。数值也做了有限性检查，NaN / 无穷大不会再被塞进系统媒体信息。",
+                "加了崩溃自愈：启动时记一个「会话进行中」标记，正常退出才清掉。下次启动如果标记还在，说明上次是闪退，App 会自动关掉「正在播放」集成和「起播后自动打开播放页」——先保证能用，再靠日志定位。不会悄悄改掉你的设置：高级诊断里能看到上次异常退出的时间，两个开关随时可以打回去。",
+                "高级诊断新增「Mac 兼容」分组：「菜单栏正在播放」和「起播后自动打开播放页」可以单独关。以后遇到类似问题不用等新版，你自己就能把它隔离开来。",
+                "工程上把 Mac 专用代码独立到 Sources/Platform/Mac/，iOS 与 Mac 仍是同一套源码、一次提交；出包分成 ios / mac 两个目录，不再混在一起。",
+            ]),
             ChangelogEntry(version: "2.0.6", date: "2026-11-16", notes: [
                 "Mac 起播闪退再查一层：本地缓存命中这条路径原来是「点一下 → 同步跑完整个起播」，中间会改 recent / isLoading 这些 @Published，等于在 SwiftUI 更新视图的过程中改状态，Catalyst 上会直接崩。网络路径因为多了一次 async 跳转恰好躲过去，所以只有「第二次播同一首」更容易触发。现在统一延后一拍再起播。",
                 "新增运行日志：每次播放记下「解析 → 建 item → play → 写 Now Playing」走到哪一步，崩溃（ObjC 异常或信号）会把异常名、原因、调用栈写进 Application Support/Melo/trace.log。设置 → 高级诊断 里能看到路径、最近几十行，并一键复制。如果还闪退，把这段发我就够定位了——不用你去翻系统 .ipa 报告。",

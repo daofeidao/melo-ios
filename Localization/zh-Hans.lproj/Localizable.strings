@@ -445,3 +445,12 @@
 "Copy" = "复制";
 "Run Log" = "运行日志";
 "The last few steps before a crash are recorded here. If the app quits unexpectedly, copy this and send it over." = "崩溃前最后几步会记在这里。App 意外退出后，把这段复制发过来就能定位。";
+
+/* Mac 兼容（高级诊断） */
+"Mac Compatibility" = "Mac 兼容";
+"Now Playing integration" = "菜单栏「正在播放」集成";
+"Shows the track in the menu bar and responds to the media keys." = "在菜单栏显示当前曲目，并响应键盘媒体键。";
+"Open the player on play" = "起播后自动打开播放页";
+"Off keeps the mini bar only, so you can pick a track without opening the full player." = "关掉后只出迷你播放条，点歌不会弹全屏播放页。";
+"If Melo quits right after a track starts, turn these off to narrow it down." = "如果一点播放就退出，把这两项关掉再试，能快速缩小范围。";
+"Last session ended unexpectedly (%@). Melo may have turned these off by itself." = "上次是异常退出（%@）。这两项可能已被自动关闭。";

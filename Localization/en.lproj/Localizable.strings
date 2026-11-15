@@ -444,3 +444,12 @@
 "Copy" = "Copy";
 "Run Log" = "Run Log";
 "The last few steps before a crash are recorded here. If the app quits unexpectedly, copy this and send it over." = "The last few steps before a crash are recorded here. If the app quits unexpectedly, copy this and send it over.";
+
+/* Mac compatibility (advanced diagnostics) */
+"Mac Compatibility" = "Mac Compatibility";
+"Now Playing integration" = "Now Playing integration";
+"Shows the track in the menu bar and responds to the media keys." = "Shows the track in the menu bar and responds to the media keys.";
+"Open the player on play" = "Open the player on play";
+"Off keeps the mini bar only, so you can pick a track without opening the full player." = "Off keeps the mini bar only, so you can pick a track without opening the full player.";
+"If Melo quits right after a track starts, turn these off to narrow it down." = "If Melo quits right after a track starts, turn these off to narrow it down.";
+"Last session ended unexpectedly (%@). Melo may have turned these off by itself." = "Last session ended unexpectedly (%@). Melo may have turned these off by itself.";
