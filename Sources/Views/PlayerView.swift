@@ -27,6 +27,26 @@ struct PlayerView: View {
     @State private var lyrics: [LyricLine] = []
     @State private var lyricsLoading = false
 
+    /// 键盘快捷键载体（Mac）：零尺寸、不可点，只负责注册 key command
+    private var keyboardShortcuts: some View {
+        ZStack {
+            Button("") { player.previous() }
+                .keyboardShortcut(.leftArrow, modifiers: [])
+            Button("") { player.next() }
+                .keyboardShortcut(.rightArrow, modifiers: [])
+            Button("") { player.toggle() }
+                .keyboardShortcut(.space, modifiers: [])
+            // 有些输入法/焦点状态下无修饰键会被吃掉，再给一套 ⌘←/⌘→ 兜底
+            Button("") { player.previous() }
+                .keyboardShortcut(.leftArrow, modifiers: [.command])
+            Button("") { player.next() }
+                .keyboardShortcut(.rightArrow, modifiers: [.command])
+        }
+        .frame(width: 0, height: 0)
+        .opacity(0)
+        .allowsHitTesting(false)
+    }
+
     var body: some View {
         ZStack {
             background
@@ -108,6 +128,10 @@ struct PlayerView: View {
         }
         .preferredColorScheme(.dark)
         .offset(y: offset)
+        // Mac 上要能用键盘控制：空格 播放/暂停、左右方向键 切歌。
+        // 用零尺寸不可见按钮承载 keyboardShortcut —— Catalyst 会把它转成
+        // 系统的 UIKeyCommand；只在播放页挂，不会抢搜索框里的空格。
+        .overlay(keyboardShortcuts, alignment: .topLeading)
         .gesture(
             DragGesture(minimumDistance: 12)
                 .onChanged { value in

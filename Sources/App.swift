@@ -11,6 +11,7 @@ struct MeloApp: App {
     @AppStorage("melo.appearance") private var appearance = AppearanceMode.system.rawValue
 
     init() {
+        Diagnostics.install()
         MeloAppearance.apply()
     }
 
@@ -29,7 +30,32 @@ struct MeloApp: App {
 enum MeloAppearance {
     static func apply() {
         let tabAppearance = UITabBarAppearance()
-        tabAppearance.configureWithDefaultBackground()
+        // Mac Catalyst 上只设 tintColor 不管用：标签文字会用系统默认色，
+        // 深色栏配浅色字、浅色栏配深色字，遇到「白底白字」就整排看不见了。
+        // 所以这里把三种布局的**正常态/选中态文字与图标颜色**都写死。
+        tabAppearance.configureWithOpaqueBackground()
+        tabAppearance.backgroundColor = UIColor.systemGroupedBackground
+
+        let normalTitle: [NSAttributedString.Key: Any] = [
+            .foregroundColor: UIColor.secondaryLabel,
+            .font: UIFont.systemFont(ofSize: 10, weight: .medium)
+        ]
+        let selectedTitle: [NSAttributedString.Key: Any] = [
+            .foregroundColor: Theme.accentUI,
+            .font: UIFont.systemFont(ofSize: 10, weight: .semibold)
+        ]
+        let layouts = [
+            tabAppearance.stackedLayoutAppearance,
+            tabAppearance.inlineLayoutAppearance,
+            tabAppearance.compactInlineLayoutAppearance
+        ]
+        for layout in layouts {
+            layout.normal.titleTextAttributes = normalTitle
+            layout.selected.titleTextAttributes = selectedTitle
+            layout.normal.iconColor = UIColor.secondaryLabel
+            layout.selected.iconColor = Theme.accentUI
+        }
+
         UITabBar.appearance().standardAppearance = tabAppearance
         if #available(iOS 15.0, *) {
             UITabBar.appearance().scrollEdgeAppearance = tabAppearance

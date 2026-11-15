@@ -1,12 +1,46 @@
 import SwiftUI
+import UIKit
 
 /// 高级诊断：连接测试 + 播放诊断 + YouTube 网页验证入口。
 /// 之前这些散落在「设置 → 网络」，按用户要求集中到「关于 → 高级诊断」。
 struct AdvancedDiagnosticsView: View {
     @ObservedObject private var model = DiagnosticsModel.shared
+    @State private var trace: String = Diagnostics.tail(40)
 
     var body: some View {
         List {
+            Section {
+                Text(Diagnostics.logPath)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(Theme.secondaryLabel)
+                    .textSelection(.enabled)
+
+                ScrollView {
+                    Text(trace.isEmpty ? "—" : trace)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(Theme.secondaryLabel)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(maxHeight: 180)
+
+                HStack {
+                    Button(L("Copy")) {
+                        UIPasteboard.general.string = Diagnostics.logPath + "\n\n" + Diagnostics.tail(200)
+                    }
+                    Spacer()
+                    Button(L("Clear")) {
+                        Diagnostics.clear()
+                        trace = Diagnostics.tail(40)
+                    }
+                    .foregroundColor(.red)
+                }
+            } header: {
+                Text(L("Run Log"))
+            } footer: {
+                Text(L("The last few steps before a crash are recorded here. If the app quits unexpectedly, copy this and send it over."))
+            }
+
             Section {
                 Button {
                     Task { await model.runConnectionTest() }

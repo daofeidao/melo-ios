@@ -439,3 +439,8 @@
 
 /* Charts: YouTube section title */
 "YouTube Charts" = "YouTube Charts";
+
+/* Advanced diagnostics: run log */
+"Copy" = "Copy";
+"Run Log" = "Run Log";
+"The last few steps before a crash are recorded here. If the app quits unexpectedly, copy this and send it over." = "The last few steps before a crash are recorded here. If the app quits unexpectedly, copy this and send it over.";

@@ -440,3 +440,8 @@
 
 /* 排行榜：YouTube 榜单区标题 */
 "YouTube Charts" = "YouTube 榜单";
+
+/* 高级诊断：运行日志 */
+"Copy" = "复制";
+"Run Log" = "运行日志";
+"The last few steps before a crash are recorded here. If the app quits unexpectedly, copy this and send it over." = "崩溃前最后几步会记在这里。App 意外退出后，把这段复制发过来就能定位。";

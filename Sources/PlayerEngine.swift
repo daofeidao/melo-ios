@@ -231,6 +231,15 @@ final class PlayerEngine: ObservableObject {
     private func setupRemoteCommands() {
         let center = MPRemoteCommandCenter.shared()
 
+        // Mac 的菜单栏 / 控制中心的「正在播放」要求命令显式可用，
+        // 否则那一排按钮是灰的（也就是用户说的「状态栏只能看不能点」）
+        center.playCommand.isEnabled = true
+        center.pauseCommand.isEnabled = true
+        center.togglePlayPauseCommand.isEnabled = true
+        center.nextTrackCommand.isEnabled = true
+        center.previousTrackCommand.isEnabled = true
+        center.changePlaybackPositionCommand.isEnabled = true
+
         center.playCommand.addTarget { [weak self] _ in
             DispatchQueue.main.async { self?.resume() }
             return .success
@@ -570,6 +579,7 @@ final class PlayerEngine: ObservableObject {
             cacheBusy = false
         }
 
+        Diagnostics.mark("load 《\(track.title)》 / \(track.artist) · src=\(track.source)")
         let token = UUID()
         loadToken = token
         isLoading = true
@@ -594,8 +604,15 @@ final class PlayerEngine: ObservableObject {
         // 它记的是"上次解析出来的那条直链"，照它播就等于把用户的选择吞掉
         // —— 以前切了源实际还在放老源，就是这个原因。
         if !bypassStreamCache, let cached = StreamCache.shared.stream(forKey: key) {
-            // 缓存直链对应的音频文件（如果有）早就在 AudioCache 里了，不要再存一次
-            start(stream: cached, autoPlay: autoPlay, token: token, cacheable: false, cacheSource: nil)
+            // 缓存直链对应的音频文件（如果有）早就在 AudioCache 里了，不要再存一次。
+            // 注意要延后一拍再起播：这条路径原来是在「点击手势的回调里」直接跑完
+            // start()，中间会改 @Published（recent / isLoading …），等于在 SwiftUI
+            // 正在更新视图时改状态，Catalyst 上会直接崩 —— 网络路径因为多了一次
+            // async 跳转恰好躲过去了，本地缓存命中时没有这一跳。
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self, self.loadToken == token else { return }
+                self.start(stream: cached, autoPlay: autoPlay, token: token, cacheable: false, cacheSource: nil)
+            }
             return
         }
 
@@ -611,6 +628,7 @@ final class PlayerEngine: ObservableObject {
                 DispatchQueue.main.async {
                     guard let self = self, self.loadToken == token else { return }
                     self.activeSource = resolvedFrom
+                    Diagnostics.mark("resolved by \(resolvedFrom) trusted=\(trusted)")
                     StreamCache.shared.store(stream, forKey: key)
                     self.start(stream: stream, autoPlay: autoPlay, token: token,
                                cacheable: trusted, cacheSource: resolvedFrom)
@@ -624,6 +642,7 @@ final class PlayerEngine: ObservableObject {
                     let near = AudioSource.takeAlternatives()
                     self.alternatives = near
                     let base = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    Diagnostics.mark("resolve failed: \(base)")
                     self.errorText = near.isEmpty ? base
                         : L("Strict matching found no track with the same duration. Pick another source below.")
                     self.updateNowPlaying()
@@ -708,6 +727,7 @@ final class PlayerEngine: ObservableObject {
         let item = AVPlayerItem(asset: asset)
         // 攒 15 秒才起播在弱网下就是"点了没反应"；4 秒足够扛住抖动，先出声再继续缓冲
         item.preferredForwardBufferDuration = 4
+        Diagnostics.mark("build item · \(stream.mime) · \(stream.url.host ?? "-")")
         observeItem(item)
         player.replaceCurrentItem(with: item)
         isLoading = false
@@ -724,9 +744,11 @@ final class PlayerEngine: ObservableObject {
             #if !targetEnvironment(macCatalyst)
             try? AVAudioSession.sharedInstance().setActive(true)
             #endif
+            Diagnostics.mark("player.play()")
             player.play()
         }
         updateNowPlaying()
+        Diagnostics.mark("start done")
         // 只缓存「能确定就是这首歌」的流（同源 id 直链 / 明确的 videoId）。
         // 按歌名在第三方站搜出来的版本一律不落盘：错配一次，那份文件就会
         // 永久顶着这首歌，之后切源、关音源都绕不过去。
@@ -776,6 +798,11 @@ final class PlayerEngine: ObservableObject {
             info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        // macOS 的「正在播放」还读播放状态（不只是 rate），不设的话菜单栏会显示成暂停
+        #if targetEnvironment(macCatalyst)
+        MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
+        #endif
+        Diagnostics.mark("nowPlaying ← \(track.title)")
     }
 
     private func loadArtworkIfNeeded() {
