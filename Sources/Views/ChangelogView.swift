@@ -12,6 +12,11 @@ struct ChangelogEntry: Identifiable {
 enum Changelog {
     static var entries: [ChangelogEntry] {
         [
+            ChangelogEntry(version: "2.0.11", date: "2026-11-16", notes: [
+                "Mac 触控板两指手势（快滑才触发，慢滚翻列表不受影响）：主界面左右滑切换栏目，播放页左右滑切歌；上下滑调节系统音量；播放页下滑关闭播放页。",
+                "Mac 键盘快捷键：空格播放/暂停，⌘←/⌘→ 上一曲/下一曲，⌘↑/⌘↓ 音量增减，Esc 关闭播放页。打字时自动让路。媒体键（F7/F8/F9）始终有效。",
+                "设置 → Mac 手势与快捷键：每项手势和快捷键都有独立开关，附带说明文字。",
+            ]),
             ChangelogEntry(version: "2.0.10", date: "2026-11-16", notes: [
                 "Mac 版「点播放条闪退」已在真机验证修复。根因经系统崩溃报告确认：PlayerView.body 里的 Swift 断言（SwiftUI 渲染层），2.0.9 去掉全屏模糊 + 改 overlay 后消失——在这台 2011 MacBook Pro（Intel HD 3000、无 Metal）上实测：真实封面、播放、控制按钮全部正常。",
                 "工程兼容 Xcode 14.3 / Swift 5.8：并发闭包不再捕获局部 var（先取快照）、guard let self 提前绑定。以后可以直接在这台 Mac 上出包，不再依赖云端。",
