@@ -3,7 +3,6 @@ import SwiftUI
 import UIKit
 
 #if targetEnvironment(macCatalyst)
-import AppKit
 import CoreAudio
 
 // MARK: - 系统音量
@@ -54,7 +53,6 @@ enum MacGestureSettings {
     static let verticalVolume    = "melo.mac.gesture.volume"
     static let swipeDismiss      = "melo.mac.gesture.dismiss"
     static let keyboardShortcuts = "melo.mac.keys.enabled"
-    /// 切栏目模式："two-bg"（两指避开横向滚动）/ "three"（三指）/ "off"
     static let tabSwipeMode      = "melo.mac.gesture.tabMode"
 
     static func on(_ key: String) -> Bool {
@@ -77,7 +75,8 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
     private let flickThreshold: CGFloat = 1000
     private let axisRatio: CGFloat = 1.5
     private var installed = false
-    private var keyMonitor: Any?
+    private var keyCaptureView: KeyCaptureUIView?
+    private var keyCommands: [UIKeyCommand] = []
 
     func install() {
         guard !installed else { return }
@@ -94,7 +93,7 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
     }
 
     private func attach(to window: UIWindow) {
-        // ── 两指触控板滑动（scroll 手势）──
+        // ── 两指触控板滑动 ──
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handleTwoFinger(_:)))
         pan.allowedScrollTypesMask = [.continuous, .discrete]
         pan.cancelsTouchesInView = false
@@ -102,7 +101,7 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
         pan.delegate = self
         window.addGestureRecognizer(pan)
 
-        // ── 三指滑动（touch 手势，需系统开启「三指拖移」）──
+        // ── 三指滑动（需系统开启「三指拖移」）──
         let three = UIPanGestureRecognizer(target: self, action: #selector(handleThreeFinger(_:)))
         three.minimumNumberOfTouches = 3
         three.maximumNumberOfTouches = 3
@@ -111,11 +110,41 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
         three.delegate = self
         window.addGestureRecognizer(three)
 
-        // ── 键盘快捷键（NSEvent 监听，支持自定义）──
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self = self else { return event }
-            return self.handleKeyDown(event) ? nil : event
+        // ── 快捷键：UIKeyCommand 挂在 window 上，走响应链，打字时自动让路 ──
+        installKeyCommands(on: window)
+
+        // ── 录制用的按键捕获视图 ──
+        let captureView = KeyCaptureUIView(frame: .zero)
+        captureView.isHidden = true
+        window.addSubview(captureView)
+        keyCaptureView = captureView
+
+        // 录制时把 firstResponder 交给捕获视图
+        NotificationCenter.default.addObserver(
+            forName: .meloFocusKeyCapture, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.keyCaptureView?.becomeFirstResponder()
         }
+
+        // 快捷键变更后刷新
+        NotificationCenter.default.addObserver(
+            forName: .meloRefreshKeyCommands, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            self.refreshKeyCommands(on: window)
+        }
+    }
+
+    private func installKeyCommands(on window: UIWindow) {
+        keyCommands = ShortcutStore.makeKeyCommands(target: self)
+        for cmd in keyCommands {
+            window.addKeyCommand(cmd)
+        }
+    }
+
+    private func refreshKeyCommands(on window: UIWindow) {
+        for cmd in keyCommands { window.removeKeyCommand(cmd) }
+        installKeyCommands(on: window)
     }
 
     private static func keyWindow() -> UIWindow? {
@@ -123,6 +152,15 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
             .compactMap { $0 as? UIWindowScene }
             .flatMap { $0.windows }
             .first { $0.isKeyWindow }
+    }
+
+    // MARK: UIKeyCommand action
+
+    @objc func handleShortcutAction(_ command: UIKeyCommand) {
+        guard MacGestureSettings.on(MacGestureSettings.keyboardShortcuts) else { return }
+        guard let raw = command.propertyList as? String,
+              let action = ShortcutStore.Action(rawValue: raw) else { return }
+        ShortcutStore.perform(action)
     }
 
     // MARK: 两指手势
@@ -149,7 +187,6 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
                 let mode = MacGestureSettings.str(MacGestureSettings.tabSwipeMode, "two-bg")
                 guard mode != "off", MacGestureSettings.on(MacGestureSettings.horizontalTabs) else { return }
                 if mode == "two-bg" {
-                    // 两指模式：避开横向滚动区域（排行榜轮播、喜欢艺人行等）
                     let point = recognizer.location(in: view)
                     if isOnHorizontalScrollView(at: point, in: view) { return }
                 }
@@ -164,7 +201,6 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
             }
             guard MacGestureSettings.on(MacGestureSettings.verticalVolume) else { return }
             let delta: Float = velocity.y < 0 ? 0.05 : -0.05
-            Diagnostics.mark("gesture 2f: vol \(delta > 0 ? "+" : "-")")
             MacVolume.adjust(by: delta)
         }
     }
@@ -186,7 +222,6 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
         switchTab(goForward ? 1 : -1)
     }
 
-    /// 检查某个点是否落在横向 ScrollView 上（排行榜轮播等）
     private func isOnHorizontalScrollView(at point: CGPoint, in view: UIView) -> Bool {
         guard let hit = view.hitTest(point, with: nil) else { return false }
         var current: UIView? = hit
@@ -207,13 +242,6 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
         Diagnostics.mark("gesture: tab → \(next)")
     }
 
-    // MARK: 键盘
-
-    private func handleKeyDown(_ event: NSEvent) -> Bool {
-        if ShortcutRecording.capture(event) { return true }
-        return ShortcutStore.handle(event)
-    }
-
     // MARK: UIGestureRecognizerDelegate
 
     func gestureRecognizer(_ g: UIGestureRecognizer,
@@ -224,6 +252,15 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
 
 extension Notification.Name {
     static let meloSwitchTab = Notification.Name("melo.switchTab")
+    static let meloRefreshKeyCommands = Notification.Name("melo.refreshKeyCommands")
+}
+
+/// UIKeyCommand 的 action 走响应链，最终由 window 接收。
+/// 这里给 UIWindow 打个补丁，转发给 MacGestures。
+extension UIWindow {
+    @objc func handleShortcutAction(_ command: UIKeyCommand) {
+        MacGestures.shared.handleShortcutAction(command)
+    }
 }
 
 #endif

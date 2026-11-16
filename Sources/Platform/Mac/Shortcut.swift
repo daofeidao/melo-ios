@@ -3,60 +3,70 @@ import SwiftUI
 import UIKit
 
 #if targetEnvironment(macCatalyst)
-import AppKit
 
 // MARK: - 快捷键模型
 
-/// 一个快捷键 = 修饰键 + 键码。
+/// 一个快捷键 = UIKeyCommand 的 keyEquivalent + modifierFlags。
+/// 用 UIKit 而不是 NSEvent（NSEvent 在 Catalyst 上不可用）。
 struct Shortcut: Codable, Equatable {
-    var keyCode: UInt16
-    var modifierRaw: UInt   // NSEvent.ModifierFlags rawValue
+    /// UIKeyCommand.input 系列常量或普通字符（小写），如 " "、"a"、UIKeyCommand.inputLeftArrow
+    var keyEquivalent: String
+    /// UIKeyModifierFlags.rawValue（command=1<<20, shift=1<<17, alternate=1<<19, control=1<<18）
+    var modifierRaw: UInt
 
-    static let defaultPlayPause  = Shortcut(keyCode: 49, modifierRaw: 0)
-    static let defaultNext       = Shortcut(keyCode: 124, modifierRaw: 1048576)
-    static let defaultPrevious   = Shortcut(keyCode: 123, modifierRaw: 1048576)
-    static let defaultVolumeUp   = Shortcut(keyCode: 126, modifierRaw: 1048576)
-    static let defaultVolumeDown = Shortcut(keyCode: 125, modifierRaw: 1048576)
-    static let defaultClose      = Shortcut(keyCode: 53, modifierRaw: 0)
+    static let defaultPlayPause  = Shortcut(keyEquivalent: " ", modifierRaw: 0)
+    static let defaultNext       = Shortcut(keyEquivalent: UIKeyCommand.inputRightArrow, modifierRaw: 1048576)
+    static let defaultPrevious   = Shortcut(keyEquivalent: UIKeyCommand.inputLeftArrow, modifierRaw: 1048576)
+    static let defaultVolumeUp   = Shortcut(keyEquivalent: UIKeyCommand.inputUpArrow, modifierRaw: 1048576)
+    static let defaultVolumeDown = Shortcut(keyEquivalent: UIKeyCommand.inputDownArrow, modifierRaw: 1048576)
+    static let defaultClose      = Shortcut(keyEquivalent: UIKeyCommand.inputEscape, modifierRaw: 0)
 
+    /// 显示文字
     var displayString: String {
         var s = ""
-        let flags = NSEvent.ModifierFlags(rawValue: modifierRaw)
-        if flags.contains(.control) { s += "⌃" }
-        if flags.contains(.option)  { s += "⌥" }
-        if flags.contains(.shift)   { s += "⇧" }
-        if flags.contains(.command) { s += "⌘" }
-        s += Self.keyName(keyCode)
+        let flags = UIKeyModifierFlags(rawValue: modifierRaw)
+        if flags.contains(.control)   { s += "⌃" }
+        if flags.contains(.alternate) { s += "⌥" }
+        if flags.contains(.shift)     { s += "⇧" }
+        if flags.contains(.command)   { s += "⌘" }
+        s += Self.keyName(keyEquivalent)
         return s
     }
 
-    func matches(_ event: NSEvent) -> Bool {
-        guard event.keyCode == keyCode else { return false }
-        let ef = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let mf = NSEvent.ModifierFlags(rawValue: modifierRaw).intersection(.deviceIndependentFlagsMask)
-        return ef == mf
+    private static func keyName(_ eq: String) -> String {
+        switch eq {
+        case " ": return "Space"
+        case "\r": return "↩"
+        case "\t": return "⇥"
+        case UIKeyCommand.inputEscape: return "Esc"
+        case UIKeyCommand.inputLeftArrow: return "←"
+        case UIKeyCommand.inputRightArrow: return "→"
+        case UIKeyCommand.inputUpArrow: return "↑"
+        case UIKeyCommand.inputDownArrow: return "↓"
+        default: return eq.uppercased()
+        }
     }
 
-    private static func keyName(_ code: UInt16) -> String {
-        switch code {
-        case 49: return "Space"
-        case 36: return "↩"; case 48: return "⇥"; case 51: return "⌫"; case 53: return "Esc"
-        case 123: return "←"; case 124: return "→"; case 125: return "↓"; case 126: return "↑"
-        case 96: return "F5"; case 97: return "F6"; case 98: return "F7"
-        case 100: return "F8"; case 101: return "F9"; case 109: return "F10"
-        case 103: return "F11"; case 111: return "F12"
-        case 0: return "A"; case 1: return "S"; case 2: return "D"; case 3: return "F"
-        case 5: return "G"; case 4: return "H"; case 38: return "J"; case 40: return "K"
-        case 37: return "L"; case 6: return "Z"; case 7: return "X"; case 8: return "C"
-        case 9: return "V"; case 11: return "B"; case 45: return "N"; case 46: return "M"
-        case 12: return "Q"; case 13: return "W"; case 14: return "E"; case 15: return "R"
-        case 17: return "T"; case 16: return "Y"; case 32: return "U"; case 34: return "I"
-        case 31: return "O"; case 35: return "P"
-        case 18: return "1"; case 19: return "2"; case 20: return "3"; case 21: return "4"
-        case 23: return "5"; case 22: return "6"; case 26: return "7"; case 28: return "8"
-        case 25: return "9"; case 29: return "0"
-        default: return "Key\(code)"
+    /// 从 UIKey 构建（录制时用）
+    static func from(key: UIKey) -> Shortcut? {
+        let eq: String
+        switch key.keyCode {
+        case .keyboardEscape: eq = UIKeyCommand.inputEscape
+        case .keyboardLeftArrow: eq = UIKeyCommand.inputLeftArrow
+        case .keyboardRightArrow: eq = UIKeyCommand.inputRightArrow
+        case .keyboardUpArrow: eq = UIKeyCommand.inputUpArrow
+        case .keyboardDownArrow: eq = UIKeyCommand.inputDownArrow
+        case .keyboardSpacebar: eq = " "
+        case .keyboardReturnOrEnter: eq = "\r"
+        default:
+            let chars = key.charactersIgnoringModifiers
+            guard !chars.isEmpty else { return nil }
+            eq = chars.lowercased()
         }
+        let raw: UInt = key.modifierFlags
+            .intersection([.command, .alternate, .control, .shift])
+            .rawValue
+        return Shortcut(keyEquivalent: eq, modifierRaw: raw)
     }
 }
 
@@ -88,6 +98,9 @@ enum ShortcutStore {
             case .closePlayer: return .defaultClose
             }
         }
+
+        /// 生成 UIKeyCommand 的 action selector 名
+        var selectorName: String { "handleShortcut_\(rawValue)" }
     }
 
     private static func key(_ a: Action) -> String { "melo.mac.shortcut.\(a.rawValue)" }
@@ -103,11 +116,14 @@ enum ShortcutStore {
         if let d = try? JSONEncoder().encode(s) {
             UserDefaults.standard.set(d, forKey: key(a))
         }
+        NotificationCenter.default.post(name: .meloRefreshKeyCommands, object: nil)
     }
 
     static func reset(_ a: Action) { UserDefaults.standard.removeObject(forKey: key(a)) }
-
-    static func resetAll() { for a in Action.allCases { reset(a) } }
+    static func resetAll() {
+        for a in Action.allCases { reset(a) }
+        NotificationCenter.default.post(name: .meloRefreshKeyCommands, object: nil)
+    }
 
     static func perform(_ a: Action) {
         switch a {
@@ -121,50 +137,63 @@ enum ShortcutStore {
         Diagnostics.mark("shortcut: \(a.label)")
     }
 
-    /// 尝试消费一个 keyDown 事件：匹配到就执行并返回 true
-    static func handle(_ event: NSEvent) -> Bool {
-        guard MacGestureSettings.on(MacGestureSettings.keyboardShortcuts) else { return false }
-        for action in Action.allCases {
-            if load(action).matches(event) {
-                perform(action)
-                return true
-            }
+    /// 创建所有 UIKeyCommand（挂在窗口上，走响应链，打字时自动让路）
+    static func makeKeyCommands(target: AnyObject) -> [UIKeyCommand] {
+        Action.allCases.map { action in
+            let s = load(action)
+            let cmd = UIKeyCommand(
+                title: action.label,
+                action: NSSelectorFromString("handleShortcutAction:"),
+                input: s.keyEquivalent,
+                modifierFlags: UIKeyModifierFlags(rawValue: s.modifierRaw)
+            )
+            cmd.propertyList = action.rawValue
+            return cmd
         }
-        return false
     }
 }
 
 // MARK: - 录制管理器
 
-/// 全局快捷键录制状态。`ShortcutRecorderView` 的「修改」按钮把 action 赋给 `recordingAction`，
-/// NSEvent 监听器捕获到按键后写入。
 enum ShortcutRecording {
     static var recordingAction: ShortcutStore.Action?
-    /// 录制完成后回调（刷新 UI）
     static var onRecorded: ((ShortcutStore.Action, Shortcut) -> Void)?
 
-    /// 处理录制中的按键。返回 true = 已消费。
-    static func capture(_ event: NSEvent) -> Bool {
+    /// 尝试消费一个 UIKey（录制模式下）。返回 true = 已消费。
+    static func capture(_ key: UIKey) -> Bool {
         guard let action = recordingAction else { return false }
-        // Esc 取消
-        if event.keyCode == 53 {
+        if key.keyCode == .keyboardEscape {
             recordingAction = nil
             onRecorded?(action, ShortcutStore.load(action))
             return true
         }
-        // 组装
-        var raw: UInt = 0
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags.contains(.command) { raw |= NSEvent.ModifierFlags.command.rawValue }
-        if flags.contains(.option)  { raw |= NSEvent.ModifierFlags.option.rawValue }
-        if flags.contains(.control) { raw |= NSEvent.ModifierFlags.control.rawValue }
-        if flags.contains(.shift)   { raw |= NSEvent.ModifierFlags.shift.rawValue }
-        let shortcut = Shortcut(keyCode: event.keyCode, modifierRaw: raw)
+        guard let shortcut = Shortcut.from(key: key) else { return true } // 吞掉不识别的按键
         ShortcutStore.save(shortcut, for: action)
         recordingAction = nil
         onRecorded?(action, shortcut)
         return true
     }
+}
+
+// MARK: - 按键捕获视图（录制用）
+
+/// 成为 firstResponder 后接收 pressesBegan，转交给 ShortcutRecording。
+final class KeyCaptureUIView: UIView {
+    override var canBecomeFirstResponder: Bool { true }
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        guard let key = presses.first?.key else {
+            super.pressesBegan(presses, with: event)
+            return
+        }
+        if ShortcutRecording.capture(key) { return }
+        super.pressesBegan(presses, with: event)
+    }
+}
+
+struct KeyCaptureView: UIViewRepresentable {
+    func makeUIView(context: Context) -> KeyCaptureUIView { KeyCaptureUIView() }
+    func updateUIView(_ uiView: KeyCaptureUIView, context: Context) {}
 }
 
 // MARK: - 快捷键设置行
@@ -193,11 +222,15 @@ struct ShortcutSettingRow: View {
                     .font(.system(size: 13, design: .monospaced))
                 Button("修改") {
                     ShortcutRecording.recordingAction = action
-                    isRecording = true
                     ShortcutRecording.onRecorded = { act, s in
                         guard act == action else { return }
                         shortcut = s
                         isRecording = false
+                    }
+                    isRecording = true
+                    // 让捕获视图成为 firstResponder
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        NotificationCenter.default.post(name: .meloFocusKeyCapture, object: nil)
                     }
                 }
                 .font(.system(size: 13))
@@ -205,6 +238,10 @@ struct ShortcutSettingRow: View {
             }
         }
     }
+}
+
+extension Notification.Name {
+    static let meloFocusKeyCapture = Notification.Name("melo.focusKeyCapture")
 }
 
 #endif
