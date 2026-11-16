@@ -73,10 +73,8 @@ struct RootView: View {
         .overlay(
             Group {
                 if player.opensFullPlayer {
+                    // environmentObject 会自动透传，这里不用再手动塞
                     PlayerView()
-                        .environmentObject(player)
-                        .environmentObject(library)
-                        .environmentObject(playlists)
                         .transition(.opacity)
                 }
             }
