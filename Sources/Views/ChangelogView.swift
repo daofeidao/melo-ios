@@ -12,6 +12,11 @@ struct ChangelogEntry: Identifiable {
 enum Changelog {
     static var entries: [ChangelogEntry] {
         [
+            ChangelogEntry(version: "2.0.8", date: "2026-11-16", notes: [
+                "Mac 起播闪退：把起播路径里所有可能抛 ObjC 异常的调用都包进了异常护栏（AVURLAsset / AVPlayerItem / replaceCurrentItem / player.play / 系统媒体信息 / 封面）。以前这些异常一旦抛出就是「Terminating app due to uncaught exception」，进程当场没了，连报错都看不到；现在会接住，把异常名、原因、16 行调用栈写进运行日志，然后降级继续。",
+                "Mac 上不再传私有 header 键（`AVURLAssetHTTPHeaderFieldsKey`）。这是个未公开接口：iOS 侧认，macOS 侧的 AVFoundation 有版本会抛 unrecognized option，而且这个异常可能发生在 AVFoundation 自己的线程上，护栏也接不住 —— 属于「必崩」的一类。Mac 改成裸 URL 建 asset，代价是少数要看 User-Agent 的源可能 403（表现为播放失败，可换源），但 App 不会退出。iOS 仍保留原实现。",
+                "启动日志多记一行兼容开关状态（媒体中心 / 自动打开播放页）：配合崩溃自愈，一眼能看出上一版是不是已经降级过、以及还崩在哪。",
+            ]),
             ChangelogEntry(version: "2.0.7", date: "2026-11-16", notes: [
                 "Mac 起播闪退：找到了一个能直接杀进程的写法。2.0.6 给菜单栏补播放状态时用了 `MPNowPlayingInfoCenter.playbackState`，这个属性是 macOS 的，Catalyst 运行时不一定实现了它的 setter——直接调用就是「无法识别的消息」，Swift 的 `try?` 拦不住，进程当场退出，表现正是「歌一开始放就没了」。现在调用前先问运行时有没有这个方法，没有就跳过；播放进度仍由 `playbackRate` 提供，菜单栏照常显示。",
                 "所有 MediaPlayer 的写操作都收进了一个平台文件（Sources/Platform/Mac/NowPlayingBridge.swift），每次写都留痕迹：日志里能区分是「写元数据」崩、「写播放状态」崩，还是根本没走到。数值也做了有限性检查，NaN / 无穷大不会再被塞进系统媒体信息。",

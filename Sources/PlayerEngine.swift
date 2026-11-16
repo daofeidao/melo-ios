@@ -726,16 +726,50 @@ final class PlayerEngine: ObservableObject {
         currentStream = stream
         currentStreamSource = cacheSource ?? activeSource
 
-        let asset = AVURLAsset(
-            url: stream.url,
-            options: ["AVURLAssetHTTPHeaderFieldsKey": ["User-Agent": stream.userAgent ?? StreamResolver.clientUserAgent]]
-        )
-        let item = AVPlayerItem(asset: asset)
+        // AVURLAsset/AVPlayerItem 创建可能抛 ObjC 异常，Swift 的 try? 接不住。
+        // 尤其 `AVURLAssetHTTPHeaderFieldsKey` 是私有键：iOS 侧认，macOS 侧的
+        // AVFoundation 有版本会直接抛 unrecognized option —— 这正是「一按播放就退」
+        // 这种死法。所以：带 header 建不出来就退回裸 URL 再试，最差是某些源因为
+        // 没 UA 被拒（表现为播放失败），而不是整个 App 当场没了。
+        var builtItem: AVPlayerItem?
+        #if targetEnvironment(macCatalyst)
+        // Mac：**不传** `AVURLAssetHTTPHeaderFieldsKey`。这是私有键，iOS 侧认，
+        // macOS 侧的 AVFoundation 有的版本会抛异常；而且这个异常可能发生在
+        // AVFoundation 自己的线程上，@try 也接不住，等于必崩。
+        // 代价是少数要看 UA 的源在 Mac 上可能 403（表现为播放失败，可换源），
+        // 但 App 不会退出 —— 比现在"一点播放就没"好得多。
+        Diagnostics.mark("build item · mac，跳过私有 header 键")
+        ExceptionGuard.run("AVURLAsset(裸)") {
+            builtItem = AVPlayerItem(asset: AVURLAsset(url: stream.url))
+        }
+        #else
+        let userAgent = stream.userAgent ?? StreamResolver.clientUserAgent
+        ExceptionGuard.run("AVURLAsset(+headers)") {
+            let asset = AVURLAsset(
+                url: stream.url,
+                options: ["AVURLAssetHTTPHeaderFieldsKey": ["User-Agent": userAgent]]
+            )
+            builtItem = AVPlayerItem(asset: asset)
+        }
+        if builtItem == nil {
+            ExceptionGuard.run("AVURLAsset(裸)") {
+                builtItem = AVPlayerItem(asset: AVURLAsset(url: stream.url))
+            }
+        }
+        #endif
+        guard let item = builtItem else {
+            Diagnostics.mark("build item failed")
+            self.isLoading = false
+            self.errorText = String(format: L("Playback failed: %@"), L("Couldn't build the playback item."))
+            return
+        }
         // 攒 15 秒才起播在弱网下就是"点了没反应"；4 秒足够扛住抖动，先出声再继续缓冲
         item.preferredForwardBufferDuration = 4
         Diagnostics.mark("build item · \(stream.mime) · \(stream.url.host ?? "-")")
         observeItem(item)
-        player.replaceCurrentItem(with: item)
+        ExceptionGuard.run("replaceCurrentItem") {
+            self.player.replaceCurrentItem(with: item)
+        }
         isLoading = false
         // 重试成功后要把上一轮的错误文案清掉，否则会一边出声一边挂着红字
         errorText = nil
@@ -751,7 +785,9 @@ final class PlayerEngine: ObservableObject {
             try? AVAudioSession.sharedInstance().setActive(true)
             #endif
             Diagnostics.mark("player.play()")
-            player.play()
+            ExceptionGuard.run("player.play") {
+                self.player.play()
+            }
         }
         updateNowPlaying()
         Diagnostics.mark("start done")
@@ -804,7 +840,9 @@ final class PlayerEngine: ObservableObject {
         if let urlString = track.artwork,
            let image = artworkCache[urlString],
            image.size.width > 0, image.size.height > 0 {
-            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            ExceptionGuard.run("MPMediaItemArtwork") {
+                info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            }
         }
         // 所有 MediaPlayer 写操作都走桥：Catalyst 上 playbackState 这类 setter
         // 可能不存在，直接调就是 unrecognized selector → 进程当场退出。

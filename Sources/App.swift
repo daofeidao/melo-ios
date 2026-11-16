@@ -19,6 +19,7 @@ struct MeloApp: App {
         if SafeMode.beginSession() {
             SafeMode.degrade()
         }
+        Diagnostics.mark("compat: np=\(NowPlayingBridge.isEnabled) autoOpen=\(SafeMode.autoOpenPlayer)")
         MeloAppearance.apply()
     }
 

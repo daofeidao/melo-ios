@@ -43,7 +43,9 @@ enum NowPlayingBridge {
         }
         let center = MPNowPlayingInfoCenter.default()
         Diagnostics.mark("np: set info begin")
-        center.nowPlayingInfo = sanitize(info)
+        ExceptionGuard.run("nowPlayingInfo") {
+            center.nowPlayingInfo = self.sanitize(info)
+        }
         Diagnostics.mark("np: info ok")
 
         // iOS 有自己的推断（rate + 音频会话），这条路只在 macOS 上补状态
@@ -53,7 +55,9 @@ enum NowPlayingBridge {
             return
         }
         Diagnostics.mark("np: set state")
-        center.playbackState = playing ? .playing : .paused
+        ExceptionGuard.run("playbackState") {
+            center.playbackState = playing ? .playing : .paused
+        }
         Diagnostics.mark("np: state ok")
         #endif
     }
@@ -61,7 +65,9 @@ enum NowPlayingBridge {
     static func clear() {
         guard isEnabled else { return }
         Diagnostics.mark("np: clear")
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        ExceptionGuard.run("nowPlayingInfo(clear)") {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        }
     }
 
     /// nowPlayingInfo 只接受 plist 类型；NaN / 无穷大要换成 0，空字符串要去掉
