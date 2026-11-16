@@ -244,11 +244,22 @@ extension Notification.Name {
     static let meloRefreshKeyCommands = Notification.Name("melo.refreshKeyCommands")
 }
 
+/// 找到当前 firstResponder（遍历视图树）
+extension UIView {
+    var currentFirstResponder: UIView? {
+        if isFirstResponder { return self }
+        for sub in subviews {
+            if let r = sub.currentFirstResponder { return r }
+        }
+        return nil
+    }
+}
+
 /// UIKeyCommand 的 action：从 AppDelegate 的 keyCommands 派发到这里。
 /// 文本框聚焦时不抢按键（AppDelegate.keyCommands 里已做同样判断）。
 extension MacGestures {
     @objc func handleShortcutAction(_ command: UIKeyCommand) {
-        if let fr = Self.keyWindow()?.firstResponder,
+        if let fr = Self.keyWindow()?.currentFirstResponder,
            fr is UITextField || fr is UITextView { return }
         guard MacGestureSettings.on(MacGestureSettings.keyboardShortcuts) else { return }
         guard let raw = command.propertyList as? String,

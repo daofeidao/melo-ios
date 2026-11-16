@@ -54,7 +54,7 @@ final class MeloAppDelegate: UIResponder, UIApplicationDelegate {
             .compactMap({ $0 as? UIWindowScene })
             .flatMap({ $0.windows })
             .first(where: { $0.isKeyWindow })?
-            .firstResponder,
+            .currentFirstResponder,
            fr is UITextField || fr is UITextView {
             return super.keyCommands
         }
