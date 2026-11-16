@@ -100,11 +100,12 @@ final class InnerTube {
         endpoint: String,
         key: String,
         body: [String: Any],
-        userAgent: String
+        userAgent: String,
+        visitorData: String? = nil
     ) async throws -> [String: Any] {
         try await rawPost(
             host: host, endpoint: endpoint, key: key,
-            body: body, userAgent: userAgent, visitorData: nil
+            body: body, userAgent: userAgent, visitorData: visitorData
         ).0
     }
 
@@ -328,11 +329,11 @@ final class InnerTube {
         return InnerTube.parseCollection(root)
     }
 
-    func player(body: [String: Any], userAgent: String) async throws -> [String: Any] {
-        try await post(
+    func player(body: [String: Any], userAgent: String, visitorData: String? = nil) async throws -> [String: Any] {
+        try await rawPost(
             host: "www.youtube.com", endpoint: "player", key: playerKey,
-            body: body, userAgent: userAgent
-        )
+            body: body, userAgent: userAgent, visitorData: visitorData
+        ).0
     }
 
     // MARK: - 连接诊断

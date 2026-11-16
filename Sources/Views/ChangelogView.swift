@@ -12,6 +12,9 @@ struct ChangelogEntry: Identifiable {
 enum Changelog {
     static var entries: [ChangelogEntry] {
         [
+            ChangelogEntry(version: "2.0.12", date: "2026-11-16", notes: [
+                "修复 YouTube 不能播放：PO Token（Proof of Origin）正式接入播放链路。YouTube 2024 年起对 player 接口强制要求 PO Token，没有就返回 LOGIN_REQUIRED / format=0。此前 PO Token 铸造只在高级诊断里验证过，没接进播放流程。现在起播前自动铸 Token（BotGuard 挑战 → integrityToken → PO Token），缓存约 20 分钟，过期或收到 LOGIN_REQUIRED 自动重铸。",
+            ]),
             ChangelogEntry(version: "2.0.11", date: "2026-11-16", notes: [
                 "Mac 触控板手势（快滑才触发，慢滚翻列表不受影响）：播放页左右滑切歌；上下滑调节系统音量；播放页下滑关闭播放页。",
                 "切栏目手势可选「两指（避开横向滚动）」或「三指」：排行榜、喜欢艺人等横向滚动区域自动避开，不再冲突。三指模式需在 系统设置 → 辅助功能 → 触控板 开启「三指拖移」。",

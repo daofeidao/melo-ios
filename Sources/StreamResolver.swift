@@ -130,9 +130,12 @@ enum StreamResolver {
     ]
 
     static func resolve(videoId: String, quality: Quality) async throws -> AudioStream {
+        // 先拿 PO Token（YouTube 2024+ 对 player 接口强制要求，否则 LOGIN_REQUIRED / format=0）
+        let po = await PoTokenMinter.shared.token()
+
         // 正常路径：上次成功的身份先单打一次，命中就不必并发打全部
         if let id = winnerID, let client = clients.first(where: { $0.id == id }) {
-            if let stream = try? await attempt(videoId: videoId, client: client, quality: quality) {
+            if let stream = try? await attempt(videoId: videoId, client: client, quality: quality, po: po) {
                 return stream
             }
         }
@@ -144,7 +147,7 @@ enum StreamResolver {
             for client in clients {
                 group.addTask {
                     do {
-                        return .success(try await attempt(videoId: videoId, client: client, quality: quality))
+                        return .success(try await attempt(videoId: videoId, client: client, quality: quality, po: po))
                     } catch {
                         return .failure(error)
                     }
@@ -183,25 +186,38 @@ enum StreamResolver {
         throw ApiError.unavailable(String(format: L("Unable to resolve playback URL: %@"), detail))
     }
 
-    private static func attempt(videoId: String, client: Client, quality: Quality) async throws -> AudioStream {
+    private static func attempt(
+        videoId: String,
+        client: Client,
+        quality: Quality,
+        po: (poToken: String, visitorData: String)?
+    ) async throws -> AudioStream {
         var clientContext = client.extra
         clientContext["clientName"] = client.name
         clientContext["clientVersion"] = client.version
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "context": ["client": clientContext],
             "videoId": videoId,
             "contentCheckOk": true,
             "racyCheckOk": true
         ]
+        // PO Token：YouTube player 接口的「通行证」，没有就 LOGIN_REQUIRED
+        if let po = po {
+            body["serviceIntegrityDimensions"] = ["poToken": po.poToken]
+        }
 
-        let root = try await InnerTube.shared.player(body: body, userAgent: client.userAgent)
+        let root = try await InnerTube.shared.player(
+            body: body, userAgent: client.userAgent, visitorData: po?.visitorData
+        )
 
         if let status = JS.dict(root["playabilityStatus"]),
            let state = JS.string(status["status"]),
            state != "OK" {
             let reason = JS.string(status["reason"]) ?? state
             if state == "LOGIN_REQUIRED" {
+                // PO Token 可能过期了，下次重铸
+                PoTokenMinter.shared.invalidate()
                 throw ApiError.botCheck(reason)
             }
             throw ApiError.unavailable(reason)
