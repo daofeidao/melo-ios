@@ -37,6 +37,15 @@ struct AdvancedDiagnosticsView: View {
                         UIPasteboard.general.string = Diagnostics.logPath + "\n\n" + Diagnostics.tail(200)
                     }
                     Spacer()
+                    #if targetEnvironment(macCatalyst)
+                    // 闪退之后点这里：把系统留下的 .ips 崩溃报告关键帧抄进日志，
+                    // 复制发过来就能看到精确到符号的崩溃栈，不用手动翻目录
+                    Button(L("Crash Report")) {
+                        CrashReport.ingestLatest()
+                        trace = Diagnostics.tail(40)
+                    }
+                    Spacer()
+                    #endif
                     Button(L("Clear")) {
                         Diagnostics.clear()
                         trace = Diagnostics.tail(40)

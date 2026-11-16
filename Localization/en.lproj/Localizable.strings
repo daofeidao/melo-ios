@@ -459,3 +459,6 @@
 "Volume buttons: double-press to skip" = "Volume buttons: double-press to skip";
 "Double-press volume up for the next track, volume down for the previous one. Works while a track is playing; the volume itself is put back where it was." = "Double-press volume up for the next track, volume down for the previous one. Works while a track is playing; the volume itself is put back where it was.";
 "Couldn't build the playback item." = "Couldn't build the playback item.";
+
+/* Crash report */
+"Crash Report" = "Crash Report";

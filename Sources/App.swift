@@ -20,6 +20,9 @@ struct MeloApp: App {
             SafeMode.degrade()
         }
         Diagnostics.mark("compat: np=\(NowPlayingBridge.isEnabled) autoOpen=\(SafeMode.autoOpenPlayer)")
+        // 上次崩过的话，系统在 ~/Library/Logs/DiagnosticReports 留了 .ips，
+        // 直接抄关键帧进日志，不用用户去翻目录
+        CrashReport.ingestLatest()
         MeloAppearance.apply()
     }
 

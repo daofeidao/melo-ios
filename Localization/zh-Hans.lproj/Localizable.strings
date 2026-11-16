@@ -460,3 +460,6 @@
 "Volume buttons: double-press to skip" = "音量键双击切歌";
 "Double-press volume up for the next track, volume down for the previous one. Works while a track is playing; the volume itself is put back where it was." = "音量+ 双击下一首，音量- 双击上一首。正在播放时才生效，音量会被拨回原处。";
 "Couldn't build the playback item." = "建播放对象失败。";
+
+/* 崩溃报告 */
+"Crash Report" = "崩溃报告";

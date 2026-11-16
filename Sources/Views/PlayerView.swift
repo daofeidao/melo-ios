@@ -4,7 +4,11 @@ import UIKit
 struct PlayerView: View {
     @EnvironmentObject private var player: PlayerEngine
     @EnvironmentObject private var library: Library
-    @Environment(\.dismiss) private var dismiss
+    /// 收起播放页。两种宿主（fullScreenCover / Mac 的 overlay）都用同一个绑定，
+    /// 所以不要用 @Environment(\.dismiss) —— overlay 模式下它什么都不会做。
+    private func close() {
+        player.opensFullPlayer = false
+    }
 
     @State private var artwork: UIImage?
     @State private var offset: CGFloat = 0
@@ -30,16 +34,16 @@ struct PlayerView: View {
     /// 键盘快捷键载体（Mac）：零尺寸、不可点，只负责注册 key command
     private var keyboardShortcuts: some View {
         ZStack {
-            Button("") { player.previous() }
+            Button { player.previous() } label: { Image(systemName: "chevron.left").opacity(0) }
                 .keyboardShortcut(.leftArrow, modifiers: [])
-            Button("") { player.next() }
+            Button { player.next() } label: { Image(systemName: "chevron.right").opacity(0) }
                 .keyboardShortcut(.rightArrow, modifiers: [])
-            Button("") { player.toggle() }
+            Button { player.toggle() } label: { Image(systemName: "playpause").opacity(0) }
                 .keyboardShortcut(.space, modifiers: [])
             // 有些输入法/焦点状态下无修饰键会被吃掉，再给一套 ⌘←/⌘→ 兜底
-            Button("") { player.previous() }
+            Button { player.previous() } label: { Image(systemName: "chevron.left").opacity(0) }
                 .keyboardShortcut(.leftArrow, modifiers: [.command])
-            Button("") { player.next() }
+            Button { player.next() } label: { Image(systemName: "chevron.right").opacity(0) }
                 .keyboardShortcut(.rightArrow, modifiers: [.command])
         }
         .frame(width: 0, height: 0)
@@ -141,7 +145,7 @@ struct PlayerView: View {
                 }
                 .onEnded { value in
                     if value.translation.height > 140 {
-                        dismiss()
+                        close()
                     } else {
                         withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
                             offset = 0
@@ -176,6 +180,16 @@ struct PlayerView: View {
 
     private var background: some View {
         ZStack {
+            #if targetEnvironment(macCatalyst)
+            // Mac 上不做全屏 blur：60pt 模糊 + 整屏图层对老显卡（尤其是 2011 机器
+            // 这种走 Metal 兼容层的）负担很重，渲染层一崩就表现为「一点播放页就退」。
+            // 用渐变底色，视觉接近，GPU 开销几乎为零。
+            LinearGradient(
+                colors: [Color(hex: 0x3A3A3C), Color(hex: 0x0A0A0B)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            #else
             if let artwork = artwork {
                 GeometryReader { proxy in
                     Image(uiImage: artwork)
@@ -198,6 +212,7 @@ struct PlayerView: View {
                     endPoint: .bottom
                 )
             }
+            #endif
         }
         .ignoresSafeArea()
     }
@@ -218,7 +233,7 @@ struct PlayerView: View {
         }
         .frame(width: side, height: side)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .shadow(color: .black.opacity(0.4), radius: 22, y: 12)
+        .shadow(color: .black.opacity(0.4), radius: 12, y: 8)
         .scaleEffect(player.isPlaying ? 1 : 0.94)
         .animation(.spring(response: 0.42, dampingFraction: 0.8), value: player.isPlaying)
     }
@@ -312,7 +327,7 @@ struct PlayerView: View {
                             .first?
                             .trimmingCharacters(in: .whitespacesAndNewlines) ?? track.artist
                         ArtistRouter.shared.pending = first.isEmpty ? track.artist : first
-                        dismiss()
+                        close()
                     } label: {
                         Text(track.artist)
                             .font(.system(size: 18))
@@ -514,7 +529,7 @@ struct PlayerView: View {
                 Spacer()
 
                 Button {
-                    dismiss()
+                    close()
                 } label: {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 18, weight: .medium))

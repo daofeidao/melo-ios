@@ -12,6 +12,11 @@ struct ChangelogEntry: Identifiable {
 enum Changelog {
     static var entries: [ChangelogEntry] {
         [
+            ChangelogEntry(version: "2.0.9", date: "2026-11-16", notes: [
+                "修「点播放条立刻闪退、调不出播放器」：Mac 上不再用 fullScreenCover 弹播放页，改成同屏覆盖（overlay）。fullScreenCover 在 Catalyst 上要走一套 presented view controller + 转场，是这一步最大的嫌疑，直接绕开；收起方式不变（下滑 / 点箭头）。",
+                "播放页全屏模糊封面在 Mac 上换回渐变底色。60pt 的整屏 blur 对老显卡（尤其 2011 这类走 Metal 兼容层的机器）负担很重，渲染层一崩就表现为「界面刚要出来就退」。iOS 保留原来的模糊效果。",
+                "App 现在会自己读系统的崩溃报告：启动时去 ~/Library/Logs/DiagnosticReports 找最近的 Melo-*.ips，把终止原因和崩溃线程前 20 帧（符号名）抄进运行日志。设置 → 高级诊断 里也有「崩溃报告」按钮，闪退后点一下再复制发来，就能看到精确到函数的崩溃栈，不用手动翻目录。",
+            ]),
             ChangelogEntry(version: "2.0.8", date: "2026-11-16", notes: [
                 "Mac 起播闪退：把起播路径里所有可能抛 ObjC 异常的调用都包进了异常护栏（AVURLAsset / AVPlayerItem / replaceCurrentItem / player.play / 系统媒体信息 / 封面）。以前这些异常一旦抛出就是「Terminating app due to uncaught exception」，进程当场没了，连报错都看不到；现在会接住，把异常名、原因、16 行调用栈写进运行日志，然后降级继续。",
                 "Mac 上不再传私有 header 键（`AVURLAssetHTTPHeaderFieldsKey`）。这是个未公开接口：iOS 侧认，macOS 侧的 AVFoundation 有版本会抛 unrecognized option，而且这个异常可能发生在 AVFoundation 自己的线程上，护栏也接不住 —— 属于「必崩」的一类。Mac 改成裸 URL 建 asset，代价是少数要看 User-Agent 的源可能 403（表现为播放失败，可换源），但 App 不会退出。iOS 仍保留原实现。",

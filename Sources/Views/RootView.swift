@@ -66,9 +66,26 @@ struct RootView: View {
             // 后台导入的进度条：导入改成后台任务后，这里是唯一的进度出口
             ImportBanner()
         }
+        #if targetEnvironment(macCatalyst)
+        // Mac：改用 overlay 打开播放页。fullScreenCover 在 Catalyst 上的呈现
+        // 链路（转场 + presented VC）是「一点播放条就退」的另一嫌疑，直接绕开。
+        // 顶出来的效果一致：整屏盖住，播放页里下滑/点箭头收起。
+        .overlay(
+            Group {
+                if player.opensFullPlayer {
+                    PlayerView()
+                        .environmentObject(player)
+                        .environmentObject(library)
+                        .environmentObject(playlists)
+                        .transition(.opacity)
+                }
+            }
+        )
+        #else
         .fullScreenCover(isPresented: $player.opensFullPlayer) {
             PlayerView()
         }
+        #endif
         .sheet(isPresented: $showSettings) {
             NavigationView {
                 SettingsView()
