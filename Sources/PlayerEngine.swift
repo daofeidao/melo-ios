@@ -285,14 +285,15 @@ final class PlayerEngine: ObservableObject {
         index = min(max(0, startIndex), tracks.count - 1)
         loadCurrent(autoPlay: true)
         // 用户点了歌就直接给播放页，不要让他再点一次迷你播放器
-        if !SmokeTest.suppressesAutoPlayer, SafeMode.autoOpenPlayer { opensFullPlayer = true }
+        // 用户主动点歌是显式操作，总是弹播放页（SafeMode 只降级自动行为）
+        if !SmokeTest.suppressesAutoPlayer { opensFullPlayer = true }
     }
 
     func playSingle(_ track: Track) {
         if let existing = queue.firstIndex(of: track) {
             index = existing
             loadCurrent(autoPlay: true)
-            if !SmokeTest.suppressesAutoPlayer, SafeMode.autoOpenPlayer { opensFullPlayer = true }
+            if !SmokeTest.suppressesAutoPlayer { opensFullPlayer = true }
         } else {
             play(tracks: [track], startAt: 0)
         }
