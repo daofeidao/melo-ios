@@ -12,6 +12,10 @@ struct ChangelogEntry: Identifiable {
 enum Changelog {
     static var entries: [ChangelogEntry] {
         [
+            ChangelogEntry(version: "2.0.10", date: "2026-11-16", notes: [
+                "Mac 版「点播放条闪退」已在真机验证修复。根因经系统崩溃报告确认：PlayerView.body 里的 Swift 断言（SwiftUI 渲染层），2.0.9 去掉全屏模糊 + 改 overlay 后消失——在这台 2011 MacBook Pro（Intel HD 3000、无 Metal）上实测：真实封面、播放、控制按钮全部正常。",
+                "工程兼容 Xcode 14.3 / Swift 5.8：并发闭包不再捕获局部 var（先取快照）、guard let self 提前绑定。以后可以直接在这台 Mac 上出包，不再依赖云端。",
+            ]),
             ChangelogEntry(version: "2.0.9", date: "2026-11-16", notes: [
                 "修「点播放条立刻闪退、调不出播放器」：Mac 上不再用 fullScreenCover 弹播放页，改成同屏覆盖（overlay）。fullScreenCover 在 Catalyst 上要走一套 presented view controller + 转场，是这一步最大的嫌疑，直接绕开；收起方式不变（下滑 / 点箭头）。",
                 "播放页全屏模糊封面在 Mac 上换回渐变底色。60pt 的整屏 blur 对老显卡（尤其 2011 这类走 Metal 兼容层的机器）负担很重，渲染层一崩就表现为「界面刚要出来就退」。iOS 保留原来的模糊效果。",
