@@ -99,6 +99,10 @@ struct RootView: View {
                 selection = index
             }
         }
+        // 点击 tab 也要同步记录，否则手势切栏目会算错目标
+        .onChange(of: selection) { newValue in
+            UserDefaults.standard.set(newValue, forKey: "melo.mac.currentTab")
+        }
         #endif
         .onAppear {
             runSmokeTestIfNeeded()
