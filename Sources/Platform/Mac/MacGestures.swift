@@ -3,6 +3,7 @@ import SwiftUI
 import UIKit
 
 #if targetEnvironment(macCatalyst)
+import CoreAudio
 import AudioToolbox
 
 // MARK: - 系统音量（CoreAudio）
