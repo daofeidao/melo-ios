@@ -90,6 +90,16 @@ struct RootView: View {
             }
             .navigationViewStyle(StackNavigationViewStyle())
         }
+        #if targetEnvironment(macCatalyst)
+        // Mac 键盘快捷键：空格播放/暂停、⌘←/⌘→ 切歌、⌘↑/⌘↓ 音量、Esc 关播放页
+        .overlay(MacKeyboardShortcuts().allowsHitTesting(false))
+        // 触控板手势切栏目：MacGestures 发通知，这里接
+        .onReceive(NotificationCenter.default.publisher(for: .meloSwitchTab)) { note in
+            if let index = note.userInfo?["index"] as? Int {
+                selection = index
+            }
+        }
+        #endif
         .onAppear {
             runSmokeTestIfNeeded()
             AudioSource.warmUp()

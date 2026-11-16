@@ -24,6 +24,10 @@ struct MeloApp: App {
         // 直接抄关键帧进日志，不用用户去翻目录
         CrashReport.ingestLatest()
         MeloAppearance.apply()
+        #if targetEnvironment(macCatalyst)
+        // 触控板两指手势挂在 keyWindow 上，等窗口建好再装
+        MacGestures.shared.install()
+        #endif
     }
 
     var body: some Scene {

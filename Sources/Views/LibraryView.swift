@@ -114,6 +114,13 @@ struct SettingsView: View {
     @AppStorage(AudioCache.enabledKey) private var cacheAudio = true
     @AppStorage(AudioCache.limitKey) private var cacheLimitMB = AudioCache.defaultLimitMB
     @AppStorage(VolumeShortcut.enabledKey) private var volumeSkipEnabled = true
+    #if targetEnvironment(macCatalyst)
+    @AppStorage(MacGestureSettings.horizontalTabs) private var macGestureTabs = true
+    @AppStorage(MacGestureSettings.horizontalTracks) private var macGestureTracks = true
+    @AppStorage(MacGestureSettings.verticalVolume) private var macGestureVolume = true
+    @AppStorage(MacGestureSettings.swipeDismiss) private var macGestureDismiss = true
+    @AppStorage(MacGestureSettings.keyboardShortcuts) private var macKeyboardEnabled = true
+    #endif
     @State private var cacheBytes: Int64 = 0
     @State private var showClearCacheConfirm = false
 
@@ -195,6 +202,51 @@ struct SettingsView: View {
             #endif
 
             // 清空最近播放已挪到「现在就听 → 最近播放」标题右侧
+
+            #if targetEnvironment(macCatalyst)
+            Section {
+                Toggle("触控板左右滑动切换栏目", isOn: $macGestureTabs)
+                Toggle("播放页左右滑动切歌", isOn: $macGestureTracks)
+                Toggle("上下滑动调节音量", isOn: $macGestureVolume)
+                Toggle("播放页下滑关闭", isOn: $macGestureDismiss)
+            } header: {
+                Text("触控板手势")
+            } footer: {
+                Text("两指快滑（速度够快）才触发，慢滚翻列表不受影响。左右滑：主界面切栏目，播放页切歌；上下滑调系统音量；播放页下滑关闭播放页。")
+            }
+
+            Section {
+                Toggle("键盘快捷键", isOn: $macKeyboardEnabled)
+                HStack {
+                    Text("空格")
+                    Spacer()
+                    Text("播放 / 暂停")
+                        .foregroundColor(Theme.secondaryLabel)
+                }
+                HStack {
+                    Text("⌘←  ⌘→")
+                    Spacer()
+                    Text("上一曲 / 下一曲")
+                        .foregroundColor(Theme.secondaryLabel)
+                }
+                HStack {
+                    Text("⌘↑  ⌘↓")
+                    Spacer()
+                    Text("音量增减")
+                        .foregroundColor(Theme.secondaryLabel)
+                }
+                HStack {
+                    Text("Esc")
+                    Spacer()
+                    Text("关闭播放页")
+                        .foregroundColor(Theme.secondaryLabel)
+                }
+            } header: {
+                Text("键盘快捷键")
+            } footer: {
+                Text("媒体键（F7 / F8 / F9 或键盘上的播放控制键）始终有效，不受此开关影响。打字时快捷键自动让路。")
+            }
+            #endif
 
             Section {
                 Button {
