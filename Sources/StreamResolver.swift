@@ -131,7 +131,8 @@ enum StreamResolver {
 
     static func resolve(videoId: String, quality: Quality) async throws -> AudioStream {
         // 先拿 PO Token（YouTube 2024+ 对 player 接口强制要求，否则 LOGIN_REQUIRED / format=0）
-        let po = await PoTokenMinter.shared.token()
+        // 内容绑定用视频 ID（BgUtils：Web 端对视频请求逐视频铸 token）
+        let po = await PoTokenMinter.shared.token(for: videoId)
 
         // 正常路径：上次成功的身份先单打一次，命中就不必并发打全部
         if let id = winnerID, let client = clients.first(where: { $0.id == id }) {
@@ -215,6 +216,7 @@ enum StreamResolver {
            let state = JS.string(status["status"]),
            state != "OK" {
             let reason = JS.string(status["reason"]) ?? state
+            Diagnostics.mark("player[\(client.id)]: \(state) · \(reason)")
             if state == "LOGIN_REQUIRED" {
                 // PO Token 可能过期了，下次重铸
                 await PoTokenMinter.shared.invalidate()
