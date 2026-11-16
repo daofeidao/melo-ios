@@ -130,6 +130,7 @@ struct PlayerView: View {
                 .frame(maxWidth: .infinity)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .preferredColorScheme(.dark)
         .offset(y: offset)
         // Mac 上要能用键盘控制：空格 播放/暂停、左右方向键 切歌。

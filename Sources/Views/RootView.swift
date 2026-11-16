@@ -73,8 +73,13 @@ struct RootView: View {
         .overlay(
             Group {
                 if player.opensFullPlayer {
-                    // environmentObject 会自动透传，这里不用再手动塞
+                    // environmentObject 会自动透传，这里不用再手动塞。
+                    // 必须显式撑满 overlay，否则 ZStack 缺尺寸约束会被压成 0×0 —— 
+                    // 这就是「播放器界面看不见」的根因。
                     PlayerView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .ignoresSafeArea()
+                        .zIndex(999)
                         .transition(.opacity)
                 }
             }
