@@ -37,6 +37,7 @@ final class ImportCoordinator: ObservableObject {
         state = .running(title: fallbackTitle, done: 0, total: 0)
 
         Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else { return }
             do {
                 let remote = try await PlaylistFetcher.fetch(platform: platform, id: id, isRank: isRank)
                 guard !remote.songs.isEmpty else { throw PlaylistImportError.empty }
@@ -64,12 +65,12 @@ final class ImportCoordinator: ObservableObject {
                         totalCount: tracks.count,
                         sourceID: id
                     )
-                    self?.state = .done(title: remote.name, count: tracks.count)
+                    self.state = .done(title: remote.name, count: tracks.count)
                 }
             } catch {
                 await MainActor.run {
                     let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                    self?.state = .failed(message: message)
+                    self.state = .failed(message: message)
                 }
             }
         }

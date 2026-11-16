@@ -42,7 +42,9 @@ struct ArtworkView: View {
             return
         }
         // 按显示尺寸解码：滑到哪里解到哪里的小图，不在主线程解原图（修滚动卡顿）
-        let maxPixel = min(max(size * UIScreen.main.scale, 60), 600)
+        // UIScreen.main.scale 在部分 SDK 上是 MainActor 隔离的，非隔离 async 上下文里要显式取
+        let scale = await MainActor.run { UIScreen.main.scale }
+        let maxPixel = min(max(size * scale, 60), 600)
         if let cached = ImageLoader.shared.cached(for: target) {
             await MainActor.run { self.image = cached }
             return

@@ -24,6 +24,20 @@
 #   IPA_MD5=...
 set -euo pipefail
 
+# ---------- 工具 PATH ----------
+# 这台 Mac 没有 Homebrew（github.com 被墙，brew 装不上），xcodegen/ldid 是手动放到
+# ~/mac-tools/xcodegen/bin 和 ~/bin 的本地二进制。非交互 SSH 的 PATH 不含这些目录，
+# 所以这里主动补上；已存在的目录才加，避免污染。
+for _d in "$HOME/mac-tools/xcodegen/bin" "$HOME/bin" "/usr/local/bin" "/opt/homebrew/bin"; do
+  if [ -d "$_d" ]; then
+    case ":$PATH:" in
+      *":$_d:"*) ;;
+      *) PATH="$_d:$PATH" ;;
+    esac
+  fi
+done
+export PATH
+
 # ---------- 参数 ----------
 REPO_DIR=""
 KEEP_BUILD=0

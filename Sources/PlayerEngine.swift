@@ -558,8 +558,8 @@ final class PlayerEngine: ObservableObject {
         guard let text = text, !text.isEmpty else { return }
         cacheMessageTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 3_500_000_000)
-            guard !Task.isCancelled else { return }
-            await MainActor.run { self?.cacheMessage = nil }
+            guard !Task.isCancelled, let self = self else { return }
+            await MainActor.run { self.cacheMessage = nil }
         }
     }
 
@@ -623,6 +623,7 @@ final class PlayerEngine: ObservableObject {
         }
 
         Task { [weak self] in
+            guard let self = self else { return }
             do {
                 let stream = try await AudioSource.resolve(
                     track: track,
@@ -632,7 +633,7 @@ final class PlayerEngine: ObservableObject {
                 let resolvedFrom = AudioSource.lastResolvedSource
                 let trusted = AudioSource.lastResolveTrusted
                 DispatchQueue.main.async {
-                    guard let self = self, self.loadToken == token else { return }
+                    guard self.loadToken == token else { return }
                     self.activeSource = resolvedFrom
                     Diagnostics.mark("resolved by \(resolvedFrom) trusted=\(trusted)")
                     StreamCache.shared.store(stream, forKey: key)
@@ -641,7 +642,7 @@ final class PlayerEngine: ObservableObject {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    guard let self = self, self.loadToken == token else { return }
+                    guard self.loadToken == token else { return }
                     self.isLoading = false
                     self.isPlaying = false
                     self.player.replaceCurrentItem(with: nil)
@@ -857,9 +858,9 @@ final class PlayerEngine: ObservableObject {
               let url = URL(string: urlString) else { return }
 
         Task { [weak self] in
+            guard let self = self else { return }
             guard let image = await ImageLoader.shared.image(for: url) else { return }
             DispatchQueue.main.async {
-                guard let self = self else { return }
                 self.artworkCache[urlString] = image
                 self.updateNowPlaying()
             }

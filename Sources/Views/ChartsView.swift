@@ -164,9 +164,11 @@ struct ChartsView: View {
             return
         }
 
+        // seeded 是局部 var，并发闭包不能捕获 var，先取不可变快照（Swift 5.8 检查比 6 严）
+        let alreadySeeded = seeded
         await MainActor.run {
             loading = true
-            if !seeded { error = nil }
+            if !alreadySeeded { error = nil }
         }
 
         // 不用 async let：Swift 6 的 async-let 在父作用域提前退出时会 fatalError。
@@ -236,13 +238,15 @@ struct ChartsView: View {
             kugou = []
         }
 
+        // failures 同样是局部 var，进并发闭包前先快照
+        let failureSnapshot = failures
         await MainActor.run {
             // 抓失败时保留上一次的缓存，别让整块内容凭空消失
             if !yt.isEmpty {
                 ytShelves = yt
                 feed.storeShelves(yt)
             }
-            self.failures = failures
+            self.failures = failureSnapshot
 
             var merged = external
             if !netease.isEmpty {

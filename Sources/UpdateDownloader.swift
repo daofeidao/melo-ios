@@ -66,7 +66,10 @@ final class UpdateDownloader: ObservableObject {
             }
         }
         observation = downloadTask.progress.observe(\.fractionCompleted) { [weak self] p, _ in
-            Task { @MainActor in self?.progress = p.fractionCompleted }
+            // 先绑定成强引用常量再进并发闭包：Swift 5.8 不允许在并发闭包里引用"被捕获的 var self"
+            guard let self = self else { return }
+            let value = p.fractionCompleted
+            Task { @MainActor in self.progress = value }
         }
         task = downloadTask
         downloadTask.resume()
