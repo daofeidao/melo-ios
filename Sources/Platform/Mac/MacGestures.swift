@@ -136,15 +136,13 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
     }
 
     private func installKeyCommands(on window: UIWindow) {
-        keyCommands = ShortcutStore.makeKeyCommands(target: self)
-        for cmd in keyCommands {
-            window.addKeyCommand(cmd)
-        }
+        // UIKeyCommand 挂在 UIResponder.keyCommands 上（见 UIWindow 扩展），
+        // 这里只负责触发刷新通知
+        NotificationCenter.default.post(name: .meloRefreshKeyCommands, object: nil)
     }
 
     private func refreshKeyCommands(on window: UIWindow) {
-        for cmd in keyCommands { window.removeKeyCommand(cmd) }
-        installKeyCommands(on: window)
+        // 同上，keyCommands 是计算属性，下次按键时自动读最新值
     }
 
     private static func keyWindow() -> UIWindow? {
@@ -152,15 +150,6 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
             .compactMap { $0 as? UIWindowScene }
             .flatMap { $0.windows }
             .first { $0.isKeyWindow }
-    }
-
-    // MARK: UIKeyCommand action
-
-    @objc func handleShortcutAction(_ command: UIKeyCommand) {
-        guard MacGestureSettings.on(MacGestureSettings.keyboardShortcuts) else { return }
-        guard let raw = command.propertyList as? String,
-              let action = ShortcutStore.Action(rawValue: raw) else { return }
-        ShortcutStore.perform(action)
     }
 
     // MARK: 两指手势
@@ -255,11 +244,16 @@ extension Notification.Name {
     static let meloRefreshKeyCommands = Notification.Name("melo.refreshKeyCommands")
 }
 
-/// UIKeyCommand 的 action 走响应链，最终由 window 接收。
-/// 这里给 UIWindow 打个补丁，转发给 MacGestures。
-extension UIWindow {
+/// UIKeyCommand 的 action：从 AppDelegate 的 keyCommands 派发到这里。
+/// 文本框聚焦时不抢按键（AppDelegate.keyCommands 里已做同样判断）。
+extension MacGestures {
     @objc func handleShortcutAction(_ command: UIKeyCommand) {
-        MacGestures.shared.handleShortcutAction(command)
+        if let fr = Self.keyWindow()?.firstResponder,
+           fr is UITextField || fr is UITextView { return }
+        guard MacGestureSettings.on(MacGestureSettings.keyboardShortcuts) else { return }
+        guard let raw = command.propertyList as? String,
+              let action = ShortcutStore.Action(rawValue: raw) else { return }
+        ShortcutStore.perform(action)
     }
 }
 

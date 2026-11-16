@@ -12,13 +12,13 @@ struct Shortcut: Codable, Equatable {
     /// UIKeyCommand.input 系列常量或普通字符（小写），如 " "、"a"、UIKeyCommand.inputLeftArrow
     var keyEquivalent: String
     /// UIKeyModifierFlags.rawValue（command=1<<20, shift=1<<17, alternate=1<<19, control=1<<18）
-    var modifierRaw: UInt
+    var modifierRaw: Int
 
     static let defaultPlayPause  = Shortcut(keyEquivalent: " ", modifierRaw: 0)
-    static let defaultNext       = Shortcut(keyEquivalent: UIKeyCommand.inputRightArrow, modifierRaw: 1048576)
-    static let defaultPrevious   = Shortcut(keyEquivalent: UIKeyCommand.inputLeftArrow, modifierRaw: 1048576)
-    static let defaultVolumeUp   = Shortcut(keyEquivalent: UIKeyCommand.inputUpArrow, modifierRaw: 1048576)
-    static let defaultVolumeDown = Shortcut(keyEquivalent: UIKeyCommand.inputDownArrow, modifierRaw: 1048576)
+    static let defaultNext       = Shortcut(keyEquivalent: UIKeyCommand.inputRightArrow, modifierRaw: 1 << 20)
+    static let defaultPrevious   = Shortcut(keyEquivalent: UIKeyCommand.inputLeftArrow, modifierRaw: 1 << 20)
+    static let defaultVolumeUp   = Shortcut(keyEquivalent: UIKeyCommand.inputUpArrow, modifierRaw: 1 << 20)
+    static let defaultVolumeDown = Shortcut(keyEquivalent: UIKeyCommand.inputDownArrow, modifierRaw: 1 << 20)
     static let defaultClose      = Shortcut(keyEquivalent: UIKeyCommand.inputEscape, modifierRaw: 0)
 
     /// 显示文字
@@ -63,9 +63,8 @@ struct Shortcut: Codable, Equatable {
             guard !chars.isEmpty else { return nil }
             eq = chars.lowercased()
         }
-        let raw: UInt = key.modifierFlags
-            .intersection([.command, .alternate, .control, .shift])
-            .rawValue
+        let raw: Int = Int(key.modifierFlags
+            .intersection([.command, .alternate, .control, .shift]).rawValue)
         return Shortcut(keyEquivalent: eq, modifierRaw: raw)
     }
 }

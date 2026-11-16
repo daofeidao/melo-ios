@@ -43,7 +43,33 @@ struct MeloApp: App {
 }
 
 /// 只在进程正常结束时清掉「会话进行中」标记 —— 清不掉就说明这次是闪退。
-final class MeloAppDelegate: NSObject, UIApplicationDelegate {
+final class MeloAppDelegate: UIResponder, UIApplicationDelegate {
+    /// 快捷键挂在 AppDelegate 的 keyCommands 上（响应链末端）。
+    /// 文本框在响应链更前面，会先消费按键，快捷键自动让路。
+    override var keyCommands: [UIKeyCommand]? {
+        #if targetEnvironment(macCatalyst)
+        guard MacGestureSettings.on(MacGestureSettings.keyboardShortcuts) else { return super.keyCommands }
+        // 文本框聚焦时不注册快捷键
+        if let fr = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .flatMap({ $0.windows })
+            .first(where: { $0.isKeyWindow })?
+            .firstResponder,
+           fr is UITextField || fr is UITextView {
+            return super.keyCommands
+        }
+        return (super.keyCommands ?? []) + ShortcutStore.makeKeyCommands(target: self)
+        #else
+        return super.keyCommands
+        #endif
+    }
+
+    @objc func handleShortcutAction(_ command: UIKeyCommand) {
+        #if targetEnvironment(macCatalyst)
+        MacGestures.shared.handleShortcutAction(command)
+        #endif
+    }
+
     func applicationWillTerminate(_ application: UIApplication) {
         Diagnostics.mark("── 正常退出")
         SafeMode.endSession()
