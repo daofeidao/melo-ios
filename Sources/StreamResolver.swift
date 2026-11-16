@@ -217,7 +217,7 @@ enum StreamResolver {
             let reason = JS.string(status["reason"]) ?? state
             if state == "LOGIN_REQUIRED" {
                 // PO Token 可能过期了，下次重铸
-                PoTokenMinter.shared.invalidate()
+                await PoTokenMinter.shared.invalidate()
                 throw ApiError.botCheck(reason)
             }
             throw ApiError.unavailable(reason)
