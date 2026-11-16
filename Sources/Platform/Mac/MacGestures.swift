@@ -3,62 +3,46 @@ import SwiftUI
 import UIKit
 
 #if targetEnvironment(macCatalyst)
+import AppKit
 import CoreAudio
-import AudioToolbox
 
-// MARK: - 系统音量（CoreAudio）
+// MARK: - 系统音量
 
-/// Mac 系统输出音量。走 CoreAudio 的 `kAudioDevicePropertyVolumeScalar`，
-/// 不依赖任何私有 API；设备不支持时优雅降级（静默不动）。
 enum MacVolume {
-
-    /// 当前音量 (0…1)，获取失败返回 -1。
     static var current: Float {
         guard let device = defaultOutputDevice() else { return -1 }
-        var address = AudioObjectPropertyAddress(
+        var addr = AudioObjectPropertyAddress(
             mSelector: AudioObjectPropertySelector(kAudioDevicePropertyVolumeScalar),
             mScope: AudioObjectPropertyScope(kAudioDevicePropertyScopeOutput),
-            mElement: AudioObjectPropertyElement(kAudioObjectPropertyElementMain)
-        )
-        var value = Float32(0)
-        var size = UInt32(MemoryLayout<Float32>.size)
-        let status = AudioObjectGetPropertyData(device, &address, 0, nil, &size, &value)
-        guard status == noErr else { return -1 }
-        return value
+            mElement: AudioObjectPropertyElement(kAudioObjectPropertyElementMain))
+        var v = Float32(0); var sz = UInt32(MemoryLayout<Float32>.size)
+        guard AudioObjectGetPropertyData(device, &addr, 0, nil, &sz, &v) == noErr else { return -1 }
+        return v
     }
-
     static func set(_ volume: Float) {
         guard let device = defaultOutputDevice() else { return }
-        var address = AudioObjectPropertyAddress(
+        var addr = AudioObjectPropertyAddress(
             mSelector: AudioObjectPropertySelector(kAudioDevicePropertyVolumeScalar),
             mScope: AudioObjectPropertyScope(kAudioDevicePropertyScopeOutput),
-            mElement: AudioObjectPropertyElement(kAudioObjectPropertyElementMain)
-        )
-        var value = Float32(max(0, min(1, volume)))
-        let size = UInt32(MemoryLayout<Float32>.size)
-        AudioObjectSetPropertyData(device, &address, 0, nil, size, &value)
+            mElement: AudioObjectPropertyElement(kAudioObjectPropertyElementMain))
+        var v = Float32(max(0, min(1, volume)))
+        AudioObjectSetPropertyData(device, &addr, 0, nil, UInt32(MemoryLayout<Float32>.size), &v)
     }
-
     static func adjust(by delta: Float) {
         let vol = current
         guard vol >= 0 else { return }
         set(vol + delta)
     }
-
     private static func defaultOutputDevice() -> AudioDeviceID? {
-        var deviceID = AudioDeviceID(kAudioObjectUnknown)
-        var address = AudioObjectPropertyAddress(
+        var id = AudioDeviceID(kAudioObjectUnknown)
+        var addr = AudioObjectPropertyAddress(
             mSelector: AudioObjectPropertySelector(kAudioHardwarePropertyDefaultOutputDevice),
             mScope: AudioObjectPropertyScope(kAudioObjectPropertyScopeGlobal),
-            mElement: AudioObjectPropertyElement(kAudioObjectPropertyElementMain)
-        )
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        let status = AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &address, 0, nil, &size, &deviceID
-        )
-        guard status == noErr, deviceID != kAudioObjectUnknown else { return nil }
-        return deviceID
+            mElement: AudioObjectPropertyElement(kAudioObjectPropertyElementMain))
+        var sz = UInt32(MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &sz, &id) == noErr,
+              id != kAudioObjectUnknown else { return nil }
+        return id
     }
 }
 
@@ -70,41 +54,31 @@ enum MacGestureSettings {
     static let verticalVolume    = "melo.mac.gesture.volume"
     static let swipeDismiss      = "melo.mac.gesture.dismiss"
     static let keyboardShortcuts = "melo.mac.keys.enabled"
+    /// 切栏目模式："two-bg"（两指避开横向滚动）/ "three"（三指）/ "off"
+    static let tabSwipeMode      = "melo.mac.gesture.tabMode"
 
     static func on(_ key: String) -> Bool {
         let d = UserDefaults.standard
         if d.object(forKey: key) == nil { return true }
         return d.bool(forKey: key)
     }
-
-    static func set(_ key: String, _ value: Bool) {
-        UserDefaults.standard.set(value, forKey: key)
+    static func set(_ key: String, _ value: Bool) { UserDefaults.standard.set(value, forKey: key) }
+    static func str(_ key: String, _ fallback: String) -> String {
+        UserDefaults.standard.string(forKey: key) ?? fallback
     }
 }
 
-// MARK: - 触控板手势
+// MARK: - 手势 + 快捷键
 
-/// Mac 触控板两指滑动手势。
-///
-/// 手势挂在**窗口**上（不是某个 SwiftUI 视图），`cancelsTouchesInView = false`
-/// 保证列表正常滚动不受影响；只在「快滑」（速度 ≥ 1000 pt/s）时触发动作，
-/// 慢滚不触发。
-///
-/// 按场景区分：
-///   - 主界面：左右滑 = 切栏目；上下滑 = 调音量
-///   - 播放页：左右滑 = 切歌；下滑 = 关闭播放页；上滑 = 调音量
 final class MacGestures: NSObject, UIGestureRecognizerDelegate {
 
     static let shared = MacGestures()
 
-    /// 快滑判定阈值（pt/s）。低于此速度视为正常滚动。
     private let flickThreshold: CGFloat = 1000
-    /// 主轴速度至少是副轴的 1.5 倍才算「明确方向」。
     private let axisRatio: CGFloat = 1.5
-
     private var installed = false
+    private var keyMonitor: Any?
 
-    /// 在 keyWindow 上装手势识别器。幂等，可多次调用。
     func install() {
         guard !installed else { return }
         DispatchQueue.main.async { [weak self] in
@@ -115,17 +89,33 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
             }
             self.attach(to: window)
             self.installed = true
-            Diagnostics.mark("gestures: installed on keyWindow")
+            Diagnostics.mark("gestures: installed")
         }
     }
 
     private func attach(to window: UIWindow) {
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        // ── 两指触控板滑动（scroll 手势）──
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handleTwoFinger(_:)))
         pan.allowedScrollTypesMask = [.continuous, .discrete]
         pan.cancelsTouchesInView = false
         pan.delaysTouchesBegan = false
         pan.delegate = self
         window.addGestureRecognizer(pan)
+
+        // ── 三指滑动（touch 手势，需系统开启「三指拖移」）──
+        let three = UIPanGestureRecognizer(target: self, action: #selector(handleThreeFinger(_:)))
+        three.minimumNumberOfTouches = 3
+        three.maximumNumberOfTouches = 3
+        three.cancelsTouchesInView = false
+        three.delaysTouchesBegan = false
+        three.delegate = self
+        window.addGestureRecognizer(three)
+
+        // ── 键盘快捷键（NSEvent 监听，支持自定义）──
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self else { return event }
+            return self.handleKeyDown(event) ? nil : event
+        }
     }
 
     private static func keyWindow() -> UIWindow? {
@@ -135,9 +125,9 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
             .first { $0.isKeyWindow }
     }
 
-    // MARK: 手势处理
+    // MARK: 两指手势
 
-    @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
+    @objc private func handleTwoFinger(_ recognizer: UIPanGestureRecognizer) {
         guard recognizer.state == .ended || recognizer.state == .cancelled else { return }
         guard let view = recognizer.view else { return }
 
@@ -150,100 +140,90 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
         let playerOpen   = PlayerEngine.shared.opensFullPlayer
 
         if isHorizontal {
-            let goForward = velocity.x < 0   // 手指向左划 → 下一页
+            let goForward = velocity.x < 0
             if playerOpen {
                 guard MacGestureSettings.on(MacGestureSettings.horizontalTracks) else { return }
-                Diagnostics.mark("gesture: swipe \(goForward ? "left→next" : "right→prev")")
+                Diagnostics.mark("gesture 2f: \(goForward ? "left→next" : "right→prev")")
                 if goForward { PlayerEngine.shared.next() } else { PlayerEngine.shared.previous() }
             } else {
-                guard MacGestureSettings.on(MacGestureSettings.horizontalTabs) else { return }
+                let mode = MacGestureSettings.str(MacGestureSettings.tabSwipeMode, "two-bg")
+                guard mode != "off", MacGestureSettings.on(MacGestureSettings.horizontalTabs) else { return }
+                if mode == "two-bg" {
+                    // 两指模式：避开横向滚动区域（排行榜轮播、喜欢艺人行等）
+                    let point = recognizer.location(in: view)
+                    if isOnHorizontalScrollView(at: point, in: view) { return }
+                }
                 switchTab(goForward ? 1 : -1)
             }
         } else if isVertical {
-            // 播放页：下滑关闭
             if playerOpen && velocity.y > 0,
                MacGestureSettings.on(MacGestureSettings.swipeDismiss) {
-                Diagnostics.mark("gesture: swipe down → close player")
+                Diagnostics.mark("gesture 2f: down→close")
                 PlayerEngine.shared.opensFullPlayer = false
                 return
             }
-            // 上下滑动调音量
             guard MacGestureSettings.on(MacGestureSettings.verticalVolume) else { return }
             let delta: Float = velocity.y < 0 ? 0.05 : -0.05
-            Diagnostics.mark("gesture: swipe \(velocity.y < 0 ? "up→vol+" : "down→vol-")")
+            Diagnostics.mark("gesture 2f: vol \(delta > 0 ? "+" : "-")")
             MacVolume.adjust(by: delta)
         }
     }
 
-    /// 切栏目：0 就听 → 1 排行榜 → 2 资料库 → 3 搜索 → 循环
+    // MARK: 三指手势
+
+    @objc private func handleThreeFinger(_ recognizer: UIPanGestureRecognizer) {
+        guard recognizer.state == .ended || recognizer.state == .cancelled else { return }
+        guard let view = recognizer.view else { return }
+        guard MacGestureSettings.str(MacGestureSettings.tabSwipeMode, "two-bg") == "three" else { return }
+
+        let velocity = recognizer.velocity(in: view)
+        guard abs(velocity.x) >= flickThreshold,
+              abs(velocity.x) >= abs(velocity.y) * axisRatio else { return }
+        guard MacGestureSettings.on(MacGestureSettings.horizontalTabs) else { return }
+
+        let goForward = velocity.x < 0
+        Diagnostics.mark("gesture 3f: tab \(goForward ? "→" : "←")")
+        switchTab(goForward ? 1 : -1)
+    }
+
+    /// 检查某个点是否落在横向 ScrollView 上（排行榜轮播等）
+    private func isOnHorizontalScrollView(at point: CGPoint, in view: UIView) -> Bool {
+        guard let hit = view.hitTest(point, with: nil) else { return false }
+        var current: UIView? = hit
+        while let v = current {
+            if let sv = v as? UIScrollView {
+                return sv.contentSize.width > sv.bounds.width + 1
+            }
+            current = v.superview
+        }
+        return false
+    }
+
     private func switchTab(_ direction: Int) {
-        let current = UserDefaults.standard.integer(forKey: "melo.mac.currentTab")
-        let count = 4
-        let next = ((current + direction) % count + count) % count
+        let cur = UserDefaults.standard.integer(forKey: "melo.mac.currentTab")
+        let next = ((cur + direction) % 4 + 4) % 4
         UserDefaults.standard.set(next, forKey: "melo.mac.currentTab")
-        NotificationCenter.default.post(
-            name: .meloSwitchTab,
-            object: nil,
-            userInfo: ["index": next]
-        )
+        NotificationCenter.default.post(name: .meloSwitchTab, object: nil, userInfo: ["index": next])
         Diagnostics.mark("gesture: tab → \(next)")
+    }
+
+    // MARK: 键盘
+
+    private func handleKeyDown(_ event: NSEvent) -> Bool {
+        if ShortcutRecording.capture(event) { return true }
+        return ShortcutStore.handle(event)
     }
 
     // MARK: UIGestureRecognizerDelegate
 
-    /// 与 ScrollView 的 pan 共存：两边都识别，互不取消。
-    func gestureRecognizer(
-        _ gestureRecognizer: UIGestureRecognizer,
-        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
-    ) -> Bool {
+    func gestureRecognizer(_ g: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         true
     }
 }
 
-// MARK: - Tab 切换通知
-
 extension Notification.Name {
     static let meloSwitchTab = Notification.Name("melo.switchTab")
-}
-
-// MARK: - 键盘快捷键载体（SwiftUI）
-
-/// Mac 键盘快捷键：放在 RootView 里，零尺寸不可见，只负责注册 key command。
-/// SwiftUI 的 `.keyboardShortcut` 会走 `UIKeyCommand` 响应链，
-/// 文本框输入时自动让路（不会抢空格/方向键）。
-struct MacKeyboardShortcuts: View {
-    var body: some View {
-        Group {
-            // 空格：播放 / 暂停
-            Button { PlayerEngine.shared.toggle() }
-                label: { Color.clear.frame(width: 0, height: 0) }
-                .keyboardShortcut(.space, modifiers: [])
-
-            // ⌘← / ⌘→：上一曲 / 下一曲
-            Button { PlayerEngine.shared.previous() }
-                label: { Color.clear.frame(width: 0, height: 0) }
-                .keyboardShortcut(.leftArrow, modifiers: [.command])
-            Button { PlayerEngine.shared.next() }
-                label: { Color.clear.frame(width: 0, height: 0) }
-                .keyboardShortcut(.rightArrow, modifiers: [.command])
-
-            // ⌘↑ / ⌘↓：音量增减
-            Button { MacVolume.adjust(by: 0.05) }
-                label: { Color.clear.frame(width: 0, height: 0) }
-                .keyboardShortcut(.upArrow, modifiers: [.command])
-            Button { MacVolume.adjust(by: -0.05) }
-                label: { Color.clear.frame(width: 0, height: 0) }
-                .keyboardShortcut(.downArrow, modifiers: [.command])
-
-            // Esc：关闭播放页
-            Button { PlayerEngine.shared.opensFullPlayer = false }
-                label: { Color.clear.frame(width: 0, height: 0) }
-                .keyboardShortcut(.cancelAction)
-        }
-        .allowsHitTesting(false)
-        .opacity(0)
-        .frame(width: 0, height: 0)
-    }
 }
 
 #endif

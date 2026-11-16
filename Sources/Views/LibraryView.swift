@@ -120,6 +120,8 @@ struct SettingsView: View {
     @AppStorage(MacGestureSettings.verticalVolume) private var macGestureVolume = true
     @AppStorage(MacGestureSettings.swipeDismiss) private var macGestureDismiss = true
     @AppStorage(MacGestureSettings.keyboardShortcuts) private var macKeyboardEnabled = true
+    @AppStorage(MacGestureSettings.tabSwipeMode) private var macTabSwipeMode = "two-bg"
+    @State private var shortcutRefresh = 0   // 重置快捷键后刷新列表
     #endif
     @State private var cacheBytes: Int64 = 0
     @State private var showClearCacheConfirm = false
@@ -205,46 +207,44 @@ struct SettingsView: View {
 
             #if targetEnvironment(macCatalyst)
             Section {
-                Toggle("触控板左右滑动切换栏目", isOn: $macGestureTabs)
                 Toggle("播放页左右滑动切歌", isOn: $macGestureTracks)
                 Toggle("上下滑动调节音量", isOn: $macGestureVolume)
                 Toggle("播放页下滑关闭", isOn: $macGestureDismiss)
             } header: {
                 Text("触控板手势")
             } footer: {
-                Text("两指快滑（速度够快）才触发，慢滚翻列表不受影响。左右滑：主界面切栏目，播放页切歌；上下滑调系统音量；播放页下滑关闭播放页。")
+                Text("两指快滑（速度够快）才触发，慢滚翻列表不受影响。播放页左右滑切歌；上下滑调系统音量；播放页下滑关闭。")
             }
 
             Section {
-                Toggle("键盘快捷键", isOn: $macKeyboardEnabled)
-                HStack {
-                    Text("空格")
-                    Spacer()
-                    Text("播放 / 暂停")
-                        .foregroundColor(Theme.secondaryLabel)
-                }
-                HStack {
-                    Text("⌘←  ⌘→")
-                    Spacer()
-                    Text("上一曲 / 下一曲")
-                        .foregroundColor(Theme.secondaryLabel)
-                }
-                HStack {
-                    Text("⌘↑  ⌘↓")
-                    Spacer()
-                    Text("音量增减")
-                        .foregroundColor(Theme.secondaryLabel)
-                }
-                HStack {
-                    Text("Esc")
-                    Spacer()
-                    Text("关闭播放页")
-                        .foregroundColor(Theme.secondaryLabel)
+                Picker("切栏目手势", selection: $macTabSwipeMode) {
+                    Text("两指滑动（避开横向滚动）").tag("two-bg")
+                    Text("三指滑动").tag("three")
+                    Text("关闭").tag("off")
                 }
             } header: {
-                Text("键盘快捷键")
+                Text("栏目切换")
             } footer: {
-                Text("媒体键（F7 / F8 / F9 或键盘上的播放控制键）始终有效，不受此开关影响。打字时快捷键自动让路。")
+                Text("排行榜、喜欢艺人等横向滚动区域会自动避开。「三指滑动」需在 系统设置 → 辅助功能 → 触控板 开启「三指拖移」；若系统手势拦截了三指滑动，请用「两指滑动」模式。")
+            }
+
+            Section {
+                Toggle("启用键盘快捷键", isOn: $macKeyboardEnabled)
+                if macKeyboardEnabled {
+                    ForEach(ShortcutStore.Action.allCases, id: \.self) { action in
+                        ShortcutSettingRow(action: action)
+                            .id("\(action.rawValue)-\(shortcutRefresh)")
+                    }
+                    Button("恢复默认快捷键") {
+                        ShortcutStore.resetAll()
+                        shortcutRefresh += 1
+                    }
+                    .foregroundColor(.red)
+                }
+            } header: {
+                Text("自定义快捷键")
+            } footer: {
+                Text("点「修改」后按下想要的组合键即可绑定，Esc 取消。媒体键（F7/F8/F9）始终有效不受影响。")
             }
             #endif
 
