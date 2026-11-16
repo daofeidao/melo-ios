@@ -140,14 +140,14 @@ enum ShortcutStore {
     static func makeKeyCommands(target: AnyObject) -> [UIKeyCommand] {
         Action.allCases.map { action in
             let s = load(action)
-            let cmd = UIKeyCommand(
+            return UIKeyCommand(
                 title: action.label,
+                image: nil,
                 action: NSSelectorFromString("handleShortcutAction:"),
                 input: s.keyEquivalent,
-                modifierFlags: UIKeyModifierFlags(rawValue: s.modifierRaw)
+                modifierFlags: UIKeyModifierFlags(rawValue: s.modifierRaw),
+                propertyList: action.rawValue
             )
-            cmd.propertyList = action.rawValue
-            return cmd
         }
     }
 }
