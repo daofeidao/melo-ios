@@ -154,6 +154,30 @@ enum AudioSource {
             return AudioStream(url: cached, itag: -1, bitrate: 0, mime: "audio/mpeg")
         }
 
+        // YouTube 曲目（有 videoId）：单一解析，只走 YouTube，不去国内源匹配。
+        // 用户明确要求：YouTube 上的歌必须用 YouTube 源打开播放，不要在国内源里找替身。
+        // 判断依据：国内音源/本地音乐的 videoId 都是空串，只有 YouTube 曲目才有 videoId。
+        if !track.videoId.isEmpty {
+            guard SourcePrefs.shared.isEnabled("youtube") else {
+                throw ApiError.unavailable(L("This song is not available on domestic sources right now.") + disabledSourcesHint())
+            }
+            do {
+                let stream = try await StreamResolver.resolve(videoId: track.videoId, quality: quality)
+                blockedAt = nil
+                lastResolvedSource = "youtube"
+                lastResolveTrusted = true
+                return stream
+            } catch {
+                if let typed = error as? ApiError, case .botCheck = typed {
+                    noteYouTubeBlocked()
+                } else if error is URLError {
+                    noteYouTubeBlocked()
+                }
+                // 单一解析：失败就明确报错，不 fallback 到国内源
+                throw error
+            }
+        }
+
         // 指定艺人（周杰伦）的歌一律优先歌曲宝：国内源对这批歌基本只给 VIP 死链或 KTV /
         // 翻唱，歌曲宝按「歌名 + 艺人」实搜比对，对上就是原唱。不硬锁：被风控 / 站内没有
         // 时回退到下面常规链路，避免整批放不出声。
