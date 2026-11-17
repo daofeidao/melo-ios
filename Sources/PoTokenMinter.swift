@@ -34,19 +34,36 @@ final class PoTokenMinter {
 
     /// 当前可用的 (poToken, visitorData)。缓存过期会自动重铸。
     /// 铸造失败返回 nil —— 调用方应退回无 Token 请求（部分客户端仍能播）。
-    /// binding 是内容绑定：BgUtils 实测 Web 端对视频请求用**视频 ID**绑定铸 token。
+    /// binding 是内容绑定。未登录：player token 绑视频 ID；
+    /// 已登录：GVS token 绑账号 Session ID（dataSyncId 第一段），见 yt-dlp PO Token Guide。
     func token(for binding: String) async -> (poToken: String, visitorData: String)? {
         if let c = cache, c.binding == binding, Date().timeIntervalSince(c.mintedAt) < ttl {
             return (c.poToken, c.visitorData)
         }
         do {
-            let visitor = try await fetchVisitorData()
+            let visitor = try await fetchVisitorData(cookie: nil).visitorData
             let poToken = try await mint(binding: binding)
             cache = Cached(poToken: poToken, visitorData: visitor, binding: binding, mintedAt: Date())
             Diagnostics.mark("poToken: minted ok (\(poToken.count) chars, visitor \(visitor.count), bind=\(binding))")
             return (poToken, visitor)
         } catch {
             Diagnostics.mark("poToken: mint failed – \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// 登录态铸造：带 Cookie 请求拿 visitorData + dataSyncId，PO Token 绑 dataSyncId。
+    /// 返回 (poToken, visitorData, dataSyncId?)。dataSyncId 为空说明未登录，退回无登录态路径。
+    func tokenWithCookie(for videoId: String, cookie: String) async -> (poToken: String, visitorData: String, dataSyncId: String?)? {
+        do {
+            let (visitor, syncID) = try await fetchVisitorData(cookie: cookie)
+            // 登录态下 GVS token 绑 dataSyncId；没有 dataSyncId 就退回绑 videoId（未登录路径）
+            let binding = syncID ?? videoId
+            let poToken = try await mint(binding: binding)
+            Diagnostics.mark("poToken[login]: minted ok (\(poToken.count) chars, visitor \(visitor.count), sync=\(syncID?.prefix(16) ?? "无"))")
+            return (poToken, visitor, syncID)
+        } catch {
+            Diagnostics.mark("poToken[login]: mint failed – \(error.localizedDescription)")
             return nil
         }
     }
@@ -58,24 +75,36 @@ final class PoTokenMinter {
 
     // MARK: - visitorData
 
-    func fetchVisitorData() async throws -> String {
-        // 打一个极轻量的 browse 请求，从 responseContext.visitorData 拿访客 ID。
-        // 这个 ID 是 PO Token 的绑定标识，发送 player 请求时要放在 X-Goog-Visitor-Id 头里。
+    /// 带 Cookie 打一个轻量 browse，拿 visitorData + dataSyncId。
+    /// dataSyncId 是登录态下 PO Token / GVS 的绑定标识（未登录没有）。
+    /// 注意：用 WEB 客户端（www.youtube.com）铸 token，这样铸出的 PO Token 才配
+    /// `web` 客户端的 player 请求用（yt-dlp 主路径是 web 客户端，不是 web_remix）。
+    func fetchVisitorData(cookie: String?) async throws -> (visitorData: String, dataSyncId: String?) {
+        // 用 WEB 客户端打 www.youtube.com 的 browse，拿 visitorData。
+        // 关键：铸 token 的客户端必须和后续 player 请求的客户端一致（都是 WEB）。
+        // 用普通的 browseId（FEwhat_to_watch 首页），不能用 FEmusic_home（那是 Music 专属）。
         let body: [String: Any] = [
             "context": ["client": [
-                "clientName": "WEB_REMIX",
-                "clientVersion": "1.20241127.01.00",
+                "clientName": "WEB",
+                "clientVersion": "2.20241114.00.00",
                 "hl": "en", "gl": "US"
             ]],
-            "browseId": "FEmusic_home"
+            "browseId": "FEwhat_to_watch"
         ]
-        let root = try await InnerTube.shared.postMusic(endpoint: "browse", body: body)
+        let root = try await InnerTube.shared.post(
+            host: "www.youtube.com", endpoint: "browse",
+            key: InnerTube.shared.playerKey,
+            body: body, userAgent: InnerTube.shared.webUserAgent,
+            visitorData: nil
+        )
+        let syncID = InnerTube.dataSyncId(from: root)
+
         if let ctx = JS.dict(root["responseContext"]),
            let visitor = JS.string(ctx["visitorData"]), !visitor.isEmpty {
-            return visitor
+            return (visitor, syncID)
         }
         // 兜底：从原始响应里的任何嵌套位置找 visitorData
-        if let found = findVisitorData(root), !found.isEmpty { return found }
+        if let found = findVisitorData(root), !found.isEmpty { return (found, syncID) }
         throw MinterError.noVisitor
     }
 
@@ -99,6 +128,8 @@ final class PoTokenMinter {
 
     private static let challengeKey = "O43z0dpjhgX20SCx4KAo"
     private static let waaKey = "AIzaSyDyT5W0Jh49F30Pqqtyfdf7pDLFKLJoAnw"
+    /// Waa/Create 与 GenerateIT 要求 WebKit UA（其他 UA 产出无效 token）
+    private static let webKitUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
 
     private var webView: WKWebView?
 
@@ -107,16 +138,21 @@ final class PoTokenMinter {
         let challenge = try await createChallenge()
         // 2) 解释器 + program 走 HTML 注入，页面里跑挑战 → botguardResponse
         try await prepareWebView(challenge: challenge)
-        let botguardResponse = try await run("await window.__meloSnapshot()")
+        let botguardResponse = try await run("await window.__meloSetup()")
         guard !botguardResponse.isEmpty else { throw MinterError.js("empty botguardResponse") }
         Diagnostics.mark("poToken: snapshot ok (\(botguardResponse.count) chars)")
         // 3) 换 integrityToken
         let integrity = try await generateIT(botguardResponse)
         Diagnostics.mark("poToken: integrity ok (\(integrity.count) chars)")
         // 4) 用 window.__meloPoSignal + integrityToken + 内容绑定 → 铸 PO Token
-        let call = "await window.__meloMint({integrityToken: \(Self.jsString(integrity)), identifier: \(Self.jsString(binding))})"
+        let call = "await window.__meloMint({integrityToken: \(Self.jsString(integrity)), identifier: \(Self.jsString(binding)), _diag: (window.__meloSignalDiag || 'n/a')})"
         let minted = try await run(call)
         guard !minted.isEmpty else { throw MinterError.mintEmpty }
+        // 诊断：signal 结构 + token 前缀，定位铸造 bug
+        if let diag = try? await js("window.__meloSignalDiag") as? String {
+            Diagnostics.mark("poToken: signal=\(diag)")
+        }
+        Diagnostics.mark("poToken: token head=\(String(minted.prefix(24)))")
         return minted
     }
 
@@ -127,6 +163,8 @@ final class PoTokenMinter {
         request.setValue("application/json+protobuf", forHTTPHeaderField: "content-type")
         request.setValue(Self.waaKey, forHTTPHeaderField: "x-goog-api-key")
         request.setValue("grpc-web-javascript/0.1", forHTTPHeaderField: "x-user-agent")
+        // 关键：Waa/Create 需要 WebKit UA，其他 UA 会产出无效 token（waxseal/BgUtils 实测结论）
+        request.setValue(Self.webKitUA, forHTTPHeaderField: "User-Agent")
         request.httpBody = try JSONSerialization.data(withJSONObject: [Self.challengeKey])
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -150,6 +188,8 @@ final class PoTokenMinter {
         request.setValue("application/json+protobuf", forHTTPHeaderField: "content-type")
         request.setValue(Self.waaKey, forHTTPHeaderField: "x-goog-api-key")
         request.setValue("grpc-web-javascript/0.1", forHTTPHeaderField: "x-user-agent")
+        // 关键：Waa/GenerateIT 同样需要 WebKit UA
+        request.setValue(Self.webKitUA, forHTTPHeaderField: "User-Agent")
         request.httpBody = try JSONSerialization.data(withJSONObject: [Self.challengeKey, botguardResponse])
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -209,7 +249,8 @@ final class PoTokenMinter {
         Diagnostics.mark("poToken: VM 未就绪（继续尝试）")
     }
 
-    /// 页面骨架：解释器 + program + 快照/铸造辅助函数
+    /// 页面骨架：解释器 + program + 快照/铸造辅助函数。
+    /// 严格对齐 BgUtils BotGuardClient（load + snapshot + WebPoMinter.mint）。
     static func pageHTML(interpreter: String, program: String, globalName: String) -> String {
         // </ 会提前收掉 <script>；U+2028/U+2029 在 JS 源码里算换行。都转义掉。
         func esc(_ s: String) -> String {
@@ -221,27 +262,39 @@ final class PoTokenMinter {
         <!doctype html><html><head><script>\(esc(interpreter))</script><script>
         window.__meloProgram = \(jsString(program));
         window.__meloGlobal = \(jsString(globalName));
-        window.__meloSnapshot = async function () {
+
+        // 跑一次完整流程：load VM → snapshot（拿 signal）→ 存下 signal，供 mint 用。
+        window.__meloSetup = async function () {
           const vm = window[window.__meloGlobal];
           if (!vm || !vm.a) { throw new Error("VM not loaded"); }
+
+          // 用 callback 拿 asyncSnapshotFunction（实测 syncSnapshotFunction 会挂起）
           let fns = null;
           await vm.a(window.__meloProgram, function (snap, shut, pass, cam) {
             fns = { snap: snap, shut: shut, pass: pass, cam: cam };
           }, true, undefined, function () {}, [[], []]);
           if (!fns || typeof fns.snap !== "function") { throw new Error("snapshot fn missing"); }
-          const signal = [];
+
+          // snapshot：asyncSnapshotFunction(responseCb, [contentBinding, signedTimestamp, webPoSignalOutput, skipPrivacyBuffer])
+          const signal = [];   // webPoSignalOutput：snapshot 会往 [0] 填 getMinter
           const response = await new Promise(function (resolve, reject) {
             try {
               fns.snap(function (r) { resolve(r); }, [undefined, undefined, signal, undefined]);
             } catch (e) { reject(e); }
           });
           window.__meloPoSignal = signal;
+          try {
+            window.__meloSignalDiag = "len=" + signal.length + " [0]=" + typeof signal[0]
+              + (signal[0] ? " name=" + (signal[0].name || "?") : "");
+          } catch (e) { window.__meloSignalDiag = "diag " + e; }
           return String(response);
         };
+
         window.__meloMint = async function (p) {
           const signal = window.__meloPoSignal;
-          if (!signal || !signal[0]) { throw new Error("signal missing"); }
-          // BgUtils 契约：integrityToken 先 base64url 解码成字节，绑定标识也走 UTF-8 字节
+          if (!signal || typeof signal[0] !== "function") {
+            throw new Error("signal missing, diag=" + (p._diag || "n/a"));
+          }
           function b64uToU8(s) {
             s = s.replace(/-/g, "+").replace(/_/g, "/");
             while (s.length % 4) s += "=";
@@ -250,9 +303,10 @@ final class PoTokenMinter {
             for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
             return out;
           }
-          const mint = signal[0](b64uToU8(p.integrityToken));
-          if (typeof mint !== "function") { throw new Error("mint failed"); }
-          const bytes = mint(new TextEncoder().encode(p.identifier));
+          // signal[0] 是 WebPoSignalOutputFunction：(bytes) => Promise<mintCallback>
+          const mint = await signal[0](b64uToU8(p.integrityToken));
+          if (typeof mint !== "function") { throw new Error("mint not fn: " + typeof mint); }
+          const bytes = await mint(new TextEncoder().encode(p.identifier));
           if (!(bytes instanceof Uint8Array)) { throw new Error("token type " + Object.prototype.toString.call(bytes)); }
           let text = "";
           for (let i = 0; i < bytes.length; i++) { text += String.fromCharCode(bytes[i]); }

@@ -116,7 +116,7 @@ final class InnerTube {
     }
 
     /// 音乐接口统一入口：主备域名竞速，成功响应落盘
-    func postMusic(endpoint: String, body: [String: Any], cacheKey: String? = nil) async throws -> [String: Any] {
+    func postMusic(endpoint: String, body: [String: Any], cacheKey: String? = nil, cookie: String? = nil) async throws -> [String: Any] {
         let hosts = InnerTube.musicHosts
         let primary = hosts[0]
         let fallback = hosts.count > 1 ? hosts[1] : hosts[0]
@@ -125,7 +125,7 @@ final class InnerTube {
             group.addTask {
                 try await self.rawPost(
                     host: primary, endpoint: endpoint, key: self.musicKey,
-                    body: body, userAgent: self.webUserAgent, visitorData: nil
+                    body: body, userAgent: self.webUserAgent, visitorData: nil, cookie: cookie
                 )
             }
             group.addTask {
@@ -134,7 +134,7 @@ final class InnerTube {
                 try Task.checkCancellation()
                 return try await self.rawPost(
                     host: fallback, endpoint: endpoint, key: self.musicKey,
-                    body: body, userAgent: self.webUserAgent, visitorData: nil
+                    body: body, userAgent: self.webUserAgent, visitorData: nil, cookie: cookie
                 )
             }
 
@@ -335,11 +335,25 @@ final class InnerTube {
         return InnerTube.parseCollection(root)
     }
 
-    func player(body: [String: Any], userAgent: String, visitorData: String? = nil, cookie: String? = nil) async throws -> [String: Any] {
+    func player(body: [String: Any], userAgent: String, visitorData: String? = nil, cookie: String? = nil, music: Bool = false) async throws -> [String: Any] {
+        // WEB_REMIX（YouTube Music 客户端）必须打 music.youtube.com + musicKey；
+        // 其他 Web 客户端走 www.youtube.com + playerKey。
         try await rawPost(
-            host: "www.youtube.com", endpoint: "player", key: playerKey,
+            host: music ? "music.youtube.com" : "www.youtube.com",
+            endpoint: "player",
+            key: music ? musicKey : playerKey,
             body: body, userAgent: userAgent, visitorData: visitorData, cookie: cookie
         ).0
+    }
+
+    /// 从 Innertube 响应里挖 dataSyncId（登录态下 PO Token / GVS 的绑定标识）。
+    /// 位置：responseContext.mainAppWebResponseContext.dataSyncId。
+    /// 未登录时没有这个字段，返回 nil。
+    static func dataSyncId(from root: [String: Any]) -> String? {
+        guard let ctx = JS.dict(root["responseContext"]),
+              let main = JS.dict(ctx["mainAppWebResponseContext"]),
+              let id = JS.string(main["dataSyncId"]), !id.isEmpty else { return nil }
+        return id
     }
 
     // MARK: - 连接诊断

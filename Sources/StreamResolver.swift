@@ -106,9 +106,20 @@ enum StreamResolver {
     /// 永远过不了；TV / VR 同样要独立鉴权。它们只会拖慢竞速、污染结果，一并移除。
     ///
     /// 现在的原则：**PO Token 铸自哪个 client，player 请求就用哪个 client**，
-    /// 身份完全自洽。第一层走「Web 自洽身份 + PO Token」；第二层回落到
-    /// 「用户录好的 YouTube 登录 Cookie」（走浏览器登录态，和 YouTube 网页一致）。
+    /// 身份完全自洽。
+    ///
+    /// 关键（issue #12482，2025-02 起）：YouTube 对 web / mweb 客户端强制 SABR 分帧流，
+    /// adaptiveFormats 里不再给明文 url（AVPlayer 解不了 SABR）。**tv 客户端不受影响**，
+    /// 能返回明文 url（itag 140 m4a / itag 18 等）。所以 tv 排最前。
+    /// tv 是 Web 平台（TVHTML5 走 HTML5），web 铸的 PO Token 对 tv 有效。
     private static let clients: [Client] = [
+        Client(
+            id: "tv",
+            name: "TVHTML5",
+            version: "7.20241001.00.00",
+            extra: ["hl": "en", "gl": "US"],
+            userAgent: "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version"
+        ),
         Client(
             id: "web-remix",
             name: "WEB_REMIX",
@@ -124,13 +135,6 @@ enum StreamResolver {
             userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
         ),
         Client(
-            id: "web-embedded",
-            name: "WEB_EMBEDDED_PLAYER",
-            version: "1.20241114.00.00",
-            extra: ["hl": "en", "gl": "US"],
-            userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-        ),
-        Client(
             id: "mweb",
             name: "MWEB",
             version: "2.20241114.05.00",
@@ -140,8 +144,16 @@ enum StreamResolver {
     ]
 
     static func resolve(videoId: String, quality: Quality) async throws -> AudioStream {
+        // ── 路线一（优先）：用户登录了 YouTube，走「浏览器登录态」。
+        // 带 Cookie 请求 + 绑 dataSyncId 的 PO Token，和「网页登录后播放」完全自洽，
+        // 穿透力最强。用户网页能播（不登录都行），登录后更稳。
+        if let cookie = SourcePrefs.shared.cookie("youtube"),
+           let stream = try? await attemptWithCookie(videoId: videoId, quality: quality, cookie: cookie) {
+            return stream
+        }
+
+        // ── 路线二：未登录，走「Web 自洽身份 + 绑 videoId 的 PO Token」。
         // 先拿 PO Token（YouTube 2024+ 对 player 接口强制要求，否则 LOGIN_REQUIRED / format=0）
-        // 内容绑定用视频 ID（BgUtils：Web 端对视频请求逐视频铸 token）。
         // 这个 token 是 WEB_REMIX 铸的，所以只配 Web 系客户端用（见 clients 注释）。
         let po = await PoTokenMinter.shared.token(for: videoId)
 
@@ -189,14 +201,6 @@ enum StreamResolver {
 
         if let stream = outcome.stream { return stream }
 
-        // 所有 Web 系客户端都失败：先试「登录 Cookie」这条路（第二层回落）。
-        // 用户在 App 里登录 YouTube 后，SourcePrefs 会存下浏览器 Cookie（SAPISID 等），
-        // 带登录态请求和 YouTube 网页自洽，穿透力最强。
-        if let cookie = SourcePrefs.shared.cookie("youtube"),
-           let stream = try? await attemptWithCookie(videoId: videoId, quality: quality, cookie: cookie, visitorData: po?.visitorData) {
-            return stream
-        }
-
         // 全部被拒：优先按「机器人判定」报错，方便上层触发熔断与提示
         if outcome.botChecked, outcome.failures.isEmpty {
             throw ApiError.botCheck("")
@@ -222,26 +226,29 @@ enum StreamResolver {
             "contentCheckOk": true,
             "racyCheckOk": true
         ]
-        // PO Token 是 WEB_REMIX 铸的，只对「同 client」请求有效；塞给 WEB/MWEB/EMBEDDED
-        // 反而 token 与 client 错配。所以只在 web-remix 上注入，其余裸试。
-        if client.id == "web-remix", let po = po {
+        // PO Token 是 WEB 平台铸的（BotGuard），tv/web-remix/web 都是 Web 平台客户端，
+        // token 通用。都带上，mweb 裸试。
+        if client.id != "mweb", let po = po {
             body["serviceIntegrityDimensions"] = ["poToken": po.poToken]
         }
 
         let root = try await InnerTube.shared.player(
-            body: body, userAgent: client.userAgent, visitorData: po?.visitorData
+            body: body,
+            userAgent: client.userAgent,
+            visitorData: po?.visitorData,
+            music: client.id == "web-remix"
         )
 
         return try parseStream(root: root, client: client, quality: quality)
     }
 
-    /// 第二层回落：带用户录好的 YouTube 登录 Cookie 请求 player。
-    /// 这是「浏览器登录态」路线 —— 和 YouTube 网页自洽，穿透力最强。
+    /// 路线一：带用户录好的 YouTube 登录 Cookie 请求 player。
+    /// 这是「浏览器登录态」路线 —— 和「网页登录后播放」完全自洽，穿透力最强。
+    /// 登录态下 PO Token 绑 dataSyncId（而非 videoId），见 yt-dlp PO Token Guide。
     private static func attemptWithCookie(
         videoId: String,
         quality: Quality,
-        cookie: String,
-        visitorData: String?
+        cookie: String
     ) async throws -> AudioStream {
         // 用 WEB_REMIX（和登录网页一致），身份自洽
         guard let client = clients.first(where: { $0.id == "web-remix" }) else {
@@ -251,12 +258,19 @@ enum StreamResolver {
         clientContext["clientName"] = client.name
         clientContext["clientVersion"] = client.version
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "context": ["client": clientContext],
             "videoId": videoId,
             "contentCheckOk": true,
             "racyCheckOk": true
         ]
+
+        // 登录态铸 PO Token：带 Cookie 拿 visitorData + dataSyncId，token 绑 dataSyncId
+        var visitorData: String?
+        if let login = await PoTokenMinter.shared.tokenWithCookie(for: videoId, cookie: cookie) {
+            visitorData = login.visitorData
+            body["serviceIntegrityDimensions"] = ["poToken": login.poToken]
+        }
 
         let root = try await InnerTube.shared.player(
             body: body,
