@@ -108,11 +108,27 @@ enum StreamResolver {
     /// 现在的原则：**PO Token 铸自哪个 client，player 请求就用哪个 client**，
     /// 身份完全自洽。
     ///
-    /// 关键（issue #12482，2025-02 起）：YouTube 对 web / mweb 客户端强制 SABR 分帧流，
-    /// adaptiveFormats 里不再给明文 url（AVPlayer 解不了 SABR）。**tv 客户端不受影响**，
-    /// 能返回明文 url（itag 140 m4a / itag 18 等）。所以 tv 排最前。
-    /// tv 是 Web 平台（TVHTML5 走 HTML5），web 铸的 PO Token 对 tv 有效。
+    /// 关键（2026-11-17 Mac 实测，权威对照 yt-dlp + BgUtils 官方代码）：
+    /// 1. YouTube 2025-02 起对 **web / mweb** 客户端强制 SABR 分帧流，
+    ///    adaptiveFormats 不再给明文 url（AVPlayer 解不了 SABR）。
+    /// 2. **ANDROID 客户端不受 SABR 强制**，直接返回带明文 url 的音频格式，
+    ///    且**不需要 PO Token、不需要登录、不需要干净出口 IP**（实测 206 + 真 MP4/WebM 数据）。
+    ///    所以它排最前，是现在唯一稳定拿到直链的客户端。
+    /// 3. 它必须带 `osName` / `osVersion` / `androidSdkVersion`，缺了会被判机器人。
+    /// 4. tv / web 系仍作兜底，但它们要么要 TV 平台 token，要么被 SABR 强制。
     private static let clients: [Client] = [
+        Client(
+            id: "android",
+            name: "ANDROID",
+            version: "20.10.38",
+            extra: [
+                "hl": "en", "gl": "US",
+                "androidSdkVersion": 34,
+                "osName": "Android",
+                "osVersion": "14"
+            ],
+            userAgent: "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip"
+        ),
         Client(
             id: "tv",
             name: "TVHTML5",
@@ -144,25 +160,28 @@ enum StreamResolver {
     ]
 
     static func resolve(videoId: String, quality: Quality) async throws -> AudioStream {
-        // ── 路线一（优先）：用户登录了 YouTube，走「浏览器登录态」。
-        // 带 Cookie 请求 + 绑 dataSyncId 的 PO Token，和「网页登录后播放」完全自洽，
-        // 穿透力最强。用户网页能播（不登录都行），登录后更稳。
+        // ── 路线一（主）：ANDROID 客户端直取明文直链。
+        // 实测它不受 SABR 强制、不需要 PO Token、不需要登录、不需要干净出口 IP。
+        // 不看缓存的 winnerID —— 那个可能是旧版本留下的失效身份，先试最可靠的。
+        if let android = clients.first(where: { $0.id == "android" }),
+           let stream = try? await attempt(videoId: videoId, client: android, quality: quality, po: nil) {
+            return stream
+        }
+
+        // ── 路线二：兜底 —— 让真实浏览器（WKWebView）铸 PO Token，Melo 只读。
+        // 前面所有客户端都失败时才走：开浏览器要 3~10 秒，作为最后手段。
+        if let stream = try? await attemptWithBrowserToken(videoId: videoId, quality: quality) {
+            return stream
+        }
+
+        // ── 路线三：用户登录了 YouTube，走「浏览器登录态」。
         if let cookie = SourcePrefs.shared.cookie("youtube"),
            let stream = try? await attemptWithCookie(videoId: videoId, quality: quality, cookie: cookie) {
             return stream
         }
 
-        // ── 路线二：未登录，走「Web 自洽身份 + 绑 videoId 的 PO Token」。
-        // 先拿 PO Token（YouTube 2024+ 对 player 接口强制要求，否则 LOGIN_REQUIRED / format=0）
-        // 这个 token 是 WEB_REMIX 铸的，所以只配 Web 系客户端用（见 clients 注释）。
+        // ── 路线四：自己铸 PO Token（PoTokenMinter）+ 各客户端竞速
         let po = await PoTokenMinter.shared.token(for: videoId)
-
-        // 正常路径：上次成功的身份先单打一次，命中就不必并发打全部
-        if let id = winnerID, let client = clients.first(where: { $0.id == id }) {
-            if let stream = try? await attempt(videoId: videoId, client: client, quality: quality, po: po) {
-                return stream
-            }
-        }
 
         // 身份失效时并发竞速，谁先回可用流用谁；失败也是 1 倍耗时
         let outcome = await withTaskGroup(
@@ -226,9 +245,9 @@ enum StreamResolver {
             "contentCheckOk": true,
             "racyCheckOk": true
         ]
-        // PO Token 是 WEB 平台铸的（BotGuard），tv/web-remix/web 都是 Web 平台客户端，
-        // token 通用。都带上，mweb 裸试。
-        if client.id != "mweb", let po = po {
+        // PO Token 是 Web 平台铸的（BotGuard），配 Web 平台客户端（tv/web-remix/web）通用；
+        // android/mweb 是别的平台，塞 Web 的 token 反而错配，所以不带。
+        if client.id == "tv" || client.id == "web-remix" || client.id == "web", let po = po {
             body["serviceIntegrityDimensions"] = ["poToken": po.poToken]
         }
 
@@ -240,6 +259,85 @@ enum StreamResolver {
         )
 
         return try parseStream(root: root, client: client, quality: quality)
+    }
+
+    /// 路线零：用「真实浏览器铸好的 PO Token」请求 player。
+    ///
+    /// 关键：token 是浏览器铸的（Web 平台 BotGuard），配 tv 客户端用 —— tv 是 Web 平台
+    /// 客户端，而且**不受 SABR 强制**（web/mweb 被强制 SABR，AVPlayer 解不了）。
+    /// 所以这里 tv 排第一，拿到明文直链的概率最高。
+    private static func attemptWithBrowserToken(videoId: String, quality: Quality) async throws -> AudioStream {
+        // 先看页面内联的 player response：如果浏览器拿到的就是明文直链，直接用，
+        // 连 player 接口都不用打（这正是「网页能播」的形态）。
+        if let inline = try? await BrowserPoTokenProvider.shared.inspectInlineResponse(videoID: videoId) {
+            Diagnostics.mark("browserInline: status=\(inline.status) sabr=\(inline.hasSabr) 明文=\(inline.audio.filter { $0.hasURL }.count)/\(inline.audio.count) poToken=\(inline.inlinePoToken.count)")
+            for f in inline.audio {
+                Diagnostics.mark("browserInline: itag=\(f.itag) \(f.mime) \(f.bitrate) url=\(f.hasURL) cipher=\(f.hasCipher)")
+            }
+            if let direct = inline.audio.first(where: { $0.hasURL && $0.mime.contains("mp4") }),
+               let url = URL(string: direct.fullURL) {
+                Diagnostics.mark("browserInline: 直接用明文直链 itag=\(direct.itag)")
+                winnerID = "browser-inline"
+                return AudioStream(url: url, itag: direct.itag, bitrate: direct.bitrate, mime: direct.mime, userAgent: BrowserPoTokenProvider.desktopUA)
+            }
+        }
+
+        // 再从渲染后的 DOM 里找 PO Token（yt-dlp webpo provider 的做法）
+        if let domToken = try? await BrowserPoTokenProvider.shared.domPoToken(videoID: videoId), !domToken.isEmpty {
+            Diagnostics.mark("browserDom: 用 DOM 里的 token \(domToken.count) chars")
+            if let stream = try? await attemptWithToken(videoId: videoId, quality: quality, poToken: domToken, visitorData: nil) {
+                return stream
+            }
+        }
+
+        let captured = try await BrowserPoTokenProvider.shared.token(for: videoId)
+        Diagnostics.mark("browserPo: token \(captured.poToken.count) chars, page client=\(captured.clientName)")
+        return try await attemptWithToken(
+            videoId: videoId, quality: quality, poToken: captured.poToken,
+            visitorData: captured.visitorData.isEmpty ? nil : captured.visitorData
+        )
+    }
+
+    /// 用给定的 PO Token 试各客户端。
+    /// 顺序「tv → web-remix → web」：tv 不受 SABR 强制，最可能给出明文直链。
+    private static func attemptWithToken(
+        videoId: String,
+        quality: Quality,
+        poToken: String,
+        visitorData: String?
+    ) async throws -> AudioStream {
+        let order = ["tv", "web-remix", "web"]
+        for id in order {
+            guard let client = clients.first(where: { $0.id == id }) else { continue }
+            var clientContext = client.extra
+            clientContext["clientName"] = client.name
+            clientContext["clientVersion"] = client.version
+
+            var body: [String: Any] = [
+                "context": ["client": clientContext],
+                "videoId": videoId,
+                "contentCheckOk": true,
+                "racyCheckOk": true
+            ]
+            body["serviceIntegrityDimensions"] = ["poToken": poToken]
+
+            let root = try await InnerTube.shared.player(
+                body: body,
+                userAgent: client.userAgent,
+                visitorData: visitorData,
+                music: client.id == "web-remix"
+            )
+
+            do {
+                let stream = try parseStream(root: root, client: client, quality: quality)
+                Diagnostics.mark("browserPo: resolved via \(client.id)")
+                winnerID = client.id
+                return stream
+            } catch {
+                Diagnostics.mark("browserPo: \(client.id) failed – \((error as? LocalizedError)?.errorDescription ?? "?" )")
+            }
+        }
+        throw ApiError.unavailable(L("The browser token was rejected by YouTube"))
     }
 
     /// 路线一：带用户录好的 YouTube 登录 Cookie 请求 player。

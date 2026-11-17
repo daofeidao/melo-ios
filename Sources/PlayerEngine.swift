@@ -61,6 +61,8 @@ final class PlayerEngine: ObservableObject {
     private var mediaResetObserver: NSObjectProtocol?
     private var retryBudget = 1
     private var itemStatusCancellable: AnyCancellable?
+    private var loadedRangesCancellable: AnyCancellable?
+    private var progressCancellable: AnyCancellable?
     private var loadToken = UUID()
     /// 当前这首正在用的直链和它的来源 —— 手动「缓存到本地」直接复用，
     /// 不必再解析一遍（解析一次又要 1~6 秒）
@@ -441,11 +443,22 @@ final class PlayerEngine: ObservableObject {
     }
 
     private func observeItem(_ item: AVPlayerItem) {
+        // 诊断：拉了多少数据、报了什么错。AVPlayer 在 Mac 上不走系统代理，
+        // 这里能看出是「超时（没走代理）」还是「403（UA 不对）」。
+        loadedRangesCancellable = item.publisher(for: \.loadedTimeRanges)
+            .receive(on: DispatchQueue.main)
+            .sink { ranges in
+                let seconds = ranges.reduce(0.0) { sum, range in
+                    sum + range.timeRangeValue.duration.seconds
+                }
+                Diagnostics.mark(String(format: "avplayer: buffered=%.1fs", seconds))
+            }
         itemStatusCancellable = item.publisher(for: \.status)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
                 guard let self = self else { return }
-                Diagnostics.mark("avplayer: item.status=\(Self.itemStatusName(status)) err=\(item.error?.localizedDescription ?? "nil")")
+                let err = item.error as NSError?
+                Diagnostics.mark("avplayer: item.status=\(Self.itemStatusName(status)) code=\(err?.code ?? 0) domain=\(err?.domain ?? "-") err=\(err?.localizedDescription ?? "nil")")
                 guard status == .failed else { return }
                 let message = item.error?.localizedDescription ?? L("Unknown error")
                 self.errorText = String(format: L("Playback failed: %@"), message)
@@ -463,6 +476,23 @@ final class PlayerEngine: ObservableObject {
                     self.player.pause()
                     self.player.replaceCurrentItem(with: nil)
                 }
+            }
+    }
+
+    /// 每 10 秒记一次播放进度：确认是真的在出声（currentTime 在涨），而不是卡在 buffering。
+    /// 只在进度真的动了的时候记，避免日志被刷爆。
+    private func observeProgress() {
+        var lastLogged = -1.0
+        progressCancellable = Timer.publish(every: 10, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self = self else { return }
+                let t = self.player.currentTime().seconds
+                guard t - lastLogged >= 5 else { return }
+                lastLogged = t
+                let buffered = self.player.currentItem?.loadedTimeRanges.first?
+                    .timeRangeValue.duration.seconds ?? 0
+                Diagnostics.mark(String(format: "avplayer: t=%.1f buffered=%.1fs rate=%.2f", t, buffered, self.player.rate))
             }
     }
 
@@ -736,16 +766,32 @@ final class PlayerEngine: ObservableObject {
         // AVFoundation 有版本会直接抛 unrecognized option —— 这正是「一按播放就退」
         // 这种死法。所以：带 header 建不出来就退回裸 URL 再试，最差是某些源因为
         // 没 UA 被拒（表现为播放失败），而不是整个 App 当场没了。
+        //
+        // 2026-11-17：YouTube 的 googlevideo 直链签名与 User-Agent 绑定，而且
+        // **AVFoundation 的网络栈不跟随 macOS 系统 HTTP 代理**（实测：同一进程里
+        // URLSession 拉流 206 正常、AVPlayer 拉流超时）。所以 YouTube 源改走
+        // 自定义 resource loader：App 自己用 URLSession（走系统代理 + 带 UA）
+        // 拉数据喂给 AVPlayer。国内源不需要代理，保持原来的裸 URL。
         var builtItem: AVPlayerItem?
         #if targetEnvironment(macCatalyst)
-        // Mac：**不传** `AVURLAssetHTTPHeaderFieldsKey`。这是私有键，iOS 侧认，
-        // macOS 侧的 AVFoundation 有的版本会抛异常；而且这个异常可能发生在
-        // AVFoundation 自己的线程上，@try 也接不住，等于必崩。
-        // 代价是少数要看 UA 的源在 Mac 上可能 403（表现为播放失败，可换源），
-        // 但 App 不会退出 —— 比现在"一点播放就没"好得多。
-        Diagnostics.mark("build item · mac，跳过私有 header 键")
-        ExceptionGuard.run("AVURLAsset(裸)") {
-            builtItem = AVPlayerItem(asset: AVURLAsset(url: stream.url))
+        let macUA = stream.userAgent ?? StreamResolver.clientUserAgent
+        // 按直链 host 判断，而不是 source 字符串——缓存命中时 cacheSource 为 nil，
+        // 但缓存里仍是 googlevideo 直链，同样需要走 loader（否则老直链 IP 绑定已失效，必失败）。
+        let isGoogleVideo = stream.url.host?.contains("googlevideo.com") ?? false
+        if currentStreamSource == "youtube" || isGoogleVideo {
+            Diagnostics.mark("build item · mac，走自定义 loader（系统代理 + UA）src=\(currentStreamSource ?? "nil")")
+            ExceptionGuard.run("AVPlayerItem(loader)") {
+                builtItem = StreamResourceLoader.makeItem(
+                    target: stream.url,
+                    headers: ["User-Agent": macUA]
+                )
+            }
+        }
+        if builtItem == nil {
+            Diagnostics.mark("build item · mac，裸 URL")
+            ExceptionGuard.run("AVURLAsset(裸)") {
+                builtItem = AVPlayerItem(asset: AVURLAsset(url: stream.url))
+            }
         }
         #else
         let userAgent = stream.userAgent ?? StreamResolver.clientUserAgent
@@ -772,6 +818,7 @@ final class PlayerEngine: ObservableObject {
         item.preferredForwardBufferDuration = 4
         Diagnostics.mark("build item · \(stream.mime) · \(stream.url.host ?? "-")")
         observeItem(item)
+        observeProgress()
         ExceptionGuard.run("replaceCurrentItem") {
             self.player.replaceCurrentItem(with: item)
         }
