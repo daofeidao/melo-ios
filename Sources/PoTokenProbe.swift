@@ -8,9 +8,10 @@ import WebKit
 ///   2. 在 WKWebView 里跑挑战脚本，得到 botguardResponse
 ///   3. 向 Waa/GenerateIT 换 integrityToken
 ///   4. 用 integrityToken + visitorData 铸出 PO Token
-///   5. 带着 PO Token 发 IOS / ANDROID 的 player 请求，看有没有直链
+///   5. 带着 PO Token 发 Web 系（WEB_REMIX / WEB）的 player 请求，看有没有直链
 ///
-/// 第 5 步是这次验证的唯一目的：`withURL > 0` 就说明方案 B 成立。
+/// 第 5 步是这次验证的唯一目的：`withURL > 0` 就说明方案成立。
+/// 注意：PO Token 是 WEB_REMIX 铸的，只配 Web 系客户端；配 IOS/ANDROID 是错配的假结果。
 @MainActor
 final class PoTokenProbe: ObservableObject {
 
@@ -70,17 +71,19 @@ final class PoTokenProbe: ObservableObject {
     }
 
     private static let iosUA =
-        "com.google.ios.youtube/20.10.38 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)"
-    private static let androidUA =
-        "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip"
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    private static let mwebUA =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
 
+    /// 只测 Web 系客户端：PO Token 是 WEB_REMIX 铸的，只对同 client 有效，
+    /// IOS / ANDROID 要 DroidGuard / iOSGuard，本项目没有，测了也是错配的假结果。
     private static let variants: [Variant] = [
-        Variant(title: L("Variant · IOS (no token)"),
-                clientName: "IOS", clientVersion: "20.10.38", userAgent: PoTokenProbe.iosUA, withToken: false),
-        Variant(title: L("Variant · IOS + token"),
-                clientName: "IOS", clientVersion: "20.10.38", userAgent: PoTokenProbe.iosUA, withToken: true),
-        Variant(title: L("Variant · ANDROID + token"),
-                clientName: "ANDROID", clientVersion: "20.10.38", userAgent: PoTokenProbe.androidUA, withToken: true)
+        Variant(title: L("Variant · WEB_REMIX (no token)"),
+                clientName: "WEB_REMIX", clientVersion: "1.20241127.01.00", userAgent: PoTokenProbe.iosUA, withToken: false),
+        Variant(title: L("Variant · WEB_REMIX + token"),
+                clientName: "WEB_REMIX", clientVersion: "1.20241127.01.00", userAgent: PoTokenProbe.iosUA, withToken: true),
+        Variant(title: L("Variant · WEB (no token)"),
+                clientName: "WEB", clientVersion: "2.20241114.00.00", userAgent: PoTokenProbe.iosUA, withToken: false)
     ]
 
     private struct ProbeResult {
@@ -95,15 +98,6 @@ final class PoTokenProbe: ObservableObject {
             "hl": "en",
             "gl": "US"
         ]
-        if variant.clientName == "IOS" {
-            client["deviceModel"] = "iPhone16,2"
-            client["osName"] = "iPhone"
-            client["osVersion"] = "18.1.0.22B83"
-        } else {
-            client["androidSdkVersion"] = 34
-            client["osName"] = "Android"
-            client["osVersion"] = "14"
-        }
         client["userAgent"] = variant.userAgent
 
         var body: [String: Any] = [

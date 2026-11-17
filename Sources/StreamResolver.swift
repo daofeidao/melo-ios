@@ -94,78 +94,55 @@ enum StreamResolver {
         return lower.contains("/sb/") || lower.contains("sabr") || lower.contains("ump")
     }
 
-    /// 2026-11-10 在同一 VPN 出口实测（未登录、无 cookie / PO Token / visitorData）：
-    /// ANDROID_VR 两个版本全部 LOGIN_REQUIRED、format=0；
-    /// IOS 与 ANDROID 返回 OK，且是明文 AAC 直链，CDN 实测 206 audio/mp4。
-    /// 请求体只保留最小字段 —— 多带 deviceMake 等反而偶发被判机器人。
+    /// 客户端池只保留「浏览器侧」身份（WEB / WEB_REMIX / MWEB / WEB_EMBEDDED_PLAYER）。
     ///
-    /// 2026 实测：IOS/ANDROID 在被标记的出口（数据中心/Cloudflare 动态池）下
-    /// 最容易触 LOGIN_REQUIRED（它们要 DroidGuard/iOSGuard）。而 TV / 网页嵌入 /
-    /// 移动网页这些「浏览器侧」客户端不走手机鉴权，穿透更强——yt-dlp 2026.03
-    /// 起就是靠 tv_downgraded / web_embedded / mweb / web_safari 绕过 Data Sync ID
-    /// 要求的。这里把它们并进竞速池，IOS/ANDROID 被拒时它们顶上。
+    /// 根本原因（2026-11-17 实测确认）：YouTube 的 PO Token（Proof of Origin）是
+    /// **绑定客户端类型**的。本项目里的 PO Token 一直是用 WEB_REMIX 从 BotGuard 铸的
+    /// （见 PoTokenMinter.fetchVisitorData 的 clientName = WEB_REMIX），却把它塞进
+    /// IOS / ANDROID / TV 的 player 请求 —— token 与 client 错配，等于挂了个假通行证，
+    /// YouTube 一眼判 LOGIN_REQUIRED。
+    ///
+    /// IOS / ANDROID 还需要 DroidGuard / iOSGuard / 设备注册态，本项目没有这些，
+    /// 永远过不了；TV / VR 同样要独立鉴权。它们只会拖慢竞速、污染结果，一并移除。
+    ///
+    /// 现在的原则：**PO Token 铸自哪个 client，player 请求就用哪个 client**，
+    /// 身份完全自洽。第一层走「Web 自洽身份 + PO Token」；第二层回落到
+    /// 「用户录好的 YouTube 登录 Cookie」（走浏览器登录态，和 YouTube 网页一致）。
     private static let clients: [Client] = [
         Client(
-            id: "ios-20.10.38",
-            name: "IOS",
-            version: "20.10.38",
+            id: "web-remix",
+            name: "WEB_REMIX",
+            version: "1.20241127.01.00",
             extra: ["hl": "en", "gl": "US"],
-            userAgent: "com.google.ios.youtube/20.10.38 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)"
+            userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
         ),
         Client(
-            id: "ios-20.11.6",
-            name: "IOS",
-            version: "20.11.6",
+            id: "web",
+            name: "WEB",
+            version: "2.20241114.00.00",
             extra: ["hl": "en", "gl": "US"],
-            userAgent: "com.google.ios.youtube/20.11.6 (iPhone16,2; U; CPU iOS 18_3 like Mac OS X)"
-        ),
-        Client(
-            id: "android-20.10.38",
-            name: "ANDROID",
-            version: "20.10.38",
-            extra: ["hl": "en", "gl": "US", "androidSdkVersion": 34],
-            userAgent: "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip"
-        ),
-        Client(
-            id: "tv-downgraded",
-            name: "TVHTML5",
-            version: "5.20260707",
-            extra: ["hl": "en", "gl": "US"],
-            userAgent: "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version"
+            userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
         ),
         Client(
             id: "web-embedded",
             name: "WEB_EMBEDDED_PLAYER",
-            version: "2.20260708.00.00",
+            version: "1.20241114.00.00",
             extra: ["hl": "en", "gl": "US"],
-            userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)"
+            userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
         ),
         Client(
             id: "mweb",
             name: "MWEB",
-            version: "2.20260708.05.00",
+            version: "2.20241114.05.00",
             extra: ["hl": "en", "gl": "US"],
-            userAgent: "Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)"
-        ),
-        Client(
-            id: "web-safari",
-            name: "WEB",
-            version: "2.20260708.00.00",
-            extra: ["hl": "en", "gl": "US"],
-            userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)"
-        ),
-        Client(
-            id: "vr-1.61.48",
-            name: "ANDROID_VR",
-            version: "1.61.48",
-            extra: ["hl": "en", "gl": "US", "androidSdkVersion": 32],
-            userAgent: "com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
+            userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
         )
     ]
 
     static func resolve(videoId: String, quality: Quality) async throws -> AudioStream {
         // 先拿 PO Token（YouTube 2024+ 对 player 接口强制要求，否则 LOGIN_REQUIRED / format=0）
-        // 内容绑定用视频 ID（BgUtils：Web 端对视频请求逐视频铸 token）
+        // 内容绑定用视频 ID（BgUtils：Web 端对视频请求逐视频铸 token）。
+        // 这个 token 是 WEB_REMIX 铸的，所以只配 Web 系客户端用（见 clients 注释）。
         let po = await PoTokenMinter.shared.token(for: videoId)
 
         // 正常路径：上次成功的身份先单打一次，命中就不必并发打全部
@@ -212,7 +189,15 @@ enum StreamResolver {
 
         if let stream = outcome.stream { return stream }
 
-        // 所有客户端都被判机器人：换客户端无用，这是 IP 信誉问题
+        // 所有 Web 系客户端都失败：先试「登录 Cookie」这条路（第二层回落）。
+        // 用户在 App 里登录 YouTube 后，SourcePrefs 会存下浏览器 Cookie（SAPISID 等），
+        // 带登录态请求和 YouTube 网页自洽，穿透力最强。
+        if let cookie = SourcePrefs.shared.cookie("youtube"),
+           let stream = try? await attemptWithCookie(videoId: videoId, quality: quality, cookie: cookie, visitorData: po?.visitorData) {
+            return stream
+        }
+
+        // 全部被拒：优先按「机器人判定」报错，方便上层触发熔断与提示
         if outcome.botChecked, outcome.failures.isEmpty {
             throw ApiError.botCheck("")
         }
@@ -237,8 +222,9 @@ enum StreamResolver {
             "contentCheckOk": true,
             "racyCheckOk": true
         ]
-        // PO Token：YouTube player 接口的「通行证」，没有就 LOGIN_REQUIRED
-        if let po = po {
+        // PO Token 是 WEB_REMIX 铸的，只对「同 client」请求有效；塞给 WEB/MWEB/EMBEDDED
+        // 反而 token 与 client 错配。所以只在 web-remix 上注入，其余裸试。
+        if client.id == "web-remix", let po = po {
             body["serviceIntegrityDimensions"] = ["poToken": po.poToken]
         }
 
@@ -246,6 +232,52 @@ enum StreamResolver {
             body: body, userAgent: client.userAgent, visitorData: po?.visitorData
         )
 
+        return try parseStream(root: root, client: client, quality: quality)
+    }
+
+    /// 第二层回落：带用户录好的 YouTube 登录 Cookie 请求 player。
+    /// 这是「浏览器登录态」路线 —— 和 YouTube 网页自洽，穿透力最强。
+    private static func attemptWithCookie(
+        videoId: String,
+        quality: Quality,
+        cookie: String,
+        visitorData: String?
+    ) async throws -> AudioStream {
+        // 用 WEB_REMIX（和登录网页一致），身份自洽
+        guard let client = clients.first(where: { $0.id == "web-remix" }) else {
+            throw ApiError.unavailable(L("No client available"))
+        }
+        var clientContext = client.extra
+        clientContext["clientName"] = client.name
+        clientContext["clientVersion"] = client.version
+
+        let body: [String: Any] = [
+            "context": ["client": clientContext],
+            "videoId": videoId,
+            "contentCheckOk": true,
+            "racyCheckOk": true
+        ]
+
+        let root = try await InnerTube.shared.player(
+            body: body,
+            userAgent: client.userAgent,
+            visitorData: visitorData,
+            cookie: cookie
+        )
+        Diagnostics.mark("player[cookie] resolved")
+
+        let stream = try parseStream(root: root, client: client, quality: quality)
+        // cookie 路线成功也记下来，下次可优先走
+        winnerID = client.id
+        return stream
+    }
+
+    /// 从 player 响应里挑出音频流。attempt / attemptWithCookie 共用。
+    private static func parseStream(
+        root: [String: Any],
+        client: Client,
+        quality: Quality
+    ) throws -> AudioStream {
         if let status = JS.dict(root["playabilityStatus"]),
            let state = JS.string(status["status"]),
            state != "OK" {
@@ -253,7 +285,7 @@ enum StreamResolver {
             Diagnostics.mark("player[\(client.id)]: \(state) · \(reason)")
             if state == "LOGIN_REQUIRED" {
                 // PO Token 可能过期了，下次重铸
-                await PoTokenMinter.shared.invalidate()
+                Task { await PoTokenMinter.shared.invalidate() }
                 throw ApiError.botCheck(reason)
             }
             throw ApiError.unavailable(reason)
@@ -301,8 +333,6 @@ enum StreamResolver {
             throw ApiError.unavailable(L("Invalid audio URL"))
         }
 
-        // 记下能用的身份：以后起播只打这一个请求
-        winnerID = client.id
         return AudioStream(
             url: url,
             itag: JS.int(chosen["itag"]) ?? 0,

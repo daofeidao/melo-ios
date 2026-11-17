@@ -326,7 +326,7 @@ struct YouTubeWebProbeView: View {
                 } header: {
                     Text(L("PO Token Half Check"))
                 } footer: {
-                    Text(L("Mints a PO Token inside a hidden WebView, then asks YouTube for a direct audio URL as IOS / ANDROID."))
+                    Text(L("Mints a PO Token inside a hidden WebView, then asks YouTube for a direct audio URL as WEB_REMIX / WEB."))
                 }
 
                 Section {

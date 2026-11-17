@@ -55,7 +55,9 @@ final class InnerTube {
         key: String,
         body: [String: Any],
         userAgent: String,
-        visitorData: String?
+        visitorData: String?,
+        origin: String? = nil,
+        cookie: String? = nil
     ) async throws -> ([String: Any], Data) {
         guard var components = URLComponents(string: "https://\(host)/youtubei/v1/\(endpoint)") else {
             throw ApiError.badURL
@@ -66,17 +68,21 @@ final class InnerTube {
         ]
         guard let url = components.url else { throw ApiError.badURL }
 
+        let originValue = origin ?? "https://music.youtube.com"
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 12
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("https://music.youtube.com", forHTTPHeaderField: "Origin")
-        request.setValue("https://music.youtube.com/", forHTTPHeaderField: "Referer")
+        request.setValue(originValue, forHTTPHeaderField: "Origin")
+        request.setValue(originValue + "/", forHTTPHeaderField: "Referer")
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
         if let visitorData = visitorData, !visitorData.isEmpty {
             request.setValue(visitorData, forHTTPHeaderField: "X-Goog-Visitor-Id")
+        }
+        if let cookie = cookie, !cookie.isEmpty {
+            request.setValue(cookie, forHTTPHeaderField: "Cookie")
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
@@ -329,10 +335,10 @@ final class InnerTube {
         return InnerTube.parseCollection(root)
     }
 
-    func player(body: [String: Any], userAgent: String, visitorData: String? = nil) async throws -> [String: Any] {
+    func player(body: [String: Any], userAgent: String, visitorData: String? = nil, cookie: String? = nil) async throws -> [String: Any] {
         try await rawPost(
             host: "www.youtube.com", endpoint: "player", key: playerKey,
-            body: body, userAgent: userAgent, visitorData: visitorData
+            body: body, userAgent: userAgent, visitorData: visitorData, cookie: cookie
         ).0
     }
 

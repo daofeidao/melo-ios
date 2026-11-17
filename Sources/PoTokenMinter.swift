@@ -64,7 +64,7 @@ final class PoTokenMinter {
         let body: [String: Any] = [
             "context": ["client": [
                 "clientName": "WEB_REMIX",
-                "clientVersion": "1.20241111.01.00",
+                "clientVersion": "1.20241127.01.00",
                 "hl": "en", "gl": "US"
             ]],
             "browseId": "FEmusic_home"

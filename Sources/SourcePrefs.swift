@@ -46,7 +46,9 @@ final class SourcePrefs: ObservableObject {
         // 网易云 / QQ：不登录基本只有 128k，且网易云匿名会撞 -462 限流 → 需要
         SourceInfo(id: "netease", name: "网易云音乐", login: .required),
         SourceInfo(id: "qq", name: "QQ 音乐", login: .required),
-        SourceInfo(id: "youtube", name: "YouTube Music", login: .none),
+        // YouTube：PO Token 自洽身份走不通时（脏出口 IP 高风控），回落到浏览器登录态。
+        // 用户登录 YouTube 网页后，App 能复用其 Cookie（SAPISID 等）拿到播放流。
+        SourceInfo(id: "youtube", name: "YouTube Music", login: .optional),
         // 最后兜底：走歌曲宝的网页取流，回到酷我 CDN 的 128k。不开也能正常用，只是少救几首
         SourceInfo(id: "gequbao", name: "歌曲宝（128k 兜底）", login: .verify)
     ]
@@ -90,6 +92,9 @@ final class SourcePrefs: ObservableObject {
         case "qq": return "https://y.qq.com/"
         case "kuwo": return "https://m.kuwo.cn/newh5app/"
         case "kugou": return "https://www.kugou.com/"
+        // YouTube：登录网页后 Cookie 落进 WebView，用于「浏览器登录态」回落播放。
+        // 走桌面 UA（music.youtube.com 是 PC 版登录入口）。
+        case "youtube": return "https://music.youtube.com/"
         // 歌曲宝：它前面挂 Cloudflare，被风控时需要在 App 内 WebView 过人机验证。
         // 进首页即可，验证通过后会落 cf_clearance Cookie。
         case "gequbao": return "https://www.gequbao.com/"
@@ -105,6 +110,8 @@ final class SourcePrefs: ObservableObject {
         case "qq": return "qm_keyst="
         case "kuwo": return "kw_token="
         case "kugou": return "KuGoo="
+        // YouTube 登录态看 SAPISID / __Secure-3PAPISID（Google 账号鉴权 Cookie）
+        case "youtube": return "SAPISID="
         // 歌曲宝的人机验证看 Cloudflare 的 cf_clearance：出现这个就说明验证过了
         case "gequbao": return "cf_clearance="
         default: return nil
@@ -118,6 +125,7 @@ final class SourcePrefs: ObservableObject {
         case "qq": return "qq.com"
         case "kuwo": return "kuwo.cn"
         case "kugou": return "kugou.com"
+        case "youtube": return "youtube.com"
         case "gequbao": return "gequbao.com"
         default: return ""
         }
