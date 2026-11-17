@@ -12,6 +12,7 @@ struct ArtistDetailView: View {
 
     @EnvironmentObject private var player: PlayerEngine
     @EnvironmentObject private var library: Library
+    @Environment(\.dismiss) private var dismiss
     @State private var profile: ArtistInfo.Profile?
     @State private var albums: [DomesticSource.DomesticAlbum] = []
     @State private var tracks: [Track] = []
@@ -50,6 +51,19 @@ struct ArtistDetailView: View {
         }
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
+        // 快速下滑退出：在艺人页里快速向下甩（flick down）就返回上一页。
+        // 用 simultaneousGesture 和 ScrollView 滚动并存，只认「向下的快速甩动」，
+        // 普通慢速滚动不受影响。
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20)
+                .onEnded { value in
+                    let vy = value.predictedEndTranslation.height - value.translation.height
+                    let fastDown = value.translation.height > 80 && vy > 40
+                    if fastDown {
+                        dismiss()
+                    }
+                }
+        )
         .task {
             ArtistStore.remember(name)
             // 艺人页是 NavigationLink 推出来的：从子页（专辑）pop 回来时视图仍活着、
@@ -291,6 +305,20 @@ struct ArtistDetailView: View {
         loading = true
         errorText = nil
 
+        // 缓存秒开：退出再进来时，先直接展示上次的结果，后台再静默刷新。
+        // 这样二次进入不再是「转圈 + 全量重拉」，而是立即有内容。
+        if let cached = ArtistDetailCache.get(name) {
+            await MainActor.run {
+                profile = cached.profile
+                albums = cached.albums
+                tracks = cached.tracks
+                loading = false
+            }
+            // 已有缓存就不再阻塞等待网络；后台静默拉最新，拉到就更新。
+            await refreshInBackground()
+            return
+        }
+
         // 先把艺人本体解析出来（id / 头像 / 简介），专辑和歌曲都靠这个 id 直取
         let p = await ArtistInfo.load(name: name)
         let artistID = p?.id ?? 0
@@ -359,6 +387,52 @@ struct ArtistDetailView: View {
                 errorText = L("No artist info found. Try another name.")
             }
         }
+        // 结果落缓存，下次秒开
+        ArtistDetailCache.set(name, profile: p, albums: cleanAlbums, tracks: final)
+    }
+
+    /// 后台静默刷新：已有缓存时，拉最新数据并更新缓存与界面。
+    private func refreshInBackground() async {
+        let p = await ArtistInfo.load(name: name)
+        let artistID = p?.id ?? 0
+
+        var rawAlbums: [DomesticSource.DomesticAlbum] = []
+        var collected: [Track] = []
+        if artistID > 0 {
+            async let albumsTask = DomesticSource.artistAlbums(artistID: artistID)
+            async let songsTask = DomesticSource.artistSongs(artistID: artistID)
+            async let topTask = DomesticSource.artistTopSongs(artistID: artistID)
+            rawAlbums = await albumsTask
+            collected += await songsTask
+            collected += (await topTask).filter { primaryArtistMatches(term: name, artist: $0.artist) }
+        }
+        if rawAlbums.isEmpty {
+            rawAlbums = await DomesticSource.neteaseAlbumSearch(query: name, limit: 30)
+        }
+        let cleanAlbums = rawAlbums
+            .filter { ($0.artist.isEmpty || artistMatches(term: name, artist: $0.artist)) && isCleanTitle($0.name) }
+            .sorted { $0.trackCount == $1.trackCount ? $0.name < $1.name : $0.trackCount > $1.trackCount }
+        if !cleanAlbums.isEmpty {
+            collected += await DomesticSource.artistAlbumTracks(albumIDs: Array(cleanAlbums.prefix(6).map(\.id)))
+        }
+        let all = dedup(collected).filter {
+            artistMatches(term: name, artist: $0.artist) && isCleanTitle($0.title) && isCleanTitle($0.album ?? "")
+        }
+        let own = all.filter { primaryArtistMatches(term: name, artist: $0.artist) }
+        let collab = all.filter { !primaryArtistMatches(term: name, artist: $0.artist) }
+        var final: [Track] = []
+        var seen = Set<String>()
+        for track in own + collab {
+            let key = normalize(track.title)
+            if seen.insert(key).inserted { final.append(track) }
+        }
+
+        await MainActor.run {
+            profile = p
+            albums = cleanAlbums
+            tracks = final
+        }
+        ArtistDetailCache.set(name, profile: p, albums: cleanAlbums, tracks: final)
     }
 
     private func dedup(_ list: [Track]) -> [Track] {

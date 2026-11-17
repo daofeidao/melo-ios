@@ -159,9 +159,6 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
         guard let view = recognizer.view else { return }
 
         let velocity = recognizer.velocity(in: view)
-        let speed = max(abs(velocity.x), abs(velocity.y))
-        guard speed >= flickThreshold else { return }
-
         let isHorizontal = abs(velocity.x) >= abs(velocity.y) * axisRatio
         let isVertical   = abs(velocity.y) >= abs(velocity.x) * axisRatio
         let playerOpen   = PlayerEngine.shared.opensFullPlayer
@@ -175,17 +172,26 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
             } else {
                 let mode = MacGestureSettings.str(MacGestureSettings.tabSwipeMode, "two-bg")
                 guard mode != "off", MacGestureSettings.on(MacGestureSettings.horizontalTabs) else { return }
+                // 用户要求：不再判断滑动快慢（快慢阈值经常导致「没反应」）。
+                // 改为纯位置判断——鼠标落在横向可滚动的列表上就只滚列表，
+                // 落在空白处就切栏目。
                 if mode == "two-bg" {
                     let point = recognizer.location(in: view)
-                    if isOnHorizontalScrollView(at: point, in: view) { return }
+                    if isOnScrollView(at: point, in: view) { return }
                 }
                 switchTab(goForward ? 1 : -1)
             }
         } else if isVertical {
-            if playerOpen && velocity.y > 0,
-               MacGestureSettings.on(MacGestureSettings.swipeDismiss) {
-                Diagnostics.mark("gesture 2f: down→close")
-                PlayerEngine.shared.opensFullPlayer = false
+            if playerOpen {
+                // 播放页打开时：两指下滑关闭播放页；两指上滑打开「播放源」面板。
+                if velocity.y > 0 {
+                    guard MacGestureSettings.on(MacGestureSettings.swipeDismiss) else { return }
+                    Diagnostics.mark("gesture 2f: down→close")
+                    PlayerEngine.shared.opensFullPlayer = false
+                } else {
+                    Diagnostics.mark("gesture 2f: up→open sources")
+                    NotificationCenter.default.post(name: .meloOpenPlayerSource, object: nil)
+                }
                 return
             }
             guard MacGestureSettings.on(MacGestureSettings.verticalVolume) else { return }
@@ -211,21 +217,31 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
         switchTab(goForward ? 1 : -1)
     }
 
-    private func isOnHorizontalScrollView(at point: CGPoint, in view: UIView) -> Bool {
+    /// 鼠标落在「可滚动的列表」上时，滑动只滚列表、不切栏目。
+    /// 用户要求：歌曲列表 / 排行榜歌单列表都属于这种，滑动不切栏；
+    /// 落在空白处才切栏。
+    private func isOnScrollView(at point: CGPoint, in view: UIView) -> Bool {
         guard let hit = view.hitTest(point, with: nil) else { return false }
         var current: UIView? = hit
         while let v = current {
             if let sv = v as? UIScrollView {
-                return sv.contentSize.width > sv.bounds.width + 1
+                let canScrollH = sv.contentSize.width > sv.bounds.width + 1
+                let canScrollV = sv.contentSize.height > sv.bounds.height + 1
+                return canScrollH || canScrollV
             }
             current = v.superview
         }
         return false
     }
 
+    /// 切栏目：不循环。滑到最左（第 0 栏）再左滑就停住，最右同理。
     private func switchTab(_ direction: Int) {
         let cur = UserDefaults.standard.integer(forKey: "melo.mac.currentTab")
-        let next = ((cur + direction) % 4 + 4) % 4
+        let next = cur + direction
+        guard next >= 0, next <= 3 else {
+            Diagnostics.mark("gesture: tab 已到边界 (\(cur)\(direction > 0 ? "→" : "←") 越界)")
+            return
+        }
         UserDefaults.standard.set(next, forKey: "melo.mac.currentTab")
         NotificationCenter.default.post(name: .meloSwitchTab, object: nil, userInfo: ["index": next])
         Diagnostics.mark("gesture: tab → \(next)")
@@ -242,6 +258,7 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
 extension Notification.Name {
     static let meloSwitchTab = Notification.Name("melo.switchTab")
     static let meloRefreshKeyCommands = Notification.Name("melo.refreshKeyCommands")
+    static let meloOpenPlayerSource = Notification.Name("melo.openPlayerSource")
 }
 
 /// 找到当前 firstResponder（遍历视图树）

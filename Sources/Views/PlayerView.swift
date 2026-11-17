@@ -172,6 +172,10 @@ struct PlayerView: View {
             await loadArtwork()
             await loadLyrics()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .meloOpenPlayerSource)) { _ in
+            // Mac 两指上滑打开「播放源」面板
+            activeSheet = .sources
+        }
         .onDisappear {
             offset = 0
         }
@@ -500,46 +504,49 @@ struct PlayerView: View {
 
     private var bottomBar: some View {
         VStack(spacing: 8) {
-            HStack {
-                // 左下角：原来是装饰性的 text.quote（静态 Image，点了没反应），
-                // 现在改成播放历史入口，和中间的待播清单配成一对
+            HStack(spacing: 0) {
+                // 左下角：播放历史入口。感应区从 44×32 扩到 72×56，
+                // 图标居中不动——大屏（iPad/Mac）鼠标不用精准点中小图标。
                 Button {
                     activeSheet = .library
                 } label: {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 17))
                         .foregroundColor(.white.opacity(0.85))
-                        .frame(width: 44, height: 32)
+                        .frame(width: 72, height: 56)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(PlainButtonStyle())
 
                 Spacer()
 
-                // 位置与图标都沿用原来的列表图标，内容改成音源切换；
-                // 手动锁定音源时变红，提示当前不是自动模式
+                // 中间：音源切换。手动锁定音源时变红。
                 Button {
                     activeSheet = .sources
                 } label: {
                     Image(systemName: "list.bullet")
                         .font(.system(size: 18))
                         .foregroundColor(player.preferredSource == nil ? .white.opacity(0.85) : Theme.accent)
-                        .frame(width: 44, height: 32)
+                        .frame(width: 72, height: 56)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(PlainButtonStyle())
 
                 Spacer()
 
+                // 右下角：收起播放页。
                 Button {
                     close()
                 } label: {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 18, weight: .medium))
                         .foregroundColor(.white.opacity(0.85))
-                        .frame(width: 44, height: 32)
+                        .frame(width: 72, height: 56)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            .padding(.horizontal, 30)
+            .padding(.horizontal, 24)
             .padding(.bottom, Layout.safeBottom > 0 ? 6 : 16)
         }
     }

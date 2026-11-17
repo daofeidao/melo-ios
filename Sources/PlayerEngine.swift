@@ -121,6 +121,7 @@ final class PlayerEngine: ObservableObject {
             .sink { [weak self] status in
                 guard let self = self else { return }
                 let playing = status == .playing
+                Diagnostics.mark("avplayer: status=\(Self.name(status)) rate=\(self.player.rate)")
                 if self.isPlaying != playing {
                     self.isPlaying = playing
                     self.updateNowPlaying()
@@ -443,7 +444,9 @@ final class PlayerEngine: ObservableObject {
         itemStatusCancellable = item.publisher(for: \.status)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
-                guard let self = self, status == .failed else { return }
+                guard let self = self else { return }
+                Diagnostics.mark("avplayer: item.status=\(Self.itemStatusName(status)) err=\(item.error?.localizedDescription ?? "nil")")
+                guard status == .failed else { return }
                 let message = item.error?.localizedDescription ?? L("Unknown error")
                 self.errorText = String(format: L("Playback failed: %@"), message)
                 self.isLoading = false
@@ -865,6 +868,26 @@ final class PlayerEngine: ObservableObject {
                 self.artworkCache[urlString] = image
                 self.updateNowPlaying()
             }
+        }
+    }
+
+    // MARK: - 播放状态观测（诊断用）
+
+    private static func name(_ status: AVPlayer.TimeControlStatus) -> String {
+        switch status {
+        case .paused: return "paused"
+        case .waitingToPlayAtSpecifiedRate: return "waiting"
+        case .playing: return "playing"
+        @unknown default: return "unknown(\(status.rawValue))"
+        }
+    }
+
+    private static func itemStatusName(_ status: AVPlayerItem.Status) -> String {
+        switch status {
+        case .unknown: return "unknown"
+        case .readyToPlay: return "readyToPlay"
+        case .failed: return "failed"
+        @unknown default: return "unknown(\(status.rawValue))"
         }
     }
 }

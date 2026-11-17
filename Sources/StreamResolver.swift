@@ -98,6 +98,12 @@ enum StreamResolver {
     /// ANDROID_VR 两个版本全部 LOGIN_REQUIRED、format=0；
     /// IOS 与 ANDROID 返回 OK，且是明文 AAC 直链，CDN 实测 206 audio/mp4。
     /// 请求体只保留最小字段 —— 多带 deviceMake 等反而偶发被判机器人。
+    ///
+    /// 2026 实测：IOS/ANDROID 在被标记的出口（数据中心/Cloudflare 动态池）下
+    /// 最容易触 LOGIN_REQUIRED（它们要 DroidGuard/iOSGuard）。而 TV / 网页嵌入 /
+    /// 移动网页这些「浏览器侧」客户端不走手机鉴权，穿透更强——yt-dlp 2026.03
+    /// 起就是靠 tv_downgraded / web_embedded / mweb / web_safari 绕过 Data Sync ID
+    /// 要求的。这里把它们并进竞速池，IOS/ANDROID 被拒时它们顶上。
     private static let clients: [Client] = [
         Client(
             id: "ios-20.10.38",
@@ -119,6 +125,34 @@ enum StreamResolver {
             version: "20.10.38",
             extra: ["hl": "en", "gl": "US", "androidSdkVersion": 34],
             userAgent: "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip"
+        ),
+        Client(
+            id: "tv-downgraded",
+            name: "TVHTML5",
+            version: "5.20260707",
+            extra: ["hl": "en", "gl": "US"],
+            userAgent: "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version"
+        ),
+        Client(
+            id: "web-embedded",
+            name: "WEB_EMBEDDED_PLAYER",
+            version: "2.20260708.00.00",
+            extra: ["hl": "en", "gl": "US"],
+            userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)"
+        ),
+        Client(
+            id: "mweb",
+            name: "MWEB",
+            version: "2.20260708.05.00",
+            extra: ["hl": "en", "gl": "US"],
+            userAgent: "Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)"
+        ),
+        Client(
+            id: "web-safari",
+            name: "WEB",
+            version: "2.20260708.00.00",
+            extra: ["hl": "en", "gl": "US"],
+            userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)"
         ),
         Client(
             id: "vr-1.61.48",
