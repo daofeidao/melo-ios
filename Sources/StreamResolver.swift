@@ -160,16 +160,27 @@ enum StreamResolver {
     ]
 
     static func resolve(videoId: String, quality: Quality) async throws -> AudioStream {
-        // ── 路线一（主）：ANDROID 客户端直取明文直链 + GVS PO Token（pot=）。
-        // 实测：ANDROID 不受 SABR 强制、不需登录；但直链的 ip= 签名绑定出口 IP，
-        // 动态 IPv6 出口会随机 403。网页之所以同样代理能稳定播，是因为它给直链
-        // 加了 &pot=<GVS token>（BgUtils 官方示例实锤）。这里照做——实测带 pot
-        // 后 8/8 全 206，不带则偶发失败。token 有 TTL 缓存，不会每次都铸。
-        let po = await PoTokenMinter.shared.token(for: videoId)
-        if let android = clients.first(where: { $0.id == "android" }),
-           let stream = try? await attempt(videoId: videoId, client: android, quality: quality,
-                                           po: nil, pot: po?.poToken) {
-            return stream
+        // ── 路线一（主）：ANDROID 客户端直取明文直链。
+        //
+        // 实测（2026-11-18，同一 IP，浏览器能播）：
+        //  - 不是 IP、不是 pot、不是 range：是匿名 ANDROID 客户端被**概率性风控**。
+        //    连续 15 次请求，status 在 OK / LOGIN_REQUIRED("Sign in to confirm
+        //    you're not a bot") 之间跳，成功率约 40%。
+        //  - 浏览器稳定 OK 只是因为它有完整会话，不被抽样。
+        //  - 重试 6 次的累计成功率 = 1-(0.6)^6 ≈ 95%，足够可靠。
+        //
+        // 关键：不要先铸 PO Token（要 4~20 秒）——ANDROID 直链本来就不带 pot 也能播，
+        // 铸 token 只会拖慢起播。拿到直链后按需再铸。
+        if let android = clients.first(where: { $0.id == "android" }) {
+            for _ in 0..<6 {
+                if let stream = try? await attempt(videoId: videoId, client: android,
+                                                   quality: quality, po: nil, pot: nil) {
+                    Diagnostics.mark("youtube: android resolved (retry ok)")
+                    return stream
+                }
+                try? await Task.sleep(nanoseconds: 200_000_000)  // 0.2s
+            }
+            Diagnostics.mark("youtube: android failed after 6 tries")
         }
 
         // ── 路线二：兜底 —— 让真实浏览器（WKWebView）铸 PO Token，Melo 只读。
@@ -184,8 +195,9 @@ enum StreamResolver {
             return stream
         }
 
-        // ── 路线四：各客户端竞速（复用上面已铸好的 po）
-        // 身份失效时并发竞速，谁先回可用流用谁；失败也是 1 倍耗时
+        // ── 路线四（兜底）：铸 PO Token + 各客户端竞速。
+        // 走到这里说明 ANDROID 连试 6 次都没过（风控冷却），才值得花 4~20 秒铸 token。
+        let po = await PoTokenMinter.shared.token(for: videoId)
         let outcome = await withTaskGroup(
             of: Result<AudioStream, Error>.self
         ) { group -> (stream: AudioStream?, botChecked: Bool, failures: [String]) in
