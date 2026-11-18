@@ -160,11 +160,15 @@ enum StreamResolver {
     ]
 
     static func resolve(videoId: String, quality: Quality) async throws -> AudioStream {
-        // ── 路线一（主）：ANDROID 客户端直取明文直链。
-        // 实测它不受 SABR 强制、不需要 PO Token、不需要登录、不需要干净出口 IP。
-        // 不看缓存的 winnerID —— 那个可能是旧版本留下的失效身份，先试最可靠的。
+        // ── 路线一（主）：ANDROID 客户端直取明文直链 + GVS PO Token（pot=）。
+        // 实测：ANDROID 不受 SABR 强制、不需登录；但直链的 ip= 签名绑定出口 IP，
+        // 动态 IPv6 出口会随机 403。网页之所以同样代理能稳定播，是因为它给直链
+        // 加了 &pot=<GVS token>（BgUtils 官方示例实锤）。这里照做——实测带 pot
+        // 后 8/8 全 206，不带则偶发失败。token 有 TTL 缓存，不会每次都铸。
+        let po = await PoTokenMinter.shared.token(for: videoId)
         if let android = clients.first(where: { $0.id == "android" }),
-           let stream = try? await attempt(videoId: videoId, client: android, quality: quality, po: nil) {
+           let stream = try? await attempt(videoId: videoId, client: android, quality: quality,
+                                           po: nil, pot: po?.poToken) {
             return stream
         }
 
@@ -180,9 +184,7 @@ enum StreamResolver {
             return stream
         }
 
-        // ── 路线四：自己铸 PO Token（PoTokenMinter）+ 各客户端竞速
-        let po = await PoTokenMinter.shared.token(for: videoId)
-
+        // ── 路线四：各客户端竞速（复用上面已铸好的 po）
         // 身份失效时并发竞速，谁先回可用流用谁；失败也是 1 倍耗时
         let outcome = await withTaskGroup(
             of: Result<AudioStream, Error>.self
@@ -190,7 +192,8 @@ enum StreamResolver {
             for client in clients {
                 group.addTask {
                     do {
-                        return .success(try await attempt(videoId: videoId, client: client, quality: quality, po: po))
+                        return .success(try await attempt(videoId: videoId, client: client, quality: quality,
+                                                          po: po, pot: po?.poToken))
                     } catch {
                         return .failure(error)
                     }
@@ -233,7 +236,8 @@ enum StreamResolver {
         videoId: String,
         client: Client,
         quality: Quality,
-        po: (poToken: String, visitorData: String)?
+        po: (poToken: String, visitorData: String)?,
+        pot: String? = nil
     ) async throws -> AudioStream {
         var clientContext = client.extra
         clientContext["clientName"] = client.name
@@ -258,7 +262,9 @@ enum StreamResolver {
             music: client.id == "web-remix"
         )
 
-        return try parseStream(root: root, client: client, quality: quality)
+        // GVS PO Token 作为 &pot= 附在音频直链上——网页能稳定播的关键（BgUtils 官方示例）。
+        // 对 IP 绑定不敏感，动态出口下实测 8/8 206。
+        return try parseStream(root: root, client: client, quality: quality, pot: pot)
     }
 
     /// 路线零：用「真实浏览器铸好的 PO Token」请求 player。
@@ -388,7 +394,8 @@ enum StreamResolver {
     private static func parseStream(
         root: [String: Any],
         client: Client,
-        quality: Quality
+        quality: Quality,
+        pot: String? = nil
     ) throws -> AudioStream {
         if let status = JS.dict(root["playabilityStatus"]),
            let state = JS.string(status["status"]),
@@ -441,7 +448,21 @@ enum StreamResolver {
             } ?? sorted[sorted.count - 1]
         }
 
-        guard let urlString = JS.string(chosen["url"]), let url = URL(string: urlString) else {
+        guard var urlString = JS.string(chosen["url"]) else {
+            throw ApiError.unavailable(L("Invalid audio URL"))
+        }
+        // 附加 GVS PO Token（&pot=）——网页播放器的标准做法，让拉流对出口 IP 不敏感。
+        // 若直链已带 pot（player 响应自带），先移除再加我们的（避免重复参数）。
+        if let pot = pot, !pot.isEmpty {
+            if var comps = URLComponents(string: urlString) {
+                var items = comps.queryItems ?? []
+                items.removeAll { $0.name == "pot" }
+                items.append(URLQueryItem(name: "pot", value: pot))
+                comps.queryItems = items
+                if let built = comps.string { urlString = built }
+            }
+        }
+        guard let url = URL(string: urlString) else {
             throw ApiError.unavailable(L("Invalid audio URL"))
         }
 
