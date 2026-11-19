@@ -209,8 +209,26 @@ final class LocalStreamProxy {
     /// 收到比它要的短得多的 206 就直接判 -1 失败，并不会自己续请求。
     /// 所以这段不能省：要限流只能「按块上游取、但连接不断」，那是另一套写法，
     /// 今晚不冒险。连接复用已经把每段的握手开销省掉了。
+    /// 每段最多转多少字节。慢网（实测 83KB/s）下 AVPlayer 一句 `bytes=0-` 等于
+    /// 要整首 7MB，得等 80 秒，它等不到就 rate=0 卡死。
+    /// 切成 1MB 一段，第一段（含 moov 与开头音轨）到手就能出声，后续它自己会再要。
+    /// 用 UserDefaults `melo.proxy.chunk` 可调，设 0 关掉截断。
+    private static var chunkSize: Int64 {
+        let raw = UserDefaults.standard.object(forKey: "melo.proxy.chunk") as? Int
+        let value = Int64(raw ?? 1_048_576)
+        return value > 0 ? value : 0
+    }
+
+    /// 只截断「不封口」的请求（`bytes=N-`）。客户端自己写明结尾的一律原样转发。
     private static func clamp(_ range: String) -> String {
-        range.isEmpty ? "bytes=0-" : range
+        let raw = range.isEmpty ? "bytes=0-" : range
+        let chunk = chunkSize
+        guard chunk > 0, raw.hasPrefix("bytes=") else { return raw }
+        let body = String(raw.dropFirst("bytes=".count))
+        guard !body.contains(",") else { return raw }
+        let pieces = body.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        guard pieces.count == 2, let start = Int64(pieces[0]), pieces[1].isEmpty else { return raw }
+        return "bytes=\(start)-\(start + chunk - 1)"
     }
 
     private func fetchUpstream(route: Route, range: String, conn: NWConnection, attempt: Int = 0) {
@@ -224,7 +242,11 @@ final class LocalStreamProxy {
                 + " n=\(value("n")) pot=\(value("pot")) itag=\(value("itag"))")
         }
         var req = URLRequest(url: route.upstream)
-        req.timeoutInterval = 30
+        // 这个是「多久没有收到任何字节」的超时，不是总时长。
+        // 实测这条出口经常挑到很差的 googlevideo 节点：连探测用的 1 字节请求都要
+        // 挂 35 秒才回。挂这么久还不如早点判死，让 onDead 换一条新直链重来。
+        // 数据在持续到达时不会触发它，所以大块下载不受影响。
+        req.timeoutInterval = 20
         req.setValue(route.userAgent, forHTTPHeaderField: "User-Agent")
         req.setValue(Self.clamp(range), forHTTPHeaderField: "Range")
 
@@ -235,7 +257,7 @@ final class LocalStreamProxy {
                 self?.stateQueue.sync { self?.lastStatus = status }
             },
             onRetry: { [weak self] in
-                guard let self, attempt < 2 else { return false }
+                guard let self, attempt < 3 else { return false }
                 Diagnostics.mark("streamproxy: 上游 403，重试第 \(attempt + 1) 次")
                 self.ioQueue.asyncAfter(deadline: .now() + 0.35) {
                     self.fetchUpstream(route: route, range: range, conn: conn, attempt: attempt + 1)
@@ -246,7 +268,7 @@ final class LocalStreamProxy {
             // 重新解析换一条新直链，再拿同一个 Range 续上——用户侧只是多等几秒，
             // 不用手动重按播放。
             onDead: { [weak self] in
-                guard let self, attempt < 2, let refresh = route.refresh else { return false }
+                guard let self, attempt < 3, let refresh = route.refresh else { return false }
                 Diagnostics.mark("streamproxy: 直链不可达，重新解析 (attempt \(attempt + 1))")
                 Task { [weak self] in
                     let fresh = await refresh()
@@ -305,10 +327,18 @@ final class RelayHub: NSObject, URLSessionDataDelegate {
     private override init() {
         super.init()
         let cfg = URLSessionConfiguration.default
-        cfg.timeoutIntervalForRequest = 30
+        cfg.timeoutIntervalForRequest = 75
         cfg.timeoutIntervalForResource = 900
-        cfg.httpMaximumConnectionsPerHost = 6
+        // googlevideo 对同一签名直链的并发连接很敏感：实测 4 路并发时只有 1 路能过，
+        // 其余全部挂住。压到 2 路，配合连接复用既够 AVPlayer 用，又不会被拒。
+        cfg.httpMaximumConnectionsPerHost = 2
         cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        // 关键：不能带 Cookie。签名直链是绑定 client 身份的，附上账号 Cookie 后
+        // 服务端会判为身份不一致，**302 之后的请求直接回 403** —— 这正是
+        // 「首段 206、跟随重定向后就 403」的成因（curl 默认不带 Cookie，所以能读）。
+        cfg.httpShouldSetCookies = false
+        cfg.httpCookieStorage = nil
+        cfg.httpCookieAcceptPolicy = .never
         // delegate 逐块回调，不聚合：AVPlayer 要的是渐进数据流
         session = URLSession(configuration: cfg, delegate: self, delegateQueue: nil)
     }
@@ -351,6 +381,13 @@ final class RelayHub: NSObject, URLSessionDataDelegate {
             + (http.value(forHTTPHeaderField: "Content-Range") ?? "-"))
 
         guard code == 200 || code == 206 else {
+            if code == 403 {
+                // 403 只在响应头里留线索（body 在 didReceive data 里才到），
+                // 记下来才知道是节点拒绝还是凭证不足。
+                let server = http.value(forHTTPHeaderField: "Server") ?? "-"
+                let reason = http.value(forHTTPHeaderField: "x-reason") ?? "-"
+                Diagnostics.mark("streamproxy: 403 server=\(server) reason=\(reason)")
+            }
             if code == 403, st.onRetry() {
                 st.finished = true
                 drop(dataTask.taskIdentifier)
@@ -406,6 +443,7 @@ final class RelayHub: NSObject, URLSessionDataDelegate {
                 }
             }
         }
+        req.setValue(nil, forHTTPHeaderField: "Cookie")
         Diagnostics.mark("streamproxy: 跟随重定向 \(response.statusCode) -> \(req.url?.host ?? "-")")
         completionHandler(req)
     }

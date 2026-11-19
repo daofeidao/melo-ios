@@ -78,6 +78,19 @@ final class InnerTube {
         request.setValue(originValue + "/", forHTTPHeaderField: "Referer")
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
+        // YouTube 会按「头里的客户端身份」判断给不给内容。
+        // 之前不带这两个头时，备用域名 www.youtube.com 上 FEmusic_home 直接回
+        // 「你所在的国家/地区还不能使用 YouTube Music」（1.6KB），歌单 browse 回空壳
+        // （836B），而带上之后同一个请求是 200KB / 1MB 的正常内容。
+        if let client = JS.dict(JS.dict(body["context"])?["client"]) {
+            let name = JS.string(client["clientName"]) ?? ""
+            if let id = InnerTube.clientNumericId(name) {
+                request.setValue(id, forHTTPHeaderField: "X-YouTube-Client-Name")
+            }
+            if let version = JS.string(client["clientVersion"]), !version.isEmpty {
+                request.setValue(version, forHTTPHeaderField: "X-YouTube-Client-Version")
+            }
+        }
         if let visitorData = visitorData, !visitorData.isEmpty {
             request.setValue(visitorData, forHTTPHeaderField: "X-Goog-Visitor-Id")
         }
@@ -98,6 +111,40 @@ final class InnerTube {
             throw ApiError.parse(L("Unable to parse response"))
         }
         return (dict, data)
+    }
+
+    /// X-YouTube-Client-Name 要的是数字 ID，不是 clientName 字符串
+    static func clientNumericId(_ name: String) -> String? {
+        switch name {
+        case "WEB_REMIX": return "67"
+        case "WEB": return "1"
+        case "MWEB": return "2"
+        case "ANDROID": return "3"
+        case "IOS": return "5"
+        case "TVHTML5_SIMPLY_EMBEDDED_PLAYER": return "85"
+        default: return nil
+        }
+    }
+
+    /// 响应到底有没有内容。
+    ///
+    /// 这条判据是拿真实缓存反推出来的：坏响应的体积只有 836B~1.6KB，
+    /// 要么没有 `contents`（`microformatDataRenderer.noindex` 空壳），
+    /// 要么 `contents` 里只有一个 `messageRenderer`（「你所在的国家/地区还不能使用……」）。
+    /// 真正的列表页是 200KB~3.5MB，并且直接带 renderer 树。
+    static func isUsableResponse(_ root: [String: Any]) -> Bool {
+        guard root["contents"] != nil || root["continuationContents"] != nil else { return false }
+        if let error = JS.collect("messageRenderer", in: root).first,
+           let text = JS.text(error["text"]), !text.isEmpty {
+            Diagnostics.mark("innertube: 服务端返回提示「\(text.prefix(40))」")
+            return false
+        }
+        // 列表页/详情页至少得有一个渲染器，纯 trackingParams 的空壳不算
+        let rendererKeys = ["musicResponsiveListItemRenderer", "musicTwoRowItemRenderer",
+                            "musicCarouselShelfRenderer", "musicShelvesRenderer",
+                            "sectionListRenderer", "musicShelfRenderer",
+                            "gridRenderer", "singleColumnBrowseResultsRenderer"]
+        return rendererKeys.contains { !JS.collect($0, in: root).isEmpty }
     }
 
     /// 单域名请求（播放接口用，www.youtube.com 一般本来就在代理规则里）
@@ -142,6 +189,15 @@ final class InnerTube {
             while true {
                 do {
                     guard let value = try await group.next() else { break }
+                    // 空壳/地区限制页不能当结果用：它的体积只有几百字节到 1.6KB。
+                    // 慢网下备用域名会先回来，以前直接采信，于是整页空白，还被写进缓存，
+                    // 之后每次打开都是空白——这就是「歌单专辑全部打不开」的成因。
+                    if !InnerTube.isUsableResponse(value.0) {
+                        Diagnostics.mark("innertube: \(endpoint) 返回空壳 \(value.1.count)B，等另一个域名")
+                        lastError = ApiError.unavailable(
+                            L("YouTube Music returned no content. Retry, or check that your proxy covers music.youtube.com."))
+                        continue
+                    }
                     group.cancelAll()
                     return value
                 } catch {
@@ -176,7 +232,19 @@ final class InnerTube {
     }
 
     private func loadCache(_ key: String) -> Data? {
-        try? Data(contentsOf: cacheURL(for: key))
+        let url = cacheURL(for: key)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        // 旧版本把「地区限制页 / 空壳响应」也落了盘（836B~1.6KB）。读的时候再过一遍，
+        // 不合格的当场删掉返回 nil，让上层重新请求，而不是一直展示空白页。
+        if let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let hasContents = root["contents"] != nil || root["continuationContents"] != nil
+            let hasMessage = !JS.collect("messageRenderer", in: root).isEmpty
+            if !hasContents || hasMessage {
+                try? FileManager.default.removeItem(at: url)
+                return nil
+            }
+        }
+        return data
     }
 
     /// 首页缓存：把几个入口的缓存合并成一份

@@ -782,10 +782,22 @@ final class PlayerEngine: ObservableObject {
             // key 必须和解析层登记的一致，否则会多建一条没有「重解析补救」的路由
             let idPart = track.videoId.isEmpty ? String(abs(stream.url.absoluteString.hashValue)) : track.videoId
             let key = "yt-\(stream.itag)-\(idPart)"
+            // 命中 StreamCache 的歌不会经过 StreamResolver，代理那条路由就没有「直链失效
+            // 自动重解析」的闭包。缓存里的直链过期后，代理拿到 403 只能干瞪眼，
+            // 用户看到的就是「这首歌打不开」。这里自己补一份。
+            let refreshQuality = StreamResolver.Quality(
+                rawValue: UserDefaults.standard.string(forKey: "melo.quality") ?? "") ?? .high
+            let refreshVideoId = track.videoId
+            let refresh: (() async -> URL?)? = refreshVideoId.isEmpty ? nil : {
+                guard let fresh = try? await StreamResolver.resolve(
+                    videoId: refreshVideoId, quality: refreshQuality) else { return nil }
+                Diagnostics.mark("streamproxy: 缓存直链失效，已重解析 \(refreshVideoId)")
+                return fresh.url
+            }
             if let local = LocalStreamProxy.shared.register(
                 upstream: stream.url,
                 userAgent: stream.userAgent ?? StreamResolver.clientUserAgent,
-                mime: stream.mime, key: key) {
+                mime: stream.mime, key: key, refresh: refresh) {
                 itemURL = local
                 Diagnostics.mark("build item · 经本地代理 \(local.port ?? 0) src=\(currentStreamSource ?? "nil")")
             } else {
