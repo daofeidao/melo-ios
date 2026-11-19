@@ -187,8 +187,12 @@ zip -qry "$IPA" Payload
 rm -rf Payload
 [ -s "$IPA" ] || die "IPA 生成失败"
 
-unzip -l "$IPA" | grep -q "Payload/$(basename "$APP")/$BIN_NAME" \
+# 注意：不能写成 `unzip -l | grep -q`。脚本开了 pipefail，grep 命中后立即退出会让
+# unzip 收到 SIGPIPE（退出码 141），pipefail 取到的就是 141，于是明明结构正常也报错。
+unzip -l "$IPA" > /tmp/_ipa_list.txt 2>/dev/null || true
+grep -q "Payload/$(basename "$APP")/$BIN_NAME" /tmp/_ipa_list.txt \
   || die "IPA 结构异常：里面没有 Payload/*.app 主二进制"
+rm -f /tmp/_ipa_list.txt
 
 SIZE=$(wc -c < "$IPA" | tr -d ' ')
 MD5=$(md5 -q "$IPA" 2>/dev/null || md5sum "$IPA" | awk '{print $1}')

@@ -316,7 +316,7 @@ struct SettingsView: View {
             }
 
             Section {
-                Text(L("本软件仅用于个人学习，请下载后在24小时内自动删除，如涉及到版权问题，请联系开发者删除。"))
+                Text(L("This app is for personal study only. Please delete the downloaded files within 24 hours. If there is any copyright concern, contact the developer for removal."))
                     .font(.system(size: 13))
                     .foregroundColor(Theme.secondaryLabel)
                     .fixedSize(horizontal: false, vertical: true)

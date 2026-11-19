@@ -89,6 +89,15 @@ enum StreamResolver {
 
     /// 用 YouTubeKit 解析一次，按优先级排出候选：
     /// ① 目标音质的 m4a 纯音频（要 pot）→ ② 其余 m4a → ③ 渐进式 mp4（format 18，免 pot）
+    /// 开启后优先选「带画面」的 muxed 流（format 18，96k），
+    /// 关闭时优先纯音频（130k）。YouTube 这两条流互斥，只能二选一。
+    static let preferVideoKey = "melo.youtube.preferVideo"
+
+    static var prefersVideo: Bool {
+        get { UserDefaults.standard.bool(forKey: preferVideoKey) }
+        set { UserDefaults.standard.set(newValue, forKey: preferVideoKey) }
+    }
+
     private static func candidates(
         videoId: String, quality: Quality,
         identity: PoTokenMinter.POIdentity?
@@ -124,15 +133,24 @@ enum StreamResolver {
 
         // 只留三条候选，别把 4 个音质档都排上：受保护视频它们会以同样的方式 403，
         // 每多探一条就多等 5 秒。顺序 = 首选音质(带 pot) → 同一档不带 pot → 免 token 兜底。
+        //
+        // 唯一的例外是「画面优先」：YouTube 的纯音频流（itag 140 等）没有视频轨，
+        // 播放页只能显示封面；只有 muxed 的 format 18 自带画面（360p），代价是 96k。
+        // 两者互斥，所以做成开关由用户选，而不是替用户决定。
+        let preferVideo = UserDefaults.standard.bool(forKey: Self.preferVideoKey)
+        let muxed = progressive.min(by: { bitrate($0) < bitrate($1) })
+
         var list: [Candidate] = []
-        if let top = sortedAudio.first {
+        if preferVideo, let muxed = muxed {
+            list.append(Candidate(stream: muxed, bitrate: bitrate(muxed), needsPot: false))
+        } else if let top = sortedAudio.first {
             list.append(Candidate(stream: top, bitrate: bitrate(top), needsPot: true))
             if identity?.gvsToken != nil {
                 list.append(Candidate(stream: top, bitrate: bitrate(top), needsPot: false))
             }
         }
         // 兜底：format 18 是完整 mp4（含 AAC 96k），实测不受 GVS token 限制，永远能读。
-        if let muxed = progressive.min(by: { bitrate($0) < bitrate($1) }) {
+        if let muxed = muxed, list.first?.stream.itag.itag != muxed.itag.itag {
             list.append(Candidate(stream: muxed, bitrate: bitrate(muxed), needsPot: false))
         }
         guard !list.isEmpty else {
@@ -164,54 +182,49 @@ enum StreamResolver {
         var ms: Int
     }
 
-    /// 起播前探一次：先读文件头 4KB（顺带从 Content-Range 拿总长度），再读文件中段 4KB。
-    /// 中段 206 才算这条直链真能播；只验「首块」会漏掉 token 失效的情况
-    /// ——受保护视频会放第一块、之后全 403，表现就是「播到 20 秒突然没声音」。
-    /// 只取 4KB 是因为卡的是请求本身，不是字节数：小请求一样能判死，还快。
+    /// 起播前探一次：文件头 4KB + 文件尾部 4KB，**并发**发出去。
+    ///
+    /// 尾部能读，说明这道 GVS 门禁不拦「非首块」请求，中段自然也读得到；
+    /// 只验首块会漏掉 token 失效——受保护视频会放第一块、之后全 403，
+    /// 表现就是「播到 20 秒突然没声音」。
+    ///
+    /// 串行做这两次在慢网下实测要 8.6 秒（两次往返），并发只等于慢的那一次。
+    /// 尾部用 `bytes=-4096` 而不是「总长的一半」：不必先等首块的 Content-Range 回来。
     private static func probe(_ url: URL, userAgent: String) async -> Probe {
         let started = Date()
-        var p = Probe(status: 0, total: 0, midStatus: 0, bytes: 0, ms: 0)
-        do {
-            let (data, resp) = try await rangeFetch(url, offset: 0, length: 4096, ua: userAgent)
-            p.status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-            p.bytes = data.count
-            p.total = parseTotal(resp as? HTTPURLResponse) ?? Int64(data.count)
-        } catch {
-            // 探测失败最常见的是 403（被 GVS 门禁挡）和网络错；把码记下来才知道是哪种
-            Diagnostics.mark("youtubekit: probe head failed \((error as NSError).code)")
-            return p
+        async let headTask = rangeProbe(url, range: "bytes=0-4095", ua: userAgent)
+        async let tailTask = rangeProbe(url, range: "bytes=-4096", ua: userAgent)
+        let head = await headTask
+        let tail = await tailTask
+
+        var p = Probe(status: head.code, total: head.total > 0 ? head.total : tail.total,
+                      midStatus: tail.code, bytes: head.bytes + tail.bytes, ms: 0)
+        // 几 KB 的小文件没有「中段」可判，直接按首块结论走
+        if p.total > 0 && p.total < 65_536 { p.midStatus = p.status }
+        if head.code != 206 && head.code != 200 {
+            Diagnostics.mark("youtubekit: probe head failed \(head.code)")
         }
-        if p.total > 1_048_576 {
-            let mid = p.total / 2
-            do {
-                let (d, r) = try await rangeFetch(url, offset: mid, length: 4096, ua: userAgent)
-                p.midStatus = (r as? HTTPURLResponse)?.statusCode ?? 0
-                p.bytes += d.count
-            } catch {
-                Diagnostics.mark("youtubekit: probe mid failed \((error as NSError).code)")
-                p.midStatus = (error as NSError).code
-            }
-        } else {
-            p.midStatus = p.status
+        if tail.code != 206 && tail.code != 200 {
+            Diagnostics.mark("youtubekit: probe tail failed \(tail.code)")
         }
         p.ms = Int(Date().timeIntervalSince(started) * 1000)
         return p
     }
 
-    private static func rangeFetch(
-        _ url: URL, offset: Int64, length: Int, ua: String
-    ) async throws -> (Data, URLResponse) {
+    /// 只关心状态码的探测请求：失败也把码带回来（403 / -1001 都要能记日志）
+    private static func rangeProbe(_ url: URL, range: String, ua: String) async
+        -> (code: Int, bytes: Int, total: Int64) {
         var req = URLRequest(url: url)
         req.setValue(ua, forHTTPHeaderField: "User-Agent")
-        req.setValue("bytes=\(offset)-\(offset + Int64(length) - 1)", forHTTPHeaderField: "Range")
-        req.timeoutInterval = 20
-        // 单次不重试：失败就换下一个候选，重试只会拖慢起播
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        guard code == 206 || (code == 200 && offset == 0) else {
-            throw NSError(domain: "melo.youtube", code: code)
+        req.setValue(range, forHTTPHeaderField: "Range")
+        req.timeoutInterval = 12
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            let http = resp as? HTTPURLResponse
+            return (http?.statusCode ?? 0, data.count, parseTotal(http) ?? Int64(data.count))
+        } catch {
+            return ((error as NSError).code, 0, 0)
         }
-        return (data, resp)
     }
 
     private static func parseTotal(_ http: HTTPURLResponse?) -> Int64? {
@@ -238,13 +251,16 @@ enum StreamResolver {
             return cookie.isEmpty ? nil : cookie
         }
 
-        // 铸 token 与库解析并行：库要先拉 watch 页 + 下载 player JS，正好盖住铸造耗时。
-        async let identityTask = PoTokenMinter.shared.identity(for: videoId)
-        let identity = await identityTask
+        // 铸 token 与 player 请求**真正并行**，而且不再挡在起播前面。
+        // Android 客户端的 player 请求本来就不需要 token，而 BotGuard 首次要 6~10 秒。
+        // 以前是先 await token 再发请求，等于把两段耗时相加；现在先发请求，
+        // 拿到格式列表后再收 token，重叠掉的那几秒直接省下。
+        let identityTask = Task { await PoTokenMinter.shared.identity(for: videoId) }
         let attachPot = !UserDefaults.standard.bool(forKey: "melo.debug.noPot")
 
         do {
-            let list = try await candidates(videoId: videoId, quality: quality, identity: identity)
+            let list = try await candidates(videoId: videoId, quality: quality, identity: nil)
+            let identity = await identityTask.value
 
             // 每条候选先算好 URL，再**并发**探测。串行探三条在慢网下要 15 秒，
             // 并发只需要一次往返的时间，最后仍按优先级取第一条通过的。
@@ -258,9 +274,18 @@ enum StreamResolver {
 
             // 只探首条：走的是「先试最高音质，不行就用免 token 兜底」。
             // 三条并发探测在慢网下等于陪最慢的那条等，实测多花 3 秒还多费两次请求。
+            //
+            // 但「需要 pot 却没拿到 pot」的那条根本不用探：itag 140 在无 GVS token 时
+            // 中段必然 403（四种绑定组合全试过），探它只是白花 4~8 秒。
+            // 直接跳过，让免 token 的 muxed 兜底上，起播立刻快一截。
             let probes: [Int: Probe]
             if let first = prepared.first {
-                probes = [first.index: await probe(first.url, userAgent: first.ua)]
+                if first.cand.needsPot && !first.pot {
+                    probes = [:]
+                    Diagnostics.mark("youtubekit: 无 GVS token，跳过 itag\(first.cand.stream.itag.itag) 探测")
+                } else {
+                    probes = [first.index: await probe(first.url, userAgent: first.ua)]
+                }
             } else {
                 probes = [:]
             }

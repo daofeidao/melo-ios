@@ -110,11 +110,11 @@ struct PlayerView: View {
                                 activeSheet = .verify
                             } label: {
                                 HStack(spacing: 0) {
-                                    Text(L("歌曲宝需要人机验证 · 点此在 App 内完成"))
+                                    Text(L("Gequbao requires a human verification. Tap to finish it inside the app."))
                                         .font(.system(size: 12))
                                         .foregroundColor(.white)
                                         .frame(maxWidth: .infinity, alignment: .leading)
-                                    Text(L("去验证 ›"))
+                                    Text(L("Verify Now") + " ›")
                                         .font(.system(size: 12))
                                         .foregroundColor(Theme.accent)
                                 }

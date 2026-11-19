@@ -63,6 +63,27 @@ struct DataSourceSettingsView: View {
                 Text(L("Each kind of content has one fixed source. The app never switches to a different source, even when playback fails."))
             }
 
+            // MARK: YouTube 播放选项
+            Section {
+                Toggle(isOn: Binding(
+                    get: { StreamResolver.prefersVideo },
+                    set: { StreamResolver.prefersVideo = $0 }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L("Prefer video picture"))
+                            .font(.system(size: 16))
+                        Text(L("Show the original video inside the player. YouTube serves picture and 130 kbps audio as separate streams, so this drops audio to 96 kbps."))
+                            .font(.system(size: 12))
+                            .foregroundColor(Theme.secondaryLabel)
+                    }
+                }
+                .tint(Theme.accent)
+            } header: {
+                Text("YouTube")
+            } footer: {
+                Text(L("Off keeps the better audio. Turn it on when you want to watch the video."))
+            }
+
             // MARK: 登录 / 验证
             Section {
                 ForEach(credentialSources) { info in

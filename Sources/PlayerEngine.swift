@@ -117,9 +117,14 @@ final class PlayerEngine: ObservableObject {
     private func configureSession() {
         // macOS Catalyst 没有 AVAudioSession（音频路由由系统管），跳过会话配置
         #if !targetEnvironment(macCatalyst)
+        // 这里只设类别，不激活。
+        //
+        // 以前 App 一启动就 setActive(true)，等于开机就把别人的音乐掐了（用户在听
+        // 网易云，打开 Melo 找首歌，网易云当场断），而自己又没在出声 —— 会话被占着
+        // 却没有音频，系统对「谁是正在播放的 App」的判断也会变得不可靠。
+        // 激活交给真正起播的那一刻（start 里 setActive、暂停时不失活）。
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .default, options: [])
-        try? session.setActive(true)
         #endif
     }
 
@@ -872,15 +877,33 @@ final class PlayerEngine: ObservableObject {
         // 按歌名在第三方站搜出来的版本一律不落盘：错配一次，那份文件就会
         // 永久顶着这首歌，之后切源、关音源都绕不过去。
         if cacheable, let source = cacheSource, source != "local", source != "cache" {
-            AudioCache.shared.store(
-                from: stream.url,
-                for: track,
-                mime: stream.mime,
-                userAgent: stream.userAgent ?? StreamResolver.clientUserAgent,
-                source: source,
-                quality: quality(),
-                verified: true
-            )
+            // 下载缓存必须排在「快速出声」后面。
+            // googlevideo 同一条签名直链实测只允许约 1 路并发（4 路里 3 路会挂住），
+            // 起播瞬间再开一条下载，等于自己跟自己抢带宽，点歌到出声会多十几秒。
+            // 所以推迟到播放稳定之后再做；期间切歌（loadToken 变了）就直接作废。
+            // 延迟可用 melo.cache.delaySeconds 调整，设 0 表示立即下载（旧行为）。
+            let delay = UserDefaults.standard.object(forKey: "melo.cache.delaySeconds") as? Double ?? 30
+            let scheduledToken = token
+            let cacheURL = stream.url
+            let cacheMime = stream.mime
+            let cacheUA = stream.userAgent ?? StreamResolver.clientUserAgent
+            let cacheQuality = quality()
+            Diagnostics.mark("cache: 下载排期 +\(Int(delay))s（让位给起播）")
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.loadToken == scheduledToken else {
+                    Diagnostics.mark("cache: 已切歌，跳过下载")
+                    return
+                }
+                AudioCache.shared.store(
+                    from: cacheURL,
+                    for: track,
+                    mime: cacheMime,
+                    userAgent: cacheUA,
+                    source: source,
+                    quality: cacheQuality,
+                    verified: true
+                )
+            }
         }
         prefetchUpcoming()
     }
@@ -901,6 +924,12 @@ final class PlayerEngine: ObservableObject {
             NowPlayingBridge.clear()
             return
         }
+
+        #if !targetEnvironment(macCatalyst)
+        // 控制中心 / 锁屏的「正在播放」只在音频会话活跃时才被系统接受。
+        // 暂停久了、来电打断、切过别的音频之后会话会掉，这里每次发布前补一次（幂等）。
+        ensureSessionActive()
+        #endif
 
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: track.title,
@@ -926,6 +955,34 @@ final class PlayerEngine: ObservableObject {
         NowPlayingBridge.publish(info, playing: isPlaying)
         Diagnostics.mark("nowPlaying ← \(track.title)")
     }
+
+    #if !targetEnvironment(macCatalyst)
+    /// 让 App 稳稳拿住「正在播放」的所有权。
+    ///
+    /// 系统的判定条件（WWDC 2022）是三件事同时成立：
+    ///   1. 音频会话类别是非 mixable 的 `.playback`，并且是 active 的；
+    ///   2. 至少注册了一个远程命令处理器（且 isEnabled）；
+    ///   3. 发布了 nowPlayingInfo。
+    /// 缺任何一条，控制中心那张卡片就不属于本 App —— 用户看到的就是
+    /// 「点它回不到 Melo」「上一首/下一首是灰的」。1 和 2 我们都有，
+    /// 但会话在暂停/打断之后可能掉，所以每次发布前补一次。
+    private func ensureSessionActive() {
+        let session = AVAudioSession.sharedInstance()
+        if session.category != .playback {
+            try? session.setCategory(.playback, mode: .default, options: [])
+        }
+        do {
+            try session.setActive(true)
+        } catch {
+            Diagnostics.mark("np-session: setActive failed \(error.localizedDescription)")
+        }
+        let commands = MPRemoteCommandCenter.shared()
+        Diagnostics.mark("np-session: cat=\(session.category.rawValue)"
+            + " opt=\(session.categoryOptions.rawValue)"
+            + " play=\(commands.playCommand.isEnabled)"
+            + " next=\(commands.nextTrackCommand.isEnabled)")
+    }
+    #endif
 
     private func loadArtworkIfNeeded() {
         guard let track = currentTrack,
