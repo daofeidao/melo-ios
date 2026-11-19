@@ -287,15 +287,25 @@ public class YouTube {
                         
                         var streamManifest = Extraction.applyDescrambler(streamData: streamingData)
                         
-                        do {
-                            try await Extraction.applySignature(streamManifest: &streamManifest, videoInfo: videoInfo, js: js)
-                        } catch {
-                            // to force an update to the js file, we clear the cache and retry
-                            _js = nil
-                            _jsURL = nil
-                            YouTube.__js = nil
-                            YouTube.__jsURL = nil
-                            try await Extraction.applySignature(streamManifest: &streamManifest, videoInfo: videoInfo, js: js)
+                        // Melo 定制：解签名要下载几 MB 的 player JS，慢网下这一步能拖到超时，
+                        // 而 ANDROID 返回的格式自带明文 url（无 s、无 n），根本用不着它。
+                        // 只有真的存在签名流 / n 参数时才去拉 JS，其余情况整段跳过。
+                        let needsSignature = streamManifest.contains { format in
+                            if format.s != nil { return true }
+                            if let url = format.url, url.contains("&n=") || url.contains("?n=") { return true }
+                            return false
+                        }
+                        if needsSignature {
+                            do {
+                                try await Extraction.applySignature(streamManifest: &streamManifest, videoInfo: videoInfo, js: js)
+                            } catch {
+                                // to force an update to the js file, we clear the cache and retry
+                                _js = nil
+                                _jsURL = nil
+                                YouTube.__js = nil
+                                YouTube.__jsURL = nil
+                                try await Extraction.applySignature(streamManifest: &streamManifest, videoInfo: videoInfo, js: js)
+                            }
                         }
                         
                         // filter out dubbed audio tracks

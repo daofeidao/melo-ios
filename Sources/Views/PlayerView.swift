@@ -292,12 +292,21 @@ struct PlayerView: View {
                     .font(.system(size: side * 0.25))
                     .foregroundColor(.white.opacity(0.35))
             }
+            // 受保护视频走的是「视频+音频」合体流，画面本来就在里面：
+            // 直接铺在封面上，用户看到的是原视频而不是一张静止封面。
+            // 纯音频流不会走到这里（showsVideo 为假），保持原样。
+            if player.showsVideo {
+                VideoSurface(player: player.avPlayer)
+                    .frame(width: side, height: side)
+                    .transition(.opacity)
+            }
         }
         .frame(width: side, height: side)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .shadow(color: .black.opacity(0.4), radius: 12, y: 8)
         .scaleEffect(player.isPlaying ? 1 : 0.94)
         .animation(.spring(response: 0.42, dampingFraction: 0.8), value: player.isPlaying)
+        .animation(.easeInOut(duration: 0.28), value: player.showsVideo)
     }
 
     private var currentLine: Int {

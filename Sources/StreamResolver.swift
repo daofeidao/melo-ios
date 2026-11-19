@@ -270,11 +270,27 @@ enum StreamResolver {
                 YouTubeSelfTest.noteChosen(itag: item.cand.stream.itag.itag,
                                           probe: "\(p.status)/\(p.midStatus)")
 
-                // 这里返回的是**上游**直链，代理注册放到真正播放时做：
-                // 1) 直链能被 StreamCache 复用（缓存里存 127.0.0.1 的端口号，重启就废）；
-                // 2) 每次播放重新登记一条路由，旧端口不会成为死链。
+                // 这里返回的是**上游**直链，AudioStream 里不存 127.0.0.1 地址：
+                // 那样缓存到磁盘后重启就是死链。本地地址由播放时按 key 现取。
                 let mime = item.cand.stream.videoCodec == nil ? "audio/mp4" : "video/mp4"
                 Diagnostics.mark("youtubekit: chosen itag=\(item.cand.stream.itag.itag) size=\(p.total)")
+                // 顺手登记路由，并带上「直链挂了怎么办」的补救闭包：
+                // 播到一半节点掉线时，代理会调它重新解析换一条新直链，续上同一个 Range。
+                let chosenItag = item.cand.stream.itag.itag
+                let chosenNeedsPot = item.cand.needsPot
+                _ = LocalStreamProxy.shared.register(
+                    upstream: item.url, userAgent: item.ua, mime: mime,
+                    key: "yt-\(chosenItag)-\(videoId)",
+                    refresh: {
+                        // 重新走一遍候选流程（新建 YouTube 对象才会真的重发 player 请求），
+                        // 锁定同一个 itag，避免换流导致字节错位。
+                        guard let fresh = try? await candidates(
+                                videoId: videoId, quality: quality, identity: identity),
+                              let same = fresh.first(where: { $0.stream.itag.itag == chosenItag })
+                        else { return nil }
+                        let token = (attachPot && chosenNeedsPot) ? identity?.gvsToken : nil
+                        return appendingPot(same.stream.url, token: token)
+                    })
                 // 调试留痕：把最终交给 AVPlayer 的上游直链落一份，方便在外部用 curl 复现 403
                 if UserDefaults.standard.bool(forKey: "melo.debug.dumpURL") {
                     let dump = item.url.absoluteString + "\nUA: " + item.ua + "\n"

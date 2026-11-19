@@ -100,6 +100,9 @@ class InnerTube {
     private let apiKey: String
     private let context: Context
     private let headers: [String: String]
+    /// 该客户端自己的 UA（ANDROID 是 com.google.android.youtube/...）。
+    /// 请求必须用它：ytcfg 里的 UA 来自 watch 页，而我们已经不拉 watch 页了。
+    private let clientUserAgent: String?
     private let playerParams: String?
     private let encryptedHostFlags: String?
 
@@ -117,6 +120,10 @@ class InnerTube {
         self.context = defaultClients[client]!.context
         self.apiKey = defaultClients[client]!.apiKey
         self.headers = defaultClients[client]!.headers
+        // 请求头里的 UA 必须和客户端身份一致。以前这里读 ytcfg.userAgent（来自 watch 页），
+        // 现在我们为了省几 MB 的 player JS 不再拉 watch 页，ytcfg 是空的 ——
+        // 于是 UA 退化成 "Mozilla/5.0"，YouTube 直接把请求挂住不回（60 秒超时）。
+        self.clientUserAgent = defaultClients[client]!.userAgent
         self.playerParams = defaultClients[client]!.playerParams
         self.encryptedHostFlags = client == .webEmbed ? ytcfg.embeddedPlayerEncryptedHostFlags : nil
         self.signatureTimestamp = signatureTimestamp
@@ -191,7 +198,8 @@ class InnerTube {
         request.httpMethod = "post"
         request.httpBody = data
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.addValue(ytcfg.userAgent ?? "Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+        request.addValue(clientUserAgent ?? ytcfg.userAgent ?? "Mozilla/5.0",
+                         forHTTPHeaderField: "User-Agent")
         request.addValue("en-US,en", forHTTPHeaderField: "accept-language")
         
         request.addValue(visitorData ?? "", forHTTPHeaderField: "X-Goog-Visitor-Id")

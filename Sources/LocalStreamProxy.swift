@@ -18,11 +18,27 @@ final class LocalStreamProxy {
 
     static let shared = LocalStreamProxy()
 
-    private struct Route {
-        let upstream: URL
+    /// 一条路由 = 一首歌的上游直链。做成 class 是为了在播到一半直链失效
+    /// （节点掉线 / URL 过期）时能原地换掉 upstream，不必让 AVPlayer 重新起播。
+    final class Route {
+        var upstream: URL
         let userAgent: String
         let mime: String
+        /// 直链失效时的重解析闭包：返回同一 itag 的新直链
+        var refresh: (() async -> URL?)?
+
+        init(upstream: URL, userAgent: String, mime: String, refresh: (() async -> URL?)?) {
+            self.upstream = upstream
+            self.userAgent = userAgent
+            self.mime = mime
+            self.refresh = refresh
+        }
     }
+
+    /// 单次回灌的最大字节数。AVPlayer 常发 `bytes=0-`（不封口），原样转给上游
+    /// 就是一个十几 MB 的大响应，慢网下永远传不完、AVPlayer 先超时。
+    /// 主动截成几 MB 一段，让每个请求都能按时收尾，剩下的由 AVPlayer 续请求。
+    private static let maxChunk: Int64 = 4 * 1024 * 1024
 
     /// 路由表访问队列（只在读写字典时短暂进入，不阻塞网络回调）
     private let stateQueue = DispatchQueue(label: "melo.streamproxy.state")
@@ -33,16 +49,24 @@ final class LocalStreamProxy {
     private var port: UInt16 = 0
     private var routes: [String: Route] = [:]
 
-    /// 最近一次上游状态，诊断面板可见
     private(set) var lastStatus = "-"
 
     // MARK: - 对外
 
-    /// 把上游直链登记进来，返回给 AVPlayer 用的本地地址。失败返回 nil（调用方回落直链）。
-    func register(upstream: URL, userAgent: String, mime: String, key: String) -> URL? {
+    /// - Parameter refresh: 直链失效时的重解析闭包。播放时重复注册（key 相同）不会把它冲掉。
+    func register(upstream: URL, userAgent: String, mime: String, key: String,
+                  refresh: (() async -> URL?)? = nil) -> URL? {
         guard startIfNeeded() else { return nil }
         let path = Self.path(for: key)
-        stateQueue.sync { routes[path] = Route(upstream: upstream, userAgent: userAgent, mime: mime) }
+        stateQueue.sync {
+            if let old = routes[path] {
+                old.upstream = upstream
+                old.refresh = refresh ?? old.refresh
+            } else {
+                routes[path] = Route(upstream: upstream, userAgent: userAgent,
+                                     mime: mime, refresh: refresh)
+            }
+        }
         return URL(string: "http://127.0.0.1:\(port)\(path)")
     }
 
@@ -58,12 +82,11 @@ final class LocalStreamProxy {
         return "/s/" + safe
     }
 
-    /// 启动监听。AVPlayer 一律连 127.0.0.1，所以绑定 loopback、端口交给系统分配。
+    /// 启动监听。AVPlayer 一律连 127.0.0.1，所以端口交给系统分配。
     @discardableResult
     func startIfNeeded() -> Bool {
         if stateQueue.sync(execute: { listener != nil && port != 0 }) { return true }
 
-        // 用引用盒装端口，避免在并发闭包里改捕获的 var（Swift 6 会直接报错）
         final class PortBox { var value: UInt16 = 0 }
         let box = PortBox()
         let sem = DispatchSemaphore(value: 0)
@@ -112,8 +135,7 @@ final class LocalStreamProxy {
     // MARK: - 连接处理
 
     private func accept(_ conn: NWConnection) {
-        // 只服务本机：NWListener 绑的是 .any 端口，端口本身在所有网卡上都能连，
-        // 不挡的话这台机器就成了局域网里的开放代理。
+        // 只服务本机：NWListener 绑的是 .any 端口，不挡的话这台机器就成了局域网开放代理。
         let desc = String(describing: conn.endpoint)
         guard desc.contains("127.0.0.1") || desc.contains("::1") || desc.contains("localhost") else {
             Diagnostics.mark("streamproxy: 拒绝外机连接 \(desc)")
@@ -124,7 +146,6 @@ final class LocalStreamProxy {
         readRequest(conn, buffer: Data())
     }
 
-    /// 读到一个完整的请求头（\r\n\r\n）就分发。AVPlayer 的请求头很小，不会超过 16KB。
     private func readRequest(_ conn: NWConnection, buffer: Data) {
         conn.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [weak self] data, _, isComplete, error in
             guard let self else { return }
@@ -166,7 +187,6 @@ final class LocalStreamProxy {
         }
 
         if method == "HEAD" {
-            // AVPlayer 探测用：不需要长度，声明可分段即可
             writeHead(conn, status: "200 OK",
                       headers: "Content-Type: \(route.mime)\r\nAccept-Ranges: bytes\r\n",
                       thenClose: true)
@@ -183,12 +203,17 @@ final class LocalStreamProxy {
         })
     }
 
-    /// 向上游发同样的 Range，拿到响应头先回给 AVPlayer，再边收边转发字节。
-    /// - Parameter attempt: 已重试次数。googlevideo 偶发对刚签出的直链回一次 403
-    ///   （紧接着同一个请求就 206），不重试的话 AVPlayer 会当成资源不可用直接报错。
+    /// 原样转发客户端要的 Range。
+    ///
+    /// 试过把 `bytes=0-`（AVPlayer 常发的不封口请求）截成 4MB 一段，结果 AVPlayer
+    /// 收到比它要的短得多的 206 就直接判 -1 失败，并不会自己续请求。
+    /// 所以这段不能省：要限流只能「按块上游取、但连接不断」，那是另一套写法，
+    /// 今晚不冒险。连接复用已经把每段的握手开销省掉了。
+    private static func clamp(_ range: String) -> String {
+        range.isEmpty ? "bytes=0-" : range
+    }
+
     private func fetchUpstream(route: Route, range: String, conn: NWConnection, attempt: Int = 0) {
-        // 把关键查询参数记下来：受保护视频的 403 往往跟 n 参数有没有解、pot 在不在有关，
-        // 不记的话线上只看得到一个 403，完全没法定位。
         if let comps = URLComponents(url: route.upstream, resolvingAgainstBaseURL: false) {
             let items = comps.queryItems ?? []
             func value(_ name: String) -> String {
@@ -196,80 +221,139 @@ final class LocalStreamProxy {
                 return "\(v.count)ch"
             }
             Diagnostics.mark("streamproxy: req range=\(range.isEmpty ? "none" : range)"
-                + " n=\(value("n")) pot=\(value("pot")) itag=\(value("itag"))"
-                + " ua=\(route.userAgent.prefix(20))")
+                + " n=\(value("n")) pot=\(value("pot")) itag=\(value("itag"))")
         }
         var req = URLRequest(url: route.upstream)
         req.timeoutInterval = 30
         req.setValue(route.userAgent, forHTTPHeaderField: "User-Agent")
-        req.setValue(range.isEmpty ? "bytes=0-" : range, forHTTPHeaderField: "Range")
+        req.setValue(Self.clamp(range), forHTTPHeaderField: "Range")
 
-        let delegate = RelayDelegate(
-            conn: conn, fallbackMime: route.mime,
+        let state = RelayHub.TaskState(
+            conn: conn,
+            mime: route.mime,
             onStatus: { [weak self] status in
                 self?.stateQueue.sync { self?.lastStatus = status }
             },
-            onTransient: { [weak self] in
+            onRetry: { [weak self] in
                 guard let self, attempt < 2 else { return false }
                 Diagnostics.mark("streamproxy: 上游 403，重试第 \(attempt + 1) 次")
                 self.ioQueue.asyncAfter(deadline: .now() + 0.35) {
                     self.fetchUpstream(route: route, range: range, conn: conn, attempt: attempt + 1)
                 }
                 return true
+            },
+            // 一个字节都没收到就断了：多半是这条直链所在的节点不可达或已过期。
+            // 重新解析换一条新直链，再拿同一个 Range 续上——用户侧只是多等几秒，
+            // 不用手动重按播放。
+            onDead: { [weak self] in
+                guard let self, attempt < 2, let refresh = route.refresh else { return false }
+                Diagnostics.mark("streamproxy: 直链不可达，重新解析 (attempt \(attempt + 1))")
+                Task { [weak self] in
+                    let fresh = await refresh()
+                    guard let self else { return }
+                    self.ioQueue.async {
+                        if let fresh {
+                            route.upstream = fresh
+                            Diagnostics.mark("streamproxy: 已换新直链，续传")
+                        }
+                        self.fetchUpstream(route: route, range: range, conn: conn, attempt: attempt + 1)
+                    }
+                }
+                return true
             })
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 900
-        // 用 delegate 逐块回调，不要 dataTask 聚合：AVPlayer 要的是渐进数据流
-        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
-        delegate.session = session
-        session.dataTask(with: req).resume()
+        RelayHub.shared.start(req, state: state)
     }
 }
 
-/// 把上游的响应头和字节流原样灌回本地连接。
-private final class RelayDelegate: NSObject, URLSessionDataDelegate {
+/// 上游回灌中枢：**所有**分段请求共用一条 URLSession。
+///
+/// 之前每个请求都新建一条 URLSession，等于每次都要重做 DNS + TLS 握手；
+/// 这台机器上到 googlevideo 的握手要 3~8 秒，AVPlayer 等不到就直接 -1001 超时。
+/// 共用一条 session 后连接会被复用，第二个 Range 起几乎是即时的。
+final class RelayHub: NSObject, URLSessionDataDelegate {
 
-    private let conn: NWConnection
-    private let fallbackMime: String
-    private let onStatus: (String) -> Void
-    /// 返回 true 表示已安排重试，本次错误不必回给客户端
-    private let onTransient: () -> Bool
-    private var headersSent = false
-    private var sentBytes = 0
-    private var finished = false
-    var session: URLSession?
+    static let shared = RelayHub()
 
-    init(conn: NWConnection, fallbackMime: String,
-         onStatus: @escaping (String) -> Void,
-         onTransient: @escaping () -> Bool) {
-        self.conn = conn
-        self.fallbackMime = fallbackMime
-        self.onStatus = onStatus
-        self.onTransient = onTransient
+    final class TaskState {
+        let conn: NWConnection
+        let mime: String
+        let onStatus: (String) -> Void
+        /// 返回 true 表示已安排重试，本次错误不必回给客户端
+        let onRetry: () -> Bool
+        /// 零字节失败（节点不可达 / 直链过期）时的补救：重新解析后重试
+        let onDead: () -> Bool
+        var headersSent = false
+        var sentBytes = 0
+        var finished = false
+
+        init(conn: NWConnection, mime: String,
+             onStatus: @escaping (String) -> Void,
+             onRetry: @escaping () -> Bool,
+             onDead: @escaping () -> Bool) {
+            self.conn = conn
+            self.mime = mime
+            self.onStatus = onStatus
+            self.onRetry = onRetry
+            self.onDead = onDead
+        }
     }
 
-    private func abort(_ session: URLSession) {
-        session.invalidateAndCancel()
-        conn.cancel()
+    private let lock = NSLock()
+    private var states: [Int: TaskState] = [:]
+    private var session: URLSession!
+
+    private override init() {
+        super.init()
+        let cfg = URLSessionConfiguration.default
+        cfg.timeoutIntervalForRequest = 30
+        cfg.timeoutIntervalForResource = 900
+        cfg.httpMaximumConnectionsPerHost = 6
+        cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        // delegate 逐块回调，不聚合：AVPlayer 要的是渐进数据流
+        session = URLSession(configuration: cfg, delegate: self, delegateQueue: nil)
     }
+
+    func start(_ request: URLRequest, state: TaskState) {
+        let task = session.dataTask(with: request)
+        lock.lock()
+        states[task.taskIdentifier] = state
+        lock.unlock()
+        task.resume()
+    }
+
+    private func state(_ id: Int) -> TaskState? {
+        lock.lock(); defer { lock.unlock() }
+        return states[id]
+    }
+
+    private func drop(_ id: Int) {
+        lock.lock(); states.removeValue(forKey: id); lock.unlock()
+    }
+
+    // MARK: - URLSessionDataDelegate
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask,
                     didReceive response: URLResponse,
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        guard let st = state(dataTask.taskIdentifier) else {
+            completionHandler(.cancel)
+            return
+        }
         guard let http = response as? HTTPURLResponse else {
             completionHandler(.cancel)
-            conn.cancel()
+            drop(dataTask.taskIdentifier)
+            st.conn.cancel()
             return
         }
         let code = http.statusCode
-        onStatus("HTTP \(code)")
-        Diagnostics.mark("streamproxy: upstream \(code) \(http.value(forHTTPHeaderField: "Content-Range") ?? "-")")
+        st.onStatus("HTTP \(code)")
+        Diagnostics.mark("streamproxy: upstream \(code) "
+            + (http.value(forHTTPHeaderField: "Content-Range") ?? "-"))
 
         guard code == 200 || code == 206 else {
-            if code == 403, onTransient() {
-                finished = true
-                session.finishTasksAndInvalidate()
+            if code == 403, st.onRetry() {
+                st.finished = true
+                drop(dataTask.taskIdentifier)
                 completionHandler(.cancel)
                 return
             }
@@ -278,13 +362,15 @@ private final class RelayDelegate: NSObject, URLSessionDataDelegate {
             text += "Content-Type: text/plain\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
             var payload = Data(text.utf8)
             payload.append(body)
-            conn.send(content: payload, completion: .contentProcessed { _ in self.conn.cancel() })
+            st.conn.send(content: payload, completion: .contentProcessed { _ in st.conn.cancel() })
+            st.finished = true
+            drop(dataTask.taskIdentifier)
             completionHandler(.cancel)
             return
         }
 
         var head = "HTTP/1.1 \(code == 206 ? "206 Partial Content" : "200 OK")\r\n"
-        head += "Content-Type: " + (http.value(forHTTPHeaderField: "Content-Type") ?? fallbackMime) + "\r\n"
+        head += "Content-Type: " + (http.value(forHTTPHeaderField: "Content-Type") ?? st.mime) + "\r\n"
         head += "Accept-Ranges: bytes\r\n"
         if let cr = http.value(forHTTPHeaderField: "Content-Range") {
             head += "Content-Range: \(cr)\r\n"
@@ -293,34 +379,55 @@ private final class RelayDelegate: NSObject, URLSessionDataDelegate {
             head += "Content-Length: \(cl)\r\n"
         }
         head += "Connection: close\r\n\r\n"
-        headersSent = true
-        conn.send(content: Data(head.utf8), completion: .contentProcessed { error in
-            if error != nil { self.abort(session) }
-        })
+        st.headersSent = true
+        st.conn.send(content: Data(head.utf8), completion: .contentProcessed { _ in })
         completionHandler(.allow)
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        guard headersSent else { return }
-        sentBytes += data.count
-        conn.send(content: data, completion: .contentProcessed { error in
-            if error != nil { self.abort(session) }
-        })
+        guard let st = state(dataTask.taskIdentifier), st.headersSent, !st.finished else { return }
+        st.sentBytes += data.count
+        st.conn.send(content: data, completion: .contentProcessed { _ in })
+    }
+
+    /// googlevideo 对部分 Range 请求会回 302 换节点。URLSession 默认跟随重定向，
+    /// 但**会丢掉 Range 头** —— 于是上游从字节 0 开始回整段，AVPlayer 按自己的
+    /// 期望偏移去读就对不上，表现为「缓冲一直在涨却一直 waiting」。
+    /// 这里手动跟随，把 Range / UA 原样带过去。
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        var req = request
+        if let original = task.originalRequest {
+            for name in ["Range", "User-Agent"] {
+                if let value = original.value(forHTTPHeaderField: name) {
+                    req.setValue(value, forHTTPHeaderField: name)
+                }
+            }
+        }
+        Diagnostics.mark("streamproxy: 跟随重定向 \(response.statusCode) -> \(req.url?.host ?? "-")")
+        completionHandler(req)
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard !finished else { return }
-        finished = true
-        if let error = error, sentBytes == 0 {
-            onStatus("上游失败 \(error.localizedDescription)")
-            conn.cancel()
-            session.finishTasksAndInvalidate()
+        let id = task.taskIdentifier
+        guard let st = state(id), !st.finished else {
+            drop(id)
+            return
+        }
+        st.finished = true
+        drop(id)
+        if let error = error, st.sentBytes == 0 {
+            st.onStatus("上游失败 \(error.localizedDescription)")
+            Diagnostics.mark("streamproxy: 上游中断 \(error.localizedDescription)")
+            if st.onDead() { return }
+            st.conn.cancel()
             return
         }
         // 这一段 Range 传完就断开：AVPlayer 需要时会再发下一次 Range
-        conn.send(content: Data(), isComplete: true, completion: .contentProcessed { _ in
-            self.conn.cancel()
+        st.conn.send(content: Data(), isComplete: true, completion: .contentProcessed { _ in
+            st.conn.cancel()
         })
-        session.finishTasksAndInvalidate()
     }
 }

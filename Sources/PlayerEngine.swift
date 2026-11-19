@@ -55,6 +55,13 @@ final class PlayerEngine: ObservableObject {
     @Published var sheetOpen = false
 
     private let player = AVPlayer()
+
+    /// 播放页要拿到同一个 AVPlayer 才能挂 AVPlayerLayer 显示画面
+    var avPlayer: AVPlayer { player }
+
+    /// 当前这首是否带着视频画面（受保护视频只有合体的 format 18 可读，
+    /// 画面本来就在流里）。为真时播放页把封面区换成动态画面。
+    @Published private(set) var showsVideo = false
     private var timeObserver: Any?
     private var cancellables = Set<AnyCancellable>()
     private var endObserver: NSObjectProtocol?
@@ -763,13 +770,18 @@ final class PlayerEngine: ObservableObject {
 
         currentStream = stream
         currentStreamSource = cacheSource ?? activeSource
+        // 只有 muxed 流（format 18）才有画面；纯音频流保持封面
+        showsVideo = stream.mime.hasPrefix("video")
+        Diagnostics.mark("showsVideo=\(showsVideo) mime=\(stream.mime)")
 
         // YouTube 直链必须经本地代理：AVPlayer 会用自己的 UA 请求 googlevideo，
         // 与签发直链的客户端身份不一致就 403。代理还能替它带上 pot、走系统代理。
         // 这里每次播放都重新登记一次，所以缓存里存的是上游地址，重启也不会指向死端口。
         var itemURL = stream.url
         if stream.viaProxy == true, stream.url.host?.contains("127.0.0.1") != true {
-            let key = "yt-\(stream.itag)-\(abs(stream.url.absoluteString.hashValue))"
+            // key 必须和解析层登记的一致，否则会多建一条没有「重解析补救」的路由
+            let idPart = track.videoId.isEmpty ? String(abs(stream.url.absoluteString.hashValue)) : track.videoId
+            let key = "yt-\(stream.itag)-\(idPart)"
             if let local = LocalStreamProxy.shared.register(
                 upstream: stream.url,
                 userAgent: stream.userAgent ?? StreamResolver.clientUserAgent,
