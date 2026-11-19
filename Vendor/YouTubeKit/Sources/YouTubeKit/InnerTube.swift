@@ -103,6 +103,10 @@ class InnerTube {
     /// 该客户端自己的 UA（ANDROID 是 com.google.android.youtube/...）。
     /// 请求必须用它：ytcfg 里的 UA 来自 watch 页，而我们已经不拉 watch 页了。
     private let clientUserAgent: String?
+    /// 账号 Cookie。登录态下 YouTube 对 GVS 的 PO Token 要求会大幅放宽
+    /// （官方文档：Premium 订阅者完全不需要 GVS PO Token），
+    /// 而且能过掉「Sign in to confirm you're not a bot」这类 IP 风控。
+    private let cookie: String?
     private let playerParams: String?
     private let encryptedHostFlags: String?
 
@@ -116,7 +120,7 @@ class InnerTube {
     
     private let baseURL = "https://www.youtube.com/youtubei/v1"
     
-    init(client: ClientType = .ios, signatureTimestamp: Int?, ytcfg: Extraction.YtCfg, useOAuth: Bool = false, allowCache: Bool = true, visitorData: String? = nil, poToken: String? = nil) {
+    init(client: ClientType = .ios, signatureTimestamp: Int?, ytcfg: Extraction.YtCfg, useOAuth: Bool = false, allowCache: Bool = true, visitorData: String? = nil, poToken: String? = nil, cookie: String? = nil) {
         self.context = defaultClients[client]!.context
         self.apiKey = defaultClients[client]!.apiKey
         self.headers = defaultClients[client]!.headers
@@ -124,6 +128,7 @@ class InnerTube {
         // 现在我们为了省几 MB 的 player JS 不再拉 watch 页，ytcfg 是空的 ——
         // 于是 UA 退化成 "Mozilla/5.0"，YouTube 直接把请求挂住不回（60 秒超时）。
         self.clientUserAgent = defaultClients[client]!.userAgent
+        self.cookie = cookie
         self.playerParams = defaultClients[client]!.playerParams
         self.encryptedHostFlags = client == .webEmbed ? ytcfg.embeddedPlayerEncryptedHostFlags : nil
         self.signatureTimestamp = signatureTimestamp
@@ -204,7 +209,11 @@ class InnerTube {
         
         request.addValue(visitorData ?? "", forHTTPHeaderField: "X-Goog-Visitor-Id")
         request.addValue("https://www.youtube.com", forHTTPHeaderField: "Origin")
-        
+
+        if let cookie = cookie, !cookie.isEmpty {
+            request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        }
+
         for (key, value) in headers {
             request.setValue(value, forHTTPHeaderField: key)
         }

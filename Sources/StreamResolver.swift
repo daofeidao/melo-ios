@@ -230,6 +230,14 @@ enum StreamResolver {
         // 库内部的 os_log 不落到 App 的 trace，接出来才能看到每个客户端的真实结果。
         YouTube.debugLog = { message in Diagnostics.mark(message) }
 
+        // 把「设置里登录的 YouTube 账号」交给库。登录之后 YouTube 对 GVS PO Token
+        // 的强制会大幅放宽（官方文档：Premium 订阅者完全不需要），也是唯一能同时
+        // 解决「96k 天花板」和「Sign in to confirm you're not a bot」的东西。
+        YouTube.cookieProvider = {
+            let cookie = SourcePrefs.shared.cookie("youtube") ?? ""
+            return cookie.isEmpty ? nil : cookie
+        }
+
         // 铸 token 与库解析并行：库要先拉 watch 页 + 下载 player JS，正好盖住铸造耗时。
         async let identityTask = PoTokenMinter.shared.identity(for: videoId)
         let identity = await identityTask

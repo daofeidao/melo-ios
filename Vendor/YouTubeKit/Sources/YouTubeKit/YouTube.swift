@@ -33,6 +33,15 @@ public class YouTube {
     public static var identityProvider: ((_ videoID: String) async -> YouTubeIdentity?)?
     #endif
 
+    /// 账号 Cookie 供方（App 在解析前设置）。返回 nil 表示匿名。
+    /// 登录之后：Premium 账号不再需要 GVS PO Token，普通账号也能过
+    /// 「Sign in to confirm you're not a bot」这类按 IP 的风控。
+    #if swift(>=6.0)
+    nonisolated(unsafe) public static var cookieProvider: (() -> String?)?
+    #else
+    public static var cookieProvider: (() -> String?)?
+    #endif
+
     /// 诊断输出（App 接到自己的 trace 里）。库内部的 os_log 在 App 日志里看不到。
     #if swift(>=5.10)
     nonisolated(unsafe) public static var debugLog: ((String) -> Void)?
@@ -409,9 +418,17 @@ public class YouTube {
             // Melo 定制：ANDROID 排第一 —— 实测它是唯一稳定返回明文音频直链的客户端
             // （不受 SABR 强制、不需要 PO Token、不需要登录）。其余 Web 系客户端
             // 作为兜底保留，但它们多数只能拿到 SABR / 触发风控。
-            // Melo 定制：tvSamsung / web 实测一律回 "The page needs to be reloaded"，
-            // 留着只会多两条并发请求抢同一条慢链路，拖慢每次解析。只留两个能出明文流的。
-            let innertubeClients: [InnerTube.ClientType] = [.android, .visionOS]
+            // Melo 定制客户端池：
+            // - 未登录：只留实测能出明文流的 [android, visionOS]
+            //   （tvSamsung / web 一律回 "The page needs to be reloaded"）
+            // - 已登录：优先 androidVR —— yt-dlp 官方文档写明它 **不需要 GVS PO Token**
+            //   且给全量 DASH（含 itag 140 的 130k AAC）。它唯一的门槛是
+            //   「Sign in to confirm you're not a bot」，也就是必须有登录态才进得去。
+            //   后面跟着 android/visionOS 兜底，登录态失效也不会拖死。
+            let hasCookie = (Self.cookieProvider?()?.isEmpty == false)
+            let innertubeClients: [InnerTube.ClientType] = hasCookie
+                ? [.androidVR, .android, .visionOS]
+                : [.android, .visionOS]
 
             // Melo 定制：解签名的两个前置件（player JS 几 MB、watch 页几百 KB）只在
             // 真需要时再拉。ANDROID 返回的格式自带明文 url，压根用不到它们；
@@ -434,7 +451,8 @@ public class YouTube {
 
             let results: [Result<InnerTube.VideoInfo, Error>] = await innertubeClients.concurrentMap { [videoID, useOAuth, allowOAuthCache] client in
                 let innertube = InnerTube(client: client, signatureTimestamp: sigTS, ytcfg: resolvedYtcfg, useOAuth: useOAuth, allowCache: allowOAuthCache,
-                                          visitorData: resolvedIdentity?.visitorData, poToken: resolvedIdentity?.playerToken)
+                                          visitorData: resolvedIdentity?.visitorData, poToken: resolvedIdentity?.playerToken,
+                                          cookie: Self.cookieProvider?())
                 
                 do {
                     let innertubeResponse = try await innertube.player(videoID: videoID)
@@ -508,7 +526,8 @@ public class YouTube {
             resolvedYtcfg = try await ytcfg
         }
         let innertube = InnerTube(client: client, signatureTimestamp: signatureTimestamp, ytcfg: resolvedYtcfg, useOAuth: useOAuth, allowCache: allowOAuthCache,
-                                  visitorData: identity?.visitorData, poToken: identity?.playerToken)
+                                  visitorData: identity?.visitorData, poToken: identity?.playerToken,
+                                  cookie: Self.cookieProvider?())
         let videoInfo = try await innertube.player(videoID: videoID)
         
         // ignore if incorrect videoID
