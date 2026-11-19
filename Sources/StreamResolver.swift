@@ -248,7 +248,17 @@ enum StreamResolver {
         // 解决「96k 天花板」和「Sign in to confirm you're not a bot」的东西。
         YouTube.cookieProvider = {
             let cookie = SourcePrefs.shared.cookie("youtube") ?? ""
-            return cookie.isEmpty ? nil : cookie
+            // 只认真正带登录态的 Cookie。残缺或过期的 Cookie 带上去，YouTube 会按
+            // 「已登录但身份无效」处理，比匿名更容易被判 videoUnavailable —— 表现就是
+            // 同一首歌在别的设备能播，在这台反而「无匹配版本」。
+            let hasAuth = cookie.contains("SAPISID=") || cookie.contains("__Secure-3PSID=")
+            if !hasAuth {
+                if !cookie.isEmpty {
+                    Diagnostics.mark("youtube: cookie 不完整，按匿名处理")
+                }
+                return nil
+            }
+            return cookie
         }
 
         // 铸 token 与 player 请求**真正并行**，而且不再挡在起播前面。
@@ -345,9 +355,20 @@ enum StreamResolver {
             // 库的 YouTubeKitError 多数 case 没有 localizedDescription，
             // 不记原始值的话日志里只剩「没有可播放版本」，根本定位不了。
             Diagnostics.mark("youtubekit: FAIL \(error.rawValue) · \(error.localizedDescription ?? "-")")
+            // 每种失败原因给的处置方式完全不同，不能混成一句「无匹配版本」：
+            // 地区限制 → 换节点；年龄限制 → 登录；IP 风控 → 换节点或稍后重试；
+            // 私享/会员视频 → 这歌本身就看不了，换源也没用。
             switch error {
-            case .videoAgeRestricted, .videoUnavailable, .videoPrivate, .membersOnly, .videoRegionBlocked:
-                throw ApiError.botCheck(error.localizedDescription ?? error.rawValue)
+            case .videoRegionBlocked:
+                throw ApiError.botCheck(L("YouTube says this video is not available in your network's region. Switching to another proxy node usually fixes it."))
+            case .videoAgeRestricted:
+                throw ApiError.botCheck(L("This video is age-restricted. Sign in to YouTube in Settings → Sources, then try again."))
+            case .videoPrivate:
+                throw ApiError.botCheck(L("This video is private and cannot be played."))
+            case .membersOnly:
+                throw ApiError.botCheck(L("This video is for channel members only."))
+            case .videoUnavailable:
+                throw ApiError.botCheck(L("YouTube rejected the request. This usually means the proxy's exit IP is being rate-limited — switch node and retry."))
             default:
                 throw ApiError.unavailable(String(format: L("Unable to resolve playback URL: %@"),
                                                   error.localizedDescription ?? error.rawValue))

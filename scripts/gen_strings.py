@@ -674,6 +674,17 @@ TABLE = [
     ("Off keeps the better audio. Turn it on when you want to watch the video.",
      "关闭时音质更好；想看电视画面时再打开。"),
 
+    ("YouTube says this video is not available in your network's region. Switching to another proxy node usually fixes it.",
+     "YouTube 表示这个视频在你当前网络的出口地区不可用。换一个代理节点通常就能播。"),
+    ("This video is age-restricted. Sign in to YouTube in Settings → Sources, then try again.",
+     "这个视频有年龄限制。请先在「设置 → 数据来源」里登录 YouTube，再重试。"),
+    ("This video is private and cannot be played.",
+     "这是私享视频，无法播放。"),
+    ("This video is for channel members only.",
+     "这个视频仅限频道会员观看。"),
+    ("YouTube rejected the request. This usually means the proxy's exit IP is being rate-limited — switch node and retry.",
+     "YouTube 拒绝了这个请求，通常是代理出口 IP 被风控。换个节点再试一次。"),
+
 ]
 
 HEADER = """/*

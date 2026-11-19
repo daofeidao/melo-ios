@@ -452,3 +452,8 @@
 "Prefer video picture" = "Prefer video picture";
 "Show the original video inside the player. YouTube serves picture and 130 kbps audio as separate streams, so this drops audio to 96 kbps." = "Show the original video inside the player. YouTube serves picture and 130 kbps audio as separate streams, so this drops audio to 96 kbps.";
 "Off keeps the better audio. Turn it on when you want to watch the video." = "Off keeps the better audio. Turn it on when you want to watch the video.";
+"YouTube says this video is not available in your network's region. Switching to another proxy node usually fixes it." = "YouTube says this video is not available in your network's region. Switching to another proxy node usually fixes it.";
+"This video is age-restricted. Sign in to YouTube in Settings → Sources, then try again." = "This video is age-restricted. Sign in to YouTube in Settings → Sources, then try again.";
+"This video is private and cannot be played." = "This video is private and cannot be played.";
+"This video is for channel members only." = "This video is for channel members only.";
+"YouTube rejected the request. This usually means the proxy's exit IP is being rate-limited — switch node and retry." = "YouTube rejected the request. This usually means the proxy's exit IP is being rate-limited — switch node and retry.";

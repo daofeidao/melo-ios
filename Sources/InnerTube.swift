@@ -17,8 +17,11 @@ enum ApiError: LocalizedError {
             return message
         case .unavailable(let message):
             return message
-        case .botCheck:
-            return L("YouTube rejected this playback request and no matching version was found on domestic sources. Please retry later or play songs imported from a domestic playlist.")
+        case .botCheck(let message):
+            // 这里必须把 YouTube 给的具体原因原样带出来。
+            // 以前是一段固定的「无匹配版本」文案，把「地区限制」「年龄限制」
+            // 「IP 被风控」三种完全不同的情况混成一句，用户和日志都看不出该做什么。
+            return message
         }
     }
 }

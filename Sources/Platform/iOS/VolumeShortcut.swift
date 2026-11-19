@@ -150,10 +150,25 @@ final class VolumeShortcutMonitor {
         guard previous >= 0 else { return }
 
         let delta = volume - previous
-        // 音量到顶 / 到底时值为 0，此时没有方向信息，直接忽略。
-        guard abs(delta) > 0.001 else { return }
 
-        if delta > 0 {
+        // 音量没变，只有一种情况能确定方向：已经顶到头 / 到底了。
+        //   音量 = 1.0 还收到「用户按键」，那必然是按的 +（按 − 会变小）；
+        //   音量 = 0.0 同理必然是 −。
+        // 这一条正是旧实现最大的毛病：KVO 在音量不变时压根不回调，
+        // 「音量开到最大之后双击切歌就没反应了」。
+        // 中间音量却不变（比如系统里关了「用按钮调整」）无法判断方向，只能忽略。
+        let direction: Int
+        if abs(delta) > 0.001 {
+            direction = delta > 0 ? 1 : -1
+        } else if volume >= 0.999 {
+            direction = 1
+        } else if volume <= 0.001 {
+            direction = -1
+        } else {
+            return
+        }
+
+        if direction > 0 {
             if now.timeIntervalSince(lastUp) <= window {
                 lastUp = .distantPast
                 fire(next: true, restoreTo: previous)
