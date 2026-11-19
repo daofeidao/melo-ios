@@ -30,7 +30,72 @@ final class PoTokenMinter {
         let mintedAt: Date
     }
     private var cache: Cached?
-    private let ttl: TimeInterval = 1200   // 20 分钟
+
+    /// 一次铸造的完整身份：visitor + 两枚用途不同的 token。
+    struct POIdentity {
+        /// 与 player 请求同源的 visitor
+        let visitorData: String
+        /// 内容绑定（videoId）→ 放进 player 请求的 serviceIntegrityDimensions
+        let playerToken: String?
+        /// 会话绑定（visitorData）→ 附加到媒体直链的 &pot=
+        let gvsToken: String?
+        let mintedAt: Date
+    }
+
+    private var identityCache: (videoId: String, identity: POIdentity)?
+    private var cachedVisitor: (value: String, at: Date)?
+    /// BotGuard integrityToken + 已注入的 VM，可复用多次铸造（每次铸造只多花一次 mint）
+    private var cachedSession: (integrityToken: String, createdAt: Date)?
+
+    // YouTube 的 GVS PO Token 实测 TTL 12 小时（见 pipepipe-sabr REPORT）。
+    // 之前 20 分钟太保守，导致频繁重铸（每次 4~20s）拖慢起播，放宽到 11 小时留余量。
+    private let ttl: TimeInterval = 11 * 3600
+
+    /// 给某个视频铸一套身份。
+    ///
+    /// 为什么是两枚 token（对齐 yt-dlp / bgutil 的做法）：
+    /// - **player token** 绑 videoId，随 player 请求一起提交（serviceIntegrityDimensions），
+    ///   否则受保护视频会被降级（LOGIN_REQUIRED / 只给 SABR）。
+    /// - **gvs token** 附加到 googlevideo 直链的 `&pot=`，否则直链只放第一块，
+    ///   后续 Range 全 403 —— 表现就是「播到 20 秒突然没声音」。
+    ///
+    /// gvs token 的绑定标识：yt-dlp 现在按 **videoId** 绑（YouTube 已把 web 系
+    /// GVS token 收敛成内容绑定）。早期文档写过绑 visitorData，两者服务端都收，
+    /// 但绑 videoId 才和当前实现一致；`melo.debug.gvsBind=visitor` 可切回去做 A/B。
+    ///
+    /// 两枚必须来自同一次 BotGuard 会话且用同一个 visitor，否则服务端认不出。
+    func identity(for videoId: String) async -> POIdentity? {
+        if let c = identityCache, c.videoId == videoId,
+           Date().timeIntervalSince(c.identity.mintedAt) < ttl {
+            return c.identity
+        }
+        do {
+            let visitor = try await visitorData()
+            let integrity = try await ensureSession()
+            let bindVisitor = UserDefaults.standard.string(forKey: "melo.debug.gvsBind") == "visitor"
+            let player = try? await mintToken(integrity: integrity, binding: videoId)
+            let gvs = try? await mintToken(integrity: integrity, binding: bindVisitor ? visitor : videoId)
+            Diagnostics.mark("poToken: gvs bind=\(bindVisitor ? "visitor" : "video")")
+            guard player != nil || gvs != nil else { return nil }
+            let identity = POIdentity(visitorData: visitor, playerToken: player, gvsToken: gvs, mintedAt: Date())
+            identityCache = (videoId, identity)
+            Diagnostics.mark("poToken: identity ok (visitor \(visitor.count), player \(player?.count ?? 0), gvs \(gvs?.count ?? 0))")
+            return identity
+        } catch {
+            Diagnostics.mark("poToken: identity failed – \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// visitor 是会话级的，缓存起来让 player 请求和 token 铸造共用同一份。
+    func visitorData() async throws -> String {
+        if let c = cachedVisitor, Date().timeIntervalSince(c.at) < ttl {
+            return c.value
+        }
+        let visitor = try await fetchVisitorData(cookie: nil).visitorData
+        cachedVisitor = (visitor, Date())
+        return visitor
+    }
 
     /// 当前可用的 (poToken, visitorData)。缓存过期会自动重铸。
     /// 铸造失败返回 nil —— 调用方应退回无 Token 请求（部分客户端仍能播）。
@@ -41,8 +106,9 @@ final class PoTokenMinter {
             return (c.poToken, c.visitorData)
         }
         do {
-            let visitor = try await fetchVisitorData(cookie: nil).visitorData
-            let poToken = try await mint(binding: binding)
+            let visitor = try await visitorData()
+            let integrity = try await ensureSession()
+            let poToken = try await mintToken(integrity: integrity, binding: binding)
             cache = Cached(poToken: poToken, visitorData: visitor, binding: binding, mintedAt: Date())
             Diagnostics.mark("poToken: minted ok (\(poToken.count) chars, visitor \(visitor.count), bind=\(binding))")
             return (poToken, visitor)
@@ -68,9 +134,31 @@ final class PoTokenMinter {
         }
     }
 
+    /// 调试用：把两种绑定各铸一枚，交给自检做 A/B。
+    /// 会话与 visitor 复用缓存，所以第二枚几乎不花时间。
+    func mintVariants(videoId: String) async -> [(label: String, token: String)] {
+        do {
+            let visitor = try await visitorData()
+            let integrity = try await ensureSession()
+            var out: [(String, String)] = []
+            if let t = try? await mintToken(integrity: integrity, binding: videoId) {
+                out.append(("bind=video", t))
+            }
+            if let t = try? await mintToken(integrity: integrity, binding: visitor) {
+                out.append(("bind=visitor", t))
+            }
+            return out
+        } catch {
+            Diagnostics.mark("poToken: mintVariants failed – \(error.localizedDescription)")
+            return []
+        }
+    }
+
     /// 强制下次重铸（比如收到 LOGIN_REQUIRED 时）
     func invalidate() {
         cache = nil
+        identityCache = nil
+        cachedSession = nil
     }
 
     // MARK: - visitorData
@@ -133,7 +221,12 @@ final class PoTokenMinter {
 
     private var webView: WKWebView?
 
-    func mint(binding: String) async throws -> String {
+    /// 取一次 BotGuard 会话（挑战 → WKWebView 解算 → integrityToken），并缓存复用。
+    /// 同一会话可以铸多枚 token（不同 content binding），这是 bgutil 的标准做法。
+    func ensureSession() async throws -> String {
+        if let s = cachedSession, Date().timeIntervalSince(s.createdAt) < ttl {
+            return s.integrityToken
+        }
         // 1) BotGuard 挑战
         let challenge = try await createChallenge()
         // 2) 解释器 + program 走 HTML 注入，页面里跑挑战 → botguardResponse
@@ -144,6 +237,12 @@ final class PoTokenMinter {
         // 3) 换 integrityToken
         let integrity = try await generateIT(botguardResponse)
         Diagnostics.mark("poToken: integrity ok (\(integrity.count) chars)")
+        cachedSession = (integrity, Date())
+        return integrity
+    }
+
+    /// 用已有会话铸一枚 token。binding 就是 content binding（player 用 videoId，gvs 用 visitorData）。
+    func mintToken(integrity: String, binding: String) async throws -> String {
         // 4) 用 window.__meloPoSignal + integrityToken + 内容绑定 → 铸 PO Token
         let call = "await window.__meloMint({integrityToken: \(Self.jsString(integrity)), identifier: \(Self.jsString(binding)), _diag: (window.__meloSignalDiag || 'n/a')})"
         let minted = try await run(call)
@@ -152,8 +251,13 @@ final class PoTokenMinter {
         if let diag = try? await js("window.__meloSignalDiag") as? String {
             Diagnostics.mark("poToken: signal=\(diag)")
         }
-        Diagnostics.mark("poToken: token head=\(String(minted.prefix(24)))")
+        Diagnostics.mark("poToken: token head=\(String(minted.prefix(24))) bind=\(binding.prefix(24))")
         return minted
+    }
+
+    func mint(binding: String) async throws -> String {
+        let integrity = try await ensureSession()
+        return try await mintToken(integrity: integrity, binding: binding)
     }
 
     func createChallenge() async throws -> Challenge {

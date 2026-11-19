@@ -170,4 +170,7 @@ struct AudioStream: Codable {
     /// 解析这条直链时使用的客户端 UA。googlevideo 会校验 UA 与解析身份一致，
     /// 换了身份却还用旧 UA 会 403；国内直链不校验，留 nil 即可。
     var userAgent: String? = nil
+    /// 播放前是否要过 LocalStreamProxy。YouTube 必须走：AVPlayer 自带 UA 改不了，
+    /// 直连 googlevideo 会 403。用 Optional 是为了兼容旧缓存 JSON（缺键→nil→false）。
+    var viaProxy: Bool? = nil
 }

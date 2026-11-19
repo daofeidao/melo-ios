@@ -186,12 +186,25 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
                 // 播放页打开时：两指下滑关闭播放页；两指上滑打开「播放源」面板。
                 if velocity.y > 0 {
                     guard MacGestureSettings.on(MacGestureSettings.swipeDismiss) else { return }
+                    // 浮层（播放源/待播清单）开着时，下滑先关浮层，别直接退播放页
+                    if PlayerEngine.shared.sheetOpen {
+                        Diagnostics.mark("gesture 2f: down→close sheet")
+                        NotificationCenter.default.post(name: .meloCloseSheet, object: nil)
+                        return
+                    }
                     Diagnostics.mark("gesture 2f: down→close")
                     PlayerEngine.shared.opensFullPlayer = false
                 } else {
                     Diagnostics.mark("gesture 2f: up→open sources")
                     NotificationCenter.default.post(name: .meloOpenPlayerSource, object: nil)
                 }
+                return
+            }
+            let tab = UserDefaults.standard.integer(forKey: "melo.mac.currentTab")
+            // 资料库页（tab 2）双指下滑：打开设置；上滑仍是音量。
+            if tab == 2 && velocity.y > 0 {
+                Diagnostics.mark("gesture 2f: library down→open settings")
+                NotificationCenter.default.post(name: .meloOpenSettings, object: nil)
                 return
             }
             guard MacGestureSettings.on(MacGestureSettings.verticalVolume) else { return }
@@ -253,12 +266,6 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         true
     }
-}
-
-extension Notification.Name {
-    static let meloSwitchTab = Notification.Name("melo.switchTab")
-    static let meloRefreshKeyCommands = Notification.Name("melo.refreshKeyCommands")
-    static let meloOpenPlayerSource = Notification.Name("melo.openPlayerSource")
 }
 
 /// 找到当前 firstResponder（遍历视图树）

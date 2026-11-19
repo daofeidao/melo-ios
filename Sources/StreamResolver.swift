@@ -1,5 +1,19 @@
 import Foundation
+import YouTubeKit
 
+/// YouTube 解析层。
+///
+/// 底层用 alexeichhorn/YouTubeKit 做真正的 player 请求 + cipher 求解 + 多客户端兜底，
+/// 本文件负责三件事：
+///   1. 把库选出的流翻译成 Melo 的 `AudioStream`；
+///   2. **验证**这条直链真的能分段读（受保护视频只放第一块，后面全 403）；
+///   3. 交给 `LocalStreamProxy` 包一层本地地址，让 AVPlayer 不必自己去应付
+///      googlevideo 的 UA 校验、pot 参数和代理问题。
+///
+/// 为什么必须验证：
+/// YouTube 现在对不少视频强制 GVS PO Token，没有 token 时第一块 256KB 正常返回
+/// 206，之后的 Range 全部 403 —— 表现就是「播到 20 秒突然没声音、进度条照走」。
+/// 起播前在文件中段探一次字节，能当场判死，不必等用户听完 20 秒才发现。
 enum StreamResolver {
 
     enum Quality: String, CaseIterable, Identifiable {
@@ -55,435 +69,245 @@ enum StreamResolver {
         }
     }
 
-    private struct Client {
-        let id: String
-        let name: String
-        let version: String
-        let extra: [String: Any]
-        let userAgent: String
+    /// 对外仍暴露一个数（诊断面板显示「客户端池」用）。库由多客户端并发兜底，
+    /// 这里给一个固定值代表池大小，避免改动诊断 UI。
+    static var clientCount: Int { 3 }
+
+    /// googlevideo 拉流要带与解析身份一致的 UA。
+    /// 必须与解析客户端一致：库用 ANDROID 客户端拿明文直链，
+    /// googlevideo 校验 UA 与签名身份绑定，换 UA 会被拒。
+    static let clientUserAgent = "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip"
+
+    // MARK: - 候选
+
+    /// 一条待验证的播放候选。`needsPot` 为 false 的是免 token 的兜底（format 18）。
+    private struct Candidate {
+        let stream: YouTubeKit.Stream
+        let bitrate: Int
+        let needsPot: Bool
     }
 
-    /// 对外只暴露数量，`Client` 是私有类型
-    static var clientCount: Int { clients.count }
-
-    private static let winnerKey = "melo.youtubeClientID"
-
-    /// 上次成功解析用的身份。正常起播只打这一个请求，身份失效时再并发竞速。
-    private static var winnerID: String? {
-        get { UserDefaults.standard.string(forKey: winnerKey) }
-        set {
-            if let value = newValue {
-                UserDefaults.standard.set(value, forKey: winnerKey)
-            } else {
-                UserDefaults.standard.removeObject(forKey: winnerKey)
-            }
+    /// 用 YouTubeKit 解析一次，按优先级排出候选：
+    /// ① 目标音质的 m4a 纯音频（要 pot）→ ② 其余 m4a → ③ 渐进式 mp4（format 18，免 pot）
+    private static func candidates(
+        videoId: String, quality: Quality,
+        identity: PoTokenMinter.POIdentity?
+    ) async throws -> [Candidate] {
+        let youtube = YouTube(videoID: videoId)
+        if let identity = identity {
+            // 实测：给 ANDROID 的 player 请求塞 serviceIntegrityDimensions
+            // 会被直接打回 400（token 与客户端不匹配），比不发还糟。
+            // 默认只传 visitor（与铸 token 用的 visitor 同源，服务端才认得出）。
+            let sendPlayerToken = UserDefaults.standard.bool(forKey: "melo.debug.playerToken")
+            youtube.identity = YouTube.YouTubeIdentity(
+                visitorData: identity.visitorData,
+                playerToken: sendPlayerToken ? identity.playerToken : nil)
         }
-    }
+        let all = try await youtube.streams
+        YouTubeSelfTest.noteStreams(all)
 
-    /// 起播时的 UA 必须跟着解析身份走，否则 googlevideo 返回 403
-    static var clientUserAgent: String {
-        guard let id = winnerID, let client = clients.first(where: { $0.id == id }) else {
-            return clients[0].userAgent
-        }
-        return client.userAgent
-    }
+        // AVPlayer 原生只吃 AAC/m4a；webm/opus 在 Catalyst 上解不了。
+        let audioOnly = all.filter { $0.videoCodec == nil && $0.fileExtension == .m4a }
+        let progressive = all.filter { $0.isProgressive && $0.fileExtension == .mp4 }
 
-    /// SABR / UMP 是 protobuf 分帧流，AVPlayer 解不了，不能选进格式池
-    private static func isSABR(_ url: String) -> Bool {
-        let lower = url.lowercased()
-        return lower.contains("/sb/") || lower.contains("sabr") || lower.contains("ump")
-    }
+        func bitrate(_ s: YouTubeKit.Stream) -> Int { s.averageBitrate ?? s.bitrate ?? 0 }
 
-    /// 客户端池只保留「浏览器侧」身份（WEB / WEB_REMIX / MWEB / WEB_EMBEDDED_PLAYER）。
-    ///
-    /// 根本原因（2026-11-17 实测确认）：YouTube 的 PO Token（Proof of Origin）是
-    /// **绑定客户端类型**的。本项目里的 PO Token 一直是用 WEB_REMIX 从 BotGuard 铸的
-    /// （见 PoTokenMinter.fetchVisitorData 的 clientName = WEB_REMIX），却把它塞进
-    /// IOS / ANDROID / TV 的 player 请求 —— token 与 client 错配，等于挂了个假通行证，
-    /// YouTube 一眼判 LOGIN_REQUIRED。
-    ///
-    /// IOS / ANDROID 还需要 DroidGuard / iOSGuard / 设备注册态，本项目没有这些，
-    /// 永远过不了；TV / VR 同样要独立鉴权。它们只会拖慢竞速、污染结果，一并移除。
-    ///
-    /// 现在的原则：**PO Token 铸自哪个 client，player 请求就用哪个 client**，
-    /// 身份完全自洽。
-    ///
-    /// 关键（2026-11-17 Mac 实测，权威对照 yt-dlp + BgUtils 官方代码）：
-    /// 1. YouTube 2025-02 起对 **web / mweb** 客户端强制 SABR 分帧流，
-    ///    adaptiveFormats 不再给明文 url（AVPlayer 解不了 SABR）。
-    /// 2. **ANDROID 客户端不受 SABR 强制**，直接返回带明文 url 的音频格式，
-    ///    且**不需要 PO Token、不需要登录、不需要干净出口 IP**（实测 206 + 真 MP4/WebM 数据）。
-    ///    所以它排最前，是现在唯一稳定拿到直链的客户端。
-    /// 3. 它必须带 `osName` / `osVersion` / `androidSdkVersion`，缺了会被判机器人。
-    /// 4. tv / web 系仍作兜底，但它们要么要 TV 平台 token，要么被 SABR 强制。
-    private static let clients: [Client] = [
-        Client(
-            id: "android",
-            name: "ANDROID",
-            version: "20.10.38",
-            extra: [
-                "hl": "en", "gl": "US",
-                "androidSdkVersion": 34,
-                "osName": "Android",
-                "osVersion": "14"
-            ],
-            userAgent: "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip"
-        ),
-        Client(
-            id: "tv",
-            name: "TVHTML5",
-            version: "7.20241001.00.00",
-            extra: ["hl": "en", "gl": "US"],
-            userAgent: "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version"
-        ),
-        Client(
-            id: "web-remix",
-            name: "WEB_REMIX",
-            version: "1.20241127.01.00",
-            extra: ["hl": "en", "gl": "US"],
-            userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-        ),
-        Client(
-            id: "web",
-            name: "WEB",
-            version: "2.20241114.00.00",
-            extra: ["hl": "en", "gl": "US"],
-            userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-        ),
-        Client(
-            id: "mweb",
-            name: "MWEB",
-            version: "2.20241114.05.00",
-            extra: ["hl": "en", "gl": "US"],
-            userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
-        )
-    ]
-
-    static func resolve(videoId: String, quality: Quality) async throws -> AudioStream {
-        // ── 路线一（主）：ANDROID 客户端直取明文直链。
-        //
-        // 实测（2026-11-18，同一 IP，浏览器能播）：
-        //  - 不是 IP、不是 pot、不是 range：是匿名 ANDROID 客户端被**概率性风控**。
-        //    连续 15 次请求，status 在 OK / LOGIN_REQUIRED("Sign in to confirm
-        //    you're not a bot") 之间跳，成功率约 40%。
-        //  - 浏览器稳定 OK 只是因为它有完整会话，不被抽样。
-        //  - 重试 6 次的累计成功率 = 1-(0.6)^6 ≈ 95%，足够可靠。
-        //
-        // 关键：不要先铸 PO Token（要 4~20 秒）——ANDROID 直链本来就不带 pot 也能播，
-        // 铸 token 只会拖慢起播。拿到直链后按需再铸。
-        if let android = clients.first(where: { $0.id == "android" }) {
-            for _ in 0..<6 {
-                if let stream = try? await attempt(videoId: videoId, client: android,
-                                                   quality: quality, po: nil, pot: nil) {
-                    Diagnostics.mark("youtube: android resolved (retry ok)")
-                    return stream
-                }
-                try? await Task.sleep(nanoseconds: 200_000_000)  // 0.2s
-            }
-            Diagnostics.mark("youtube: android failed after 6 tries")
-        }
-
-        // ── 路线二：兜底 —— 让真实浏览器（WKWebView）铸 PO Token，Melo 只读。
-        // 前面所有客户端都失败时才走：开浏览器要 3~10 秒，作为最后手段。
-        if let stream = try? await attemptWithBrowserToken(videoId: videoId, quality: quality) {
-            return stream
-        }
-
-        // ── 路线三：用户登录了 YouTube，走「浏览器登录态」。
-        if let cookie = SourcePrefs.shared.cookie("youtube"),
-           let stream = try? await attemptWithCookie(videoId: videoId, quality: quality, cookie: cookie) {
-            return stream
-        }
-
-        // ── 路线四（兜底）：铸 PO Token + 各客户端竞速。
-        // 走到这里说明 ANDROID 连试 6 次都没过（风控冷却），才值得花 4~20 秒铸 token。
-        let po = await PoTokenMinter.shared.token(for: videoId)
-        let outcome = await withTaskGroup(
-            of: Result<AudioStream, Error>.self
-        ) { group -> (stream: AudioStream?, botChecked: Bool, failures: [String]) in
-            for client in clients {
-                group.addTask {
-                    do {
-                        return .success(try await attempt(videoId: videoId, client: client, quality: quality,
-                                                          po: po, pot: po?.poToken))
-                    } catch {
-                        return .failure(error)
-                    }
-                }
-            }
-
-            var stream: AudioStream?
-            var botChecked = false
-            var failures: [String] = []
-
-            for await result in group {
-                switch result {
-                case .success(let value):
-                    stream = value
-                    group.cancelAll()
-                case .failure(let error):
-                    if let typed = error as? ApiError, case .botCheck = typed {
-                        botChecked = true
-                    } else {
-                        failures.append((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
-                    }
-                }
-                if stream != nil { break }
-            }
-            return (stream, botChecked, failures)
-        }
-
-        if let stream = outcome.stream { return stream }
-
-        // 全部被拒：优先按「机器人判定」报错，方便上层触发熔断与提示
-        if outcome.botChecked, outcome.failures.isEmpty {
-            throw ApiError.botCheck("")
-        }
-
-        let detail = outcome.failures.first ?? L("Unknown reason")
-        throw ApiError.unavailable(String(format: L("Unable to resolve playback URL: %@"), detail))
-    }
-
-    private static func attempt(
-        videoId: String,
-        client: Client,
-        quality: Quality,
-        po: (poToken: String, visitorData: String)?,
-        pot: String? = nil
-    ) async throws -> AudioStream {
-        var clientContext = client.extra
-        clientContext["clientName"] = client.name
-        clientContext["clientVersion"] = client.version
-
-        var body: [String: Any] = [
-            "context": ["client": clientContext],
-            "videoId": videoId,
-            "contentCheckOk": true,
-            "racyCheckOk": true
-        ]
-        // PO Token 是 Web 平台铸的（BotGuard），配 Web 平台客户端（tv/web-remix/web）通用；
-        // android/mweb 是别的平台，塞 Web 的 token 反而错配，所以不带。
-        if client.id == "tv" || client.id == "web-remix" || client.id == "web", let po = po {
-            body["serviceIntegrityDimensions"] = ["poToken": po.poToken]
-        }
-
-        let root = try await InnerTube.shared.player(
-            body: body,
-            userAgent: client.userAgent,
-            visitorData: po?.visitorData,
-            music: client.id == "web-remix"
-        )
-
-        // GVS PO Token 作为 &pot= 附在音频直链上——网页能稳定播的关键（BgUtils 官方示例）。
-        // 对 IP 绑定不敏感，动态出口下实测 8/8 206。
-        return try parseStream(root: root, client: client, quality: quality, pot: pot)
-    }
-
-    /// 路线零：用「真实浏览器铸好的 PO Token」请求 player。
-    ///
-    /// 关键：token 是浏览器铸的（Web 平台 BotGuard），配 tv 客户端用 —— tv 是 Web 平台
-    /// 客户端，而且**不受 SABR 强制**（web/mweb 被强制 SABR，AVPlayer 解不了）。
-    /// 所以这里 tv 排第一，拿到明文直链的概率最高。
-    private static func attemptWithBrowserToken(videoId: String, quality: Quality) async throws -> AudioStream {
-        // 先看页面内联的 player response：如果浏览器拿到的就是明文直链，直接用，
-        // 连 player 接口都不用打（这正是「网页能播」的形态）。
-        if let inline = try? await BrowserPoTokenProvider.shared.inspectInlineResponse(videoID: videoId) {
-            Diagnostics.mark("browserInline: status=\(inline.status) sabr=\(inline.hasSabr) 明文=\(inline.audio.filter { $0.hasURL }.count)/\(inline.audio.count) poToken=\(inline.inlinePoToken.count)")
-            for f in inline.audio {
-                Diagnostics.mark("browserInline: itag=\(f.itag) \(f.mime) \(f.bitrate) url=\(f.hasURL) cipher=\(f.hasCipher)")
-            }
-            if let direct = inline.audio.first(where: { $0.hasURL && $0.mime.contains("mp4") }),
-               let url = URL(string: direct.fullURL) {
-                Diagnostics.mark("browserInline: 直接用明文直链 itag=\(direct.itag)")
-                winnerID = "browser-inline"
-                return AudioStream(url: url, itag: direct.itag, bitrate: direct.bitrate, mime: direct.mime, userAgent: BrowserPoTokenProvider.desktopUA)
-            }
-        }
-
-        // 再从渲染后的 DOM 里找 PO Token（yt-dlp webpo provider 的做法）
-        if let domToken = try? await BrowserPoTokenProvider.shared.domPoToken(videoID: videoId), !domToken.isEmpty {
-            Diagnostics.mark("browserDom: 用 DOM 里的 token \(domToken.count) chars")
-            if let stream = try? await attemptWithToken(videoId: videoId, quality: quality, poToken: domToken, visitorData: nil) {
-                return stream
-            }
-        }
-
-        let captured = try await BrowserPoTokenProvider.shared.token(for: videoId)
-        Diagnostics.mark("browserPo: token \(captured.poToken.count) chars, page client=\(captured.clientName)")
-        return try await attemptWithToken(
-            videoId: videoId, quality: quality, poToken: captured.poToken,
-            visitorData: captured.visitorData.isEmpty ? nil : captured.visitorData
-        )
-    }
-
-    /// 用给定的 PO Token 试各客户端。
-    /// 顺序「tv → web-remix → web」：tv 不受 SABR 强制，最可能给出明文直链。
-    private static func attemptWithToken(
-        videoId: String,
-        quality: Quality,
-        poToken: String,
-        visitorData: String?
-    ) async throws -> AudioStream {
-        let order = ["tv", "web-remix", "web"]
-        for id in order {
-            guard let client = clients.first(where: { $0.id == id }) else { continue }
-            var clientContext = client.extra
-            clientContext["clientName"] = client.name
-            clientContext["clientVersion"] = client.version
-
-            var body: [String: Any] = [
-                "context": ["client": clientContext],
-                "videoId": videoId,
-                "contentCheckOk": true,
-                "racyCheckOk": true
-            ]
-            body["serviceIntegrityDimensions"] = ["poToken": poToken]
-
-            let root = try await InnerTube.shared.player(
-                body: body,
-                userAgent: client.userAgent,
-                visitorData: visitorData,
-                music: client.id == "web-remix"
-            )
-
-            do {
-                let stream = try parseStream(root: root, client: client, quality: quality)
-                Diagnostics.mark("browserPo: resolved via \(client.id)")
-                winnerID = client.id
-                return stream
-            } catch {
-                Diagnostics.mark("browserPo: \(client.id) failed – \((error as? LocalizedError)?.errorDescription ?? "?" )")
-            }
-        }
-        throw ApiError.unavailable(L("The browser token was rejected by YouTube"))
-    }
-
-    /// 路线一：带用户录好的 YouTube 登录 Cookie 请求 player。
-    /// 这是「浏览器登录态」路线 —— 和「网页登录后播放」完全自洽，穿透力最强。
-    /// 登录态下 PO Token 绑 dataSyncId（而非 videoId），见 yt-dlp PO Token Guide。
-    private static func attemptWithCookie(
-        videoId: String,
-        quality: Quality,
-        cookie: String
-    ) async throws -> AudioStream {
-        // 用 WEB_REMIX（和登录网页一致），身份自洽
-        guard let client = clients.first(where: { $0.id == "web-remix" }) else {
-            throw ApiError.unavailable(L("No client available"))
-        }
-        var clientContext = client.extra
-        clientContext["clientName"] = client.name
-        clientContext["clientVersion"] = client.version
-
-        var body: [String: Any] = [
-            "context": ["client": clientContext],
-            "videoId": videoId,
-            "contentCheckOk": true,
-            "racyCheckOk": true
-        ]
-
-        // 登录态铸 PO Token：带 Cookie 拿 visitorData + dataSyncId，token 绑 dataSyncId
-        var visitorData: String?
-        if let login = await PoTokenMinter.shared.tokenWithCookie(for: videoId, cookie: cookie) {
-            visitorData = login.visitorData
-            body["serviceIntegrityDimensions"] = ["poToken": login.poToken]
-        }
-
-        let root = try await InnerTube.shared.player(
-            body: body,
-            userAgent: client.userAgent,
-            visitorData: visitorData,
-            cookie: cookie
-        )
-        Diagnostics.mark("player[cookie] resolved")
-
-        let stream = try parseStream(root: root, client: client, quality: quality)
-        // cookie 路线成功也记下来，下次可优先走
-        winnerID = client.id
-        return stream
-    }
-
-    /// 从 player 响应里挑出音频流。attempt / attemptWithCookie 共用。
-    private static func parseStream(
-        root: [String: Any],
-        client: Client,
-        quality: Quality,
-        pot: String? = nil
-    ) throws -> AudioStream {
-        if let status = JS.dict(root["playabilityStatus"]),
-           let state = JS.string(status["status"]),
-           state != "OK" {
-            let reason = JS.string(status["reason"]) ?? state
-            Diagnostics.mark("player[\(client.id)]: \(state) · \(reason)")
-            if state == "LOGIN_REQUIRED" {
-                // PO Token 可能过期了，下次重铸
-                Task { await PoTokenMinter.shared.invalidate() }
-                throw ApiError.botCheck(reason)
-            }
-            throw ApiError.unavailable(reason)
-        }
-
-        let formats = JS.array(JS.dict(root["streamingData"])?["adaptiveFormats"]) ?? []
-        var aacFormats: [[String: Any]] = []
-        var otherAudio: [[String: Any]] = []
-
-        for raw in formats {
-            guard let format = JS.dict(raw),
-                  let mime = JS.string(format["mimeType"]),
-                  mime.hasPrefix("audio/"),
-                  let formatURL = JS.string(format["url"]),
-                  !isSABR(formatURL) else { continue }
-            if mime.contains("mp4") {
-                aacFormats.append(format)
-            } else {
-                otherAudio.append(format)
-            }
-        }
-
-        // AVPlayer 原生只支持 AAC/MP4；opus(webm) 仅作兜底
-        let pool = aacFormats.isEmpty ? otherAudio : aacFormats
-        guard !pool.isEmpty else {
-            throw ApiError.unavailable(L("No audio stream available for this track"))
-        }
-
-        let sorted = pool.sorted { (JS.int($0["bitrate"]) ?? 0) < (JS.int($1["bitrate"]) ?? 0) }
-        let chosen: [String: Any]
-
+        let sortedAudio: [YouTubeKit.Stream]
         switch quality {
         case .lossless, .high:
-            chosen = sorted[sorted.count - 1]
-        case .low:
-            chosen = sorted[0]
+            sortedAudio = audioOnly.sorted { bitrate($0) > bitrate($1) }
         case .normal:
-            let target = 128_000
-            chosen = sorted.min { lhs, rhs in
-                abs((JS.int(lhs["bitrate"]) ?? 0) - target) < abs((JS.int(rhs["bitrate"]) ?? 0) - target)
-            } ?? sorted[sorted.count - 1]
+            sortedAudio = audioOnly.sorted { abs(bitrate($0) - 128_000) < abs(bitrate($1) - 128_000) }
+        case .low:
+            sortedAudio = audioOnly.sorted { bitrate($0) < bitrate($1) }
         }
 
-        guard var urlString = JS.string(chosen["url"]) else {
-            throw ApiError.unavailable(L("Invalid audio URL"))
-        }
-        // 附加 GVS PO Token（&pot=）——网页播放器的标准做法，让拉流对出口 IP 不敏感。
-        // 若直链已带 pot（player 响应自带），先移除再加我们的（避免重复参数）。
-        if let pot = pot, !pot.isEmpty {
-            if var comps = URLComponents(string: urlString) {
-                var items = comps.queryItems ?? []
-                items.removeAll { $0.name == "pot" }
-                items.append(URLQueryItem(name: "pot", value: pot))
-                comps.queryItems = items
-                if let built = comps.string { urlString = built }
+        // 只留三条候选，别把 4 个音质档都排上：受保护视频它们会以同样的方式 403，
+        // 每多探一条就多等 5 秒。顺序 = 首选音质(带 pot) → 同一档不带 pot → 免 token 兜底。
+        var list: [Candidate] = []
+        if let top = sortedAudio.first {
+            list.append(Candidate(stream: top, bitrate: bitrate(top), needsPot: true))
+            if identity?.gvsToken != nil {
+                list.append(Candidate(stream: top, bitrate: bitrate(top), needsPot: false))
             }
         }
-        guard let url = URL(string: urlString) else {
-            throw ApiError.unavailable(L("Invalid audio URL"))
+        // 兜底：format 18 是完整 mp4（含 AAC 96k），实测不受 GVS token 限制，永远能读。
+        if let muxed = progressive.min(by: { bitrate($0) < bitrate($1) }) {
+            list.append(Candidate(stream: muxed, bitrate: bitrate(muxed), needsPot: false))
+        }
+        guard !list.isEmpty else {
+            throw ApiError.unavailable(L("No audio stream available for this track"))
+        }
+        return list
+    }
+
+    // MARK: - pot
+
+    /// GVS token 是内容绑定（videoId），必须走媒体直链的 `&pot=`。
+    /// 不能重排/重新解析 URL —— URLComponents 往返会动到 `sig` 的转义，
+    /// 服务端签名一破就 403（实测会变成 -1 NSURLError）。所以只做字符串拼接。
+    static func appendingPot(_ url: URL, token: String?) -> URL {
+        guard let token = token, !token.isEmpty else { return url }
+        let text = url.absoluteString
+        if text.contains("&pot=") || text.contains("?pot=") { return url }
+        let glue = text.contains("?") ? "&" : "?"
+        return URL(string: text + glue + "pot=" + token) ?? url
+    }
+
+    // MARK: - 验证
+
+    private struct Probe {
+        var status: Int
+        var total: Int64
+        var midStatus: Int
+        var bytes: Int
+        var ms: Int
+    }
+
+    /// 起播前探一次：先读文件头 4KB（顺带从 Content-Range 拿总长度），再读文件中段 4KB。
+    /// 中段 206 才算这条直链真能播；只验「首块」会漏掉 token 失效的情况
+    /// ——受保护视频会放第一块、之后全 403，表现就是「播到 20 秒突然没声音」。
+    /// 只取 4KB 是因为卡的是请求本身，不是字节数：小请求一样能判死，还快。
+    private static func probe(_ url: URL, userAgent: String) async -> Probe {
+        let started = Date()
+        var p = Probe(status: 0, total: 0, midStatus: 0, bytes: 0, ms: 0)
+        do {
+            let (data, resp) = try await rangeFetch(url, offset: 0, length: 4096, ua: userAgent)
+            p.status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            p.bytes = data.count
+            p.total = parseTotal(resp as? HTTPURLResponse) ?? Int64(data.count)
+        } catch {
+            // 探测失败最常见的是 403（被 GVS 门禁挡）和网络错；把码记下来才知道是哪种
+            Diagnostics.mark("youtubekit: probe head failed \((error as NSError).code)")
+            return p
+        }
+        if p.total > 1_048_576 {
+            let mid = p.total / 2
+            do {
+                let (d, r) = try await rangeFetch(url, offset: mid, length: 4096, ua: userAgent)
+                p.midStatus = (r as? HTTPURLResponse)?.statusCode ?? 0
+                p.bytes += d.count
+            } catch {
+                Diagnostics.mark("youtubekit: probe mid failed \((error as NSError).code)")
+                p.midStatus = (error as NSError).code
+            }
+        } else {
+            p.midStatus = p.status
+        }
+        p.ms = Int(Date().timeIntervalSince(started) * 1000)
+        return p
+    }
+
+    private static func rangeFetch(
+        _ url: URL, offset: Int64, length: Int, ua: String
+    ) async throws -> (Data, URLResponse) {
+        var req = URLRequest(url: url)
+        req.setValue(ua, forHTTPHeaderField: "User-Agent")
+        req.setValue("bytes=\(offset)-\(offset + Int64(length) - 1)", forHTTPHeaderField: "Range")
+        req.timeoutInterval = 20
+        // 单次不重试：失败就换下一个候选，重试只会拖慢起播
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard code == 206 || (code == 200 && offset == 0) else {
+            throw NSError(domain: "melo.youtube", code: code)
+        }
+        return (data, resp)
+    }
+
+    private static func parseTotal(_ http: HTTPURLResponse?) -> Int64? {
+        guard let cr = http?.value(forHTTPHeaderField: "Content-Range"),
+              let last = cr.split(separator: "/").last,
+              let n = Int64(last) else { return nil }
+        return n > 0 ? n : nil
+    }
+
+    /// 逐条候选验证，第一条「首块 + 中段都通」的直接用。
+    static func resolve(videoId: String, quality: Quality) async throws -> AudioStream {
+        guard !videoId.isEmpty else {
+            throw ApiError.unavailable(L("Invalid video ID"))
         }
 
-        return AudioStream(
-            url: url,
-            itag: JS.int(chosen["itag"]) ?? 0,
-            bitrate: JS.int(chosen["bitrate"]) ?? 0,
-            mime: JS.string(chosen["mimeType"]) ?? "",
-            userAgent: client.userAgent
-        )
+        // 库内部的 os_log 不落到 App 的 trace，接出来才能看到每个客户端的真实结果。
+        YouTube.debugLog = { message in Diagnostics.mark(message) }
+
+        // 铸 token 与库解析并行：库要先拉 watch 页 + 下载 player JS，正好盖住铸造耗时。
+        async let identityTask = PoTokenMinter.shared.identity(for: videoId)
+        let identity = await identityTask
+        let attachPot = !UserDefaults.standard.bool(forKey: "melo.debug.noPot")
+
+        do {
+            let list = try await candidates(videoId: videoId, quality: quality, identity: identity)
+
+            // 每条候选先算好 URL，再**并发**探测。串行探三条在慢网下要 15 秒，
+            // 并发只需要一次往返的时间，最后仍按优先级取第一条通过的。
+            var prepared: [(index: Int, cand: Candidate, url: URL, ua: String, pot: Bool)] = []
+            for (i, cand) in list.enumerated() {
+                try await cand.stream.waitUntilAvailable()
+                let ua = cand.stream.clientUserAgent ?? clientUserAgent
+                let token = (attachPot && cand.needsPot) ? identity?.gvsToken : nil
+                prepared.append((i, cand, appendingPot(cand.stream.url, token: token), ua, token != nil))
+            }
+
+            // 只探首条：走的是「先试最高音质，不行就用免 token 兜底」。
+            // 三条并发探测在慢网下等于陪最慢的那条等，实测多花 3 秒还多费两次请求。
+            let probes: [Int: Probe]
+            if let first = prepared.first {
+                probes = [first.index: await probe(first.url, userAgent: first.ua)]
+            } else {
+                probes = [:]
+            }
+
+            for item in prepared {
+                let p = probes[item.index] ?? Probe(status: 0, total: 0, midStatus: 0, bytes: 0, ms: 0)
+                Diagnostics.mark("youtubekit: try itag=\(item.cand.stream.itag.itag) br=\(item.cand.bitrate)"
+                    + " pot=\(item.pot ? "yes" : "no")"
+                    + " first=\(p.status) mid=\(p.midStatus) total=\(p.total) \(p.ms)ms")
+
+                // 首条不通：免 token 的兜底（format 18）是实测必然能读的，直接用它，
+                // 不再为它多花一次探测；剩下的候选才需要真探。
+                let trusted = item.cand.needsPot == false && item.cand.stream.isProgressive
+                guard (p.status == 206 && p.midStatus == 206) || trusted else { continue }
+                YouTubeSelfTest.noteChosen(itag: item.cand.stream.itag.itag,
+                                          probe: "\(p.status)/\(p.midStatus)")
+
+                // 这里返回的是**上游**直链，代理注册放到真正播放时做：
+                // 1) 直链能被 StreamCache 复用（缓存里存 127.0.0.1 的端口号，重启就废）；
+                // 2) 每次播放重新登记一条路由，旧端口不会成为死链。
+                let mime = item.cand.stream.videoCodec == nil ? "audio/mp4" : "video/mp4"
+                Diagnostics.mark("youtubekit: chosen itag=\(item.cand.stream.itag.itag) size=\(p.total)")
+                // 调试留痕：把最终交给 AVPlayer 的上游直链落一份，方便在外部用 curl 复现 403
+                if UserDefaults.standard.bool(forKey: "melo.debug.dumpURL") {
+                    let dump = item.url.absoluteString + "\nUA: " + item.ua + "\n"
+                    try? dump.write(toFile: NSTemporaryDirectory() + "melo-stream-url.txt",
+                                    atomically: true, encoding: .utf8)
+                    Diagnostics.mark("youtubekit: url dumped -> \(NSTemporaryDirectory())melo-stream-url.txt")
+                }
+                return AudioStream(url: item.url, itag: item.cand.stream.itag.itag,
+                                   bitrate: item.cand.bitrate, mime: mime,
+                                   userAgent: item.ua, viaProxy: true)
+            }
+
+            let detail = prepared.map { "itag\($0.cand.stream.itag.itag):"
+                + "\(probes[$0.index]?.status ?? 0)/\(probes[$0.index]?.midStatus ?? 0)" }
+                .joined(separator: " ")
+            Diagnostics.mark("youtubekit: 全部候选不可播 · \(detail)")
+            throw ApiError.unavailable(L("No audio stream available for this track"))
+        } catch let error as YouTubeKitError {
+            // 库的 YouTubeKitError 多数 case 没有 localizedDescription，
+            // 不记原始值的话日志里只剩「没有可播放版本」，根本定位不了。
+            Diagnostics.mark("youtubekit: FAIL \(error.rawValue) · \(error.localizedDescription ?? "-")")
+            switch error {
+            case .videoAgeRestricted, .videoUnavailable, .videoPrivate, .membersOnly, .videoRegionBlocked:
+                throw ApiError.botCheck(error.localizedDescription ?? error.rawValue)
+            default:
+                throw ApiError.unavailable(String(format: L("Unable to resolve playback URL: %@"),
+                                                  error.localizedDescription ?? error.rawValue))
+            }
+        } catch {
+            Diagnostics.mark("youtubekit: FAIL other \(type(of: error)) · \(error.localizedDescription)")
+            if let typed = error as? ApiError { throw typed }
+            throw ApiError.unavailable(String(format: L("Unable to resolve playback URL: %@"),
+                                              error.localizedDescription))
+        }
     }
 }

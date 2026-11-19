@@ -17,6 +17,7 @@ final class StreamCache {
         let bitrate: Int
         let mime: String
         let userAgent: String?
+        var viaProxy: Bool? = nil
         let savedAt: Date
     }
 
@@ -44,7 +45,8 @@ final class StreamCache {
             return nil
         }
         return AudioStream(url: url, itag: entry.itag, bitrate: entry.bitrate,
-                           mime: entry.mime, userAgent: entry.userAgent)
+                           mime: entry.mime, userAgent: entry.userAgent,
+                           viaProxy: entry.viaProxy)
     }
 
     func store(_ stream: AudioStream, forKey key: String) {
@@ -56,6 +58,7 @@ final class StreamCache {
             bitrate: stream.bitrate,
             mime: stream.mime,
             userAgent: stream.userAgent,
+            viaProxy: stream.viaProxy,
             savedAt: Date()
         )
         let snapshot = memory

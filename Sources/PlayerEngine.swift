@@ -50,6 +50,9 @@ final class PlayerEngine: ObservableObject {
     @Published var isShuffle = false
     /// 点歌后是否直接展开全屏播放页（Apple Music 的行为）
     @Published var opensFullPlayer = false
+    /// 播放页上的浮层（播放源 / 待播清单）是否打开——Mac 全局双指手势据此决定
+    /// 「下滑」是关浮层还是关播放页。
+    @Published var sheetOpen = false
 
     private let player = AVPlayer()
     private var timeObserver: Any?
@@ -761,50 +764,45 @@ final class PlayerEngine: ObservableObject {
         currentStream = stream
         currentStreamSource = cacheSource ?? activeSource
 
+        // YouTube 直链必须经本地代理：AVPlayer 会用自己的 UA 请求 googlevideo，
+        // 与签发直链的客户端身份不一致就 403。代理还能替它带上 pot、走系统代理。
+        // 这里每次播放都重新登记一次，所以缓存里存的是上游地址，重启也不会指向死端口。
+        var itemURL = stream.url
+        if stream.viaProxy == true, stream.url.host?.contains("127.0.0.1") != true {
+            let key = "yt-\(stream.itag)-\(abs(stream.url.absoluteString.hashValue))"
+            if let local = LocalStreamProxy.shared.register(
+                upstream: stream.url,
+                userAgent: stream.userAgent ?? StreamResolver.clientUserAgent,
+                mime: stream.mime, key: key) {
+                itemURL = local
+                Diagnostics.mark("build item · 经本地代理 \(local.port ?? 0) src=\(currentStreamSource ?? "nil")")
+            } else {
+                Diagnostics.mark("build item · 代理由启用失败，回落直链")
+            }
+        }
+
         // AVURLAsset/AVPlayerItem 创建可能抛 ObjC 异常，Swift 的 try? 接不住。
         // 尤其 `AVURLAssetHTTPHeaderFieldsKey` 是私有键：iOS 侧认，macOS 侧的
         // AVFoundation 有版本会直接抛 unrecognized option —— 这正是「一按播放就退」
-        // 这种死法。所以：带 header 建不出来就退回裸 URL 再试，最差是某些源因为
-        // 没 UA 被拒（表现为播放失败），而不是整个 App 当场没了。
-        //
-        // 2026-11-17：YouTube 的 googlevideo 直链签名与 User-Agent 绑定，而且
-        // **AVFoundation 的网络栈不跟随 macOS 系统 HTTP 代理**（实测：同一进程里
-        // URLSession 拉流 206 正常、AVPlayer 拉流超时）。所以 YouTube 源改走
-        // 自定义 resource loader：App 自己用 URLSession（走系统代理 + 带 UA）
-        // 拉数据喂给 AVPlayer。国内源不需要代理，保持原来的裸 URL。
+        // 这种死法。所以 Mac 侧一律裸 URL，带 header 的尝试只留给 iOS。
         var builtItem: AVPlayerItem?
         #if targetEnvironment(macCatalyst)
-        let macUA = stream.userAgent ?? StreamResolver.clientUserAgent
-        // 按直链 host 判断，而不是 source 字符串——缓存命中时 cacheSource 为 nil，
-        // 但缓存里仍是 googlevideo 直链，同样需要走 loader（否则老直链 IP 绑定已失效，必失败）。
-        let isGoogleVideo = stream.url.host?.contains("googlevideo.com") ?? false
-        if currentStreamSource == "youtube" || isGoogleVideo {
-            Diagnostics.mark("build item · mac，走自定义 loader（系统代理 + UA）src=\(currentStreamSource ?? "nil")")
-            ExceptionGuard.run("AVPlayerItem(loader)") {
-                builtItem = StreamResourceLoader.makeItem(
-                    target: stream.url,
-                    headers: ["User-Agent": macUA]
-                )
-            }
-        }
-        if builtItem == nil {
-            Diagnostics.mark("build item · mac，裸 URL")
-            ExceptionGuard.run("AVURLAsset(裸)") {
-                builtItem = AVPlayerItem(asset: AVURLAsset(url: stream.url))
-            }
+        Diagnostics.mark("build item · mac src=\(currentStreamSource ?? "nil")")
+        ExceptionGuard.run("AVURLAsset(裸)") {
+            builtItem = AVPlayerItem(asset: AVURLAsset(url: itemURL))
         }
         #else
         let userAgent = stream.userAgent ?? StreamResolver.clientUserAgent
         ExceptionGuard.run("AVURLAsset(+headers)") {
             let asset = AVURLAsset(
-                url: stream.url,
+                url: itemURL,
                 options: ["AVURLAssetHTTPHeaderFieldsKey": ["User-Agent": userAgent]]
             )
             builtItem = AVPlayerItem(asset: asset)
         }
         if builtItem == nil {
             ExceptionGuard.run("AVURLAsset(裸)") {
-                builtItem = AVPlayerItem(asset: AVURLAsset(url: stream.url))
+                builtItem = AVPlayerItem(asset: AVURLAsset(url: itemURL))
             }
         }
         #endif
@@ -816,6 +814,9 @@ final class PlayerEngine: ObservableObject {
         }
         // 攒 15 秒才起播在弱网下就是"点了没反应"；4 秒足够扛住抖动，先出声再继续缓冲
         item.preferredForwardBufferDuration = 4
+        // 注：想过在这里用 mediaSelectionGroup 摘掉视频轨（受保护视频只有合体的 format 18 可读），
+        // 但那是**同步** API，会等资源加载完才返回 —— 慢网下实测卡 15 秒才起播，
+        // 比省下的 360p 解码开销贵得多，所以不做。
         Diagnostics.mark("build item · \(stream.mime) · \(stream.url.host ?? "-")")
         observeItem(item)
         observeProgress()

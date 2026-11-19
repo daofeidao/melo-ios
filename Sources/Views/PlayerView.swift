@@ -11,9 +11,19 @@ struct PlayerView: View {
     }
 
     @State private var artwork: UIImage?
+    /// CPU 预模糊的封面小图，做播放页背景（Mac 上避免 GPU 大半径模糊崩溃）
+    @State private var blurredArtwork: UIImage?
+    /// 封面主色：给模糊背景打底，让整体色调跟专辑封面一致（磨砂半透的关键）
+    @State private var dominantColor: Color = Color(hex: 0x2A2A2E)
     @State private var offset: CGFloat = 0
     /// iOS 15 上同一视图叠两个 .sheet 会互相顶掉，统一用一个 enum 驱动
     @State private var activeSheet: PlayerSheet?
+    /// 浮层里下滑关闭时会和播放页的「下滑收起」同时识别，用短时间窗屏蔽后者
+    @State private var swipeGuardUntil = Date.distantPast
+    /// Mac Catalyst 上 sheet 里的 NavigationView 会自己重新解析系统外观，
+    /// 弹出瞬间先按系统画一帧、再按 preferredColorScheme 画一帧 —— 表现为明暗来回闪。
+    /// 从根视图环境读到当前 scheme 后显式传给 sheet，钉死它，不再闪。
+    @Environment(\.colorScheme) private var colorScheme
     @State private var showLyrics = false
     /// 歌曲宝被 Cloudflare 风控时显示「完成验证」按钮，可观察
     @StateObject private var verifyState = GequbaoVerificationState.shared
@@ -140,11 +150,14 @@ struct PlayerView: View {
         .gesture(
             DragGesture(minimumDistance: 12)
                 .onChanged { value in
+                    // 浮层打开、或浮层刚通过下滑关闭时，不接管下滑
+                    guard activeSheet == nil, Date() >= swipeGuardUntil else { return }
                     if value.translation.height > 0 {
                         offset = value.translation.height
                     }
                 }
                 .onEnded { value in
+                    guard activeSheet == nil, Date() >= swipeGuardUntil else { return }
                     if value.translation.height > 140 {
                         close()
                     } else {
@@ -154,7 +167,58 @@ struct PlayerView: View {
                     }
                 }
         )
+        #if targetEnvironment(macCatalyst)
+        // Mac 不用系统 .sheet：Catalyst 的 sheet 是独立 presentation，会把主窗口变成
+        // 非活跃态（左上角红绿灯变灰），且卡片外的点击传不进来，点界外关不掉。
+        // 改成自己的全屏浮层：暗化背景点一下就关，卡片尺寸随窗口自适应，没有失活问题。
+        .overlay {
+            if let sheet = activeSheet {
+                ZStack {
+                    Color.black.opacity(0.55)
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture { activeSheet = nil }
+                    sheetContent(sheet)
+                        .environment(\.meloSheetClose, { activeSheet = nil })
+                        .frame(maxWidth: 560, maxHeight: 600)
+                        .background(Color(hex: 0x1C1C1E))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .shadow(color: Color.black.opacity(0.45), radius: 24, y: 10)
+                        .padding(40)
+                }
+                .transition(.opacity)
+                .zIndex(1000)
+            }
+        }
+        #else
         .sheet(item: $activeSheet) { sheet in
+            sheetContent(sheet)
+        }
+        #endif
+        .task(id: player.currentTrack?.id) {
+            await loadArtwork()
+            await loadLyrics()
+        }
+        // Mac 全局双指手势：下滑时先关浮层（不是关播放页）
+        .onReceive(NotificationCenter.default.publisher(for: .meloCloseSheet)) { _ in
+            activeSheet = nil
+        }
+        .onChange(of: activeSheet) { newValue in
+            player.sheetOpen = (newValue != nil)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .meloOpenPlayerSource)) { _ in
+            // Mac 两指上滑打开「播放源」面板
+            activeSheet = .sources
+        }
+        .onDisappear {
+            offset = 0
+        }
+    }
+
+    /// 播放页浮层内容（Mac 用自定义 overlay、iOS 用系统 sheet，共用这一份）。
+    @ViewBuilder
+    private func sheetContent(_ sheet: PlayerSheet) -> some View {
+        Group {
             switch sheet {
             case .library:
                 PlayerLibrarySheet()
@@ -168,46 +232,40 @@ struct PlayerView: View {
                 }
             }
         }
-        .task(id: player.currentTrack?.id) {
-            await loadArtwork()
-            await loadLyrics()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .meloOpenPlayerSource)) { _ in
-            // Mac 两指上滑打开「播放源」面板
-            activeSheet = .sources
-        }
-        .onDisappear {
-            offset = 0
-        }
+        // 播放页本身是随封面生成的深色背景，面板必须跟它一致。
+        .environment(\.colorScheme, .dark)
+        .preferredColorScheme(.dark)
     }
 
     // MARK: - Pieces
 
     private var background: some View {
         ZStack {
-            #if targetEnvironment(macCatalyst)
-            // Mac 上不做全屏 blur：60pt 模糊 + 整屏图层对老显卡（尤其是 2011 机器
-            // 这种走 Metal 兼容层的）负担很重，渲染层一崩就表现为「一点播放页就退」。
-            // 用渐变底色，视觉接近，GPU 开销几乎为零。
-            LinearGradient(
-                colors: [Color(hex: 0x3A3A3C), Color(hex: 0x0A0A0B)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            #else
-            if let artwork = artwork {
+            // 封面主色打底：模糊图边缘/透明处透出的是专辑色，而不是死灰或纯黑，
+            // 这正是「磨砂半透、和专辑相关」的底层色调。
+            dominantColor.saturation(0.85)
+
+            if let blurred = blurredArtwork {
+                // CPU 预模糊的小图拉伸铺满：随专辑封面变化，GPU 零模糊开销。
+                // 2011 HD3000 无 Metal，实时大半径 blur 会让渲染进程崩，故不用 .blur()。
                 GeometryReader { proxy in
-                    Image(uiImage: artwork)
+                    Image(uiImage: blurred)
                         .resizable()
                         .scaledToFill()
                         .frame(width: proxy.size.width, height: proxy.size.height)
                         .clipped()
-                        .blur(radius: 60, opaque: true)
+                        .opacity(0.9)   // 透一点主色出来，避免整块糊死
                 }
-                Color.black.opacity(0.42)
+                // 分段遮罩：顶部略压（状态栏/返回键可读）、中部少压（透出专辑色）、
+                // 底部加深（歌词和控件文字可读）。比原来一刀切的 48% 黑更通透。
                 LinearGradient(
-                    colors: [Color.clear, Color.black.opacity(0.55)],
-                    startPoint: .center,
+                    colors: [
+                        Color.black.opacity(0.34),
+                        Color.black.opacity(0.16),
+                        Color.black.opacity(0.30),
+                        Color.black.opacity(0.62),
+                    ],
+                    startPoint: .top,
                     endPoint: .bottom
                 )
             } else {
@@ -217,7 +275,6 @@ struct PlayerView: View {
                     endPoint: .bottom
                 )
             }
-            #endif
         }
         .ignoresSafeArea()
     }
@@ -555,15 +612,24 @@ struct PlayerView: View {
 
     private func loadArtwork() async {
         guard let urlString = player.currentTrack?.artwork, let url = URL(string: urlString) else {
-            await MainActor.run { artwork = nil }
+            await MainActor.run { artwork = nil; blurredArtwork = nil }
             return
         }
+        let image: UIImage?
         if let cached = ImageLoader.shared.cached(for: url) {
-            await MainActor.run { artwork = cached }
-            return
+            image = cached
+        } else {
+            image = await ImageLoader.shared.image(for: url)
         }
-        let image = await ImageLoader.shared.image(for: url)
-        await MainActor.run { artwork = image }
+        // 封面、模糊背景、主色一起更新；都在后台线程算，CPU 上几毫秒完成，不卡 UI
+        let bg = image.flatMap { CoverBlur.blurred($0) }
+        let tint = image.map { ColorExtractor.averageColor(of: $0) }
+        Diagnostics.mark("artwork bg=\(bg == nil ? "nil" : "ok") size=\(image?.size.width ?? 0)x\(image?.size.height ?? 0) tint=\(tint == nil ? "nil" : "ok")")
+        await MainActor.run {
+            artwork = image
+            blurredArtwork = bg
+            if let tint { dominantColor = tint }
+        }
     }
 
     static func clock(_ seconds: Double) -> String {
@@ -576,5 +642,18 @@ struct PlayerView: View {
             return String(format: "%d:%02d:%02d", h, m, s)
         }
         return String(format: "%d:%02d", m, s)
+    }
+}
+
+/// 面板的关闭动作注入：Mac 上播放源等面板改用自定义浮层（不用系统 sheet），
+/// 面板内部的「关闭」按钮通过这个环境值关闭，而不是 @Environment(\.dismiss)。
+struct MeloSheetCloseKey: EnvironmentKey {
+    static let defaultValue: (() -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var meloSheetClose: (() -> Void)? {
+        get { self[MeloSheetCloseKey.self] }
+        set { self[MeloSheetCloseKey.self] = newValue }
     }
 }

@@ -129,7 +129,53 @@ enum DomesticSource {
               let playURL = JS.string(root["url"]), !playURL.isEmpty,
               let parsed = URL(string: playURL)
         else { return nil }
+
+        // ── 试听片段检测 ──────────────────────────────────────────────
+        // 酷狗对无版权 / 未登录的部分歌曲，playInfo 会给一条「试听」直链
+        // （约 11~30 秒的片段）。以前直接交给 AVPlayer，表现就是播十几秒突然停、
+        // 用户以为是他处问题。正确做法（对齐 MoeKoeMusic / KuGouMusicApi 的
+        // 处理思路）：识别片段并弃用，让上层按歌名走别的可用源，而不是假装能播。
+        //
+        // 判定依据：playInfo 里的 timeLength（标称秒数）与直链实际文件大小换算出的
+        // 时长对比。mp3 128kbps ≈ 16KB/s，实际时长 = 文件字节 / 16384。
+        // 实际时长 < 标称的 60% 或 < 30 秒 → 判为片段。
+        // 用 Range: bytes=0-0 只取 1 字节，从 Content-Range 读总长，零流量开销。
+        let declaredSeconds = JS.int(root["timeLength"]) ?? 0
+        if declaredSeconds > 0, await isTrialClip(parsed, declaredSeconds: declaredSeconds) {
+            Diagnostics.mark("kugou: trial clip detected (declared \(declaredSeconds)s), skipped")
+            return nil
+        }
         return parsed
+    }
+
+    /// 用 1 字节 Range 请求读文件总长，判断是否远短于标称时长（试听片段）。
+    private static func isTrialClip(_ url: URL, declaredSeconds: Int) async -> Bool {
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 5
+        req.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        req.setValue(mobileUA, forHTTPHeaderField: "User-Agent")
+        guard let (_, response) = try? await URLSession.shared.data(for: req),
+              let http = response as? HTTPURLResponse else {
+            return false   // 探测失败就别误杀，交给播放器自己判断
+        }
+        // 优先 Content-Range: bytes 0-0/1234567
+        var total: Int64 = 0
+        if let range = http.value(forHTTPHeaderField: "Content-Range"),
+           let slash = range.lastIndex(of: "/") {
+            let tail = range[range.index(after: slash)...]
+            total = Int64(tail.trimmingCharacters(in: .whitespaces)) ?? 0
+        }
+        if total <= 0, http.expectedContentLength > 0 {
+            total = http.expectedContentLength
+        }
+        guard total > 0 else { return false }
+        // 128kbps ≈ 16KB/s；码率更高时这个估算会偏保守（宁可放过也不误杀）
+        let estimatedSeconds = Double(total) / 16_384.0
+        let tooShort = estimatedSeconds < 30 || estimatedSeconds < Double(declaredSeconds) * 0.6
+        if tooShort {
+            Diagnostics.mark(String(format: "kugou: estimated %.1fs < declared %ds", estimatedSeconds, declaredSeconds))
+        }
+        return tooShort
     }
 
     // MARK: - 网易云

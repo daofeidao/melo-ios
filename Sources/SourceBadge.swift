@@ -34,8 +34,10 @@ enum ForcedSource {
 }
 
 func sourceBadge(_ track: Track) -> String? {
+    // 绑定了唯一源的曲目，角标显示那个实际使用的源，不显示曲库出处 /「自动」。
+    // 播放过的以实际命中源为准；没播过的按绑定规则推。
     let effective = ResolvedSources.of(track.id)
-        ?? ForcedSource.displaySource(track)
+        ?? SourceRouting.binding(for: track)?.sourceID
         ?? track.source
     let source: String?
     switch effective?.lowercased() {
@@ -48,8 +50,9 @@ func sourceBadge(_ track: Track) -> String? {
     case "gequbao": source = "歌曲宝"
     default: source = nil
     }
-    // 已确定是歌曲宝就别再挂「VIP」：那是曲库出处带来的标记，容易误导
-    let vip = (track.isVip && source != "歌曲宝") ? "VIP" : nil
+    // 已确定走绑定源就别再挂「VIP」：那是曲库出处带来的标记，容易误导
+    let pinned = SourceRouting.binding(for: track) != nil
+    let vip = (track.isVip && !pinned) ? "VIP" : nil
     let parts = [source, vip].compactMap { $0 }
     return parts.isEmpty ? nil : parts.joined(separator: "·")
 }

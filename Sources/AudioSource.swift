@@ -6,31 +6,6 @@ enum AudioSource {
 
     static let browserUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
-    /// 上一次判定"YouTube 走不通"的时间。
-    /// 持久化到 UserDefaults：不然每次冷启动第一首歌都要再等一次 12 秒超时。
-    private static let blockedAtKey = "melo.youtubeBlockedAt"
-    private static let blockedWindow: TimeInterval = 30 * 60
-
-    private static var blockedAt: Date? {
-        get { UserDefaults.standard.object(forKey: blockedAtKey) as? Date }
-        set {
-            if let value = newValue {
-                UserDefaults.standard.set(value, forKey: blockedAtKey)
-            } else {
-                UserDefaults.standard.removeObject(forKey: blockedAtKey)
-            }
-        }
-    }
-
-    private static var youtubeLikelyBlocked: Bool {
-        guard let blockedAt = blockedAt else { return false }
-        return Date().timeIntervalSince(blockedAt) < blockedWindow
-    }
-
-    static func noteYouTubeBlocked() {
-        blockedAt = Date()
-    }
-
     /// 直链已经拿过、但 AVPlayer 播不出来的曲目。
     /// 标记之后下次解析跳过直链，直接按歌名去国内源找同一首 —— 这就是
     /// "把 probe 移出关键路径"的代价补偿：让播放器当裁判，失败一次就换路。
@@ -96,6 +71,19 @@ enum AudioSource {
             request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
             URLSession.shared.dataTask(with: request) { _, _, _ in }.resume()
         }
+
+        // YouTube 的 BotGuard 会话一次要 6~10 秒（挑战 → WKWebView 解算 → integrityToken），
+        // 不预热就等于每首歌都先等这么久。会话本身可复用 11 小时，
+        // 所以启动时先把这个固定开销在后台付掉，首播才不用干等。
+        if SourcePrefs.shared.isEnabled("youtube") {
+            // 本地流代理提前起好，别让第一次播放卡在监听启动上
+            LocalStreamProxy.shared.startIfNeeded()
+            Task { @MainActor in
+                _ = try? await PoTokenMinter.shared.visitorData()
+                _ = try? await PoTokenMinter.shared.ensureSession()
+                Diagnostics.mark("poToken: 预热完成")
+            }
+        }
     }
 
     /// 关掉的源不会再读它留下的旧缓存，所以解析失败是预期行为。
@@ -127,10 +115,13 @@ enum AudioSource {
         // 手动切换音源的那一首，只对本次解析生效
         defer { DomesticSource.forceLooseOnce = false }
 
-        // 用户手动锁定了音源：只走这一条，拿不到就明确失败，不偷偷换源。
+        let mode = ResolveModeStore.mode
+        // 有效锁定源：单曲临时换源 > 全局「指定源」模式选中的源。
+        // 用户锁定了音源就只走这一条，拿不到就明确失败，不偷偷换源。
         // 刻意放在本地文件 / 缓存之前——用户选了「酷我」就是要走网络，
         // 不能因为这首歌正好有本地缓存或本地文件就悄悄读本地。
-        if let pinned = pinnedSource {
+        let effectivePinned = pinnedSource ?? (mode == .pinned ? ResolveModeStore.pinnedSource : nil)
+        if let pinned = effectivePinned {
             if let stream = await pinnedStream(for: track, source: pinned, quality: quality) {
                 lastResolvedSource = pinned
                 return stream
@@ -161,34 +152,28 @@ enum AudioSource {
             guard SourcePrefs.shared.isEnabled("youtube") else {
                 throw ApiError.unavailable(L("This song is not available on domestic sources right now.") + disabledSourcesHint())
             }
-            do {
-                let stream = try await StreamResolver.resolve(videoId: track.videoId, quality: quality)
-                blockedAt = nil
-                lastResolvedSource = "youtube"
-                lastResolveTrusted = true
-                return stream
-            } catch {
-                if let typed = error as? ApiError, case .botCheck = typed {
-                    noteYouTubeBlocked()
-                } else if error is URLError {
-                    noteYouTubeBlocked()
-                }
-                // 单一解析：失败就明确报错，不 fallback 到国内源
-                throw error
-            }
+            // 单一解析：只走 YouTubeKit，失败就明确报错，不 fallback 到国内源
+            let stream = try await StreamResolver.resolve(videoId: track.videoId, quality: quality)
+            lastResolvedSource = "youtube"
+            lastResolveTrusted = true
+            return stream
         }
 
-        // 指定艺人（周杰伦）的歌一律优先歌曲宝：国内源对这批歌基本只给 VIP 死链或 KTV /
-        // 翻唱，歌曲宝按「歌名 + 艺人」实搜比对，对上就是原唱。不硬锁：被风控 / 站内没有
-        // 时回退到下面常规链路，避免整批放不出声。
-        if let forced = ForcedSource.forTrack(track),
-           forced == "gequbao",
-           SourcePrefs.shared.isEnabled("gequbao"),
-           let url = await Gequbao.playURL(title: track.title, artist: track.artist),
-           let stream = await probe(url.absoluteString, timeout: 4) {
-            lastResolvedSource = "gequbao"
-            ResolvedSources.record(track.id, "gequbao")
-            return stream
+        // 艺人绑定（默认周杰伦 → 歌曲宝）：唯一源，硬锁。
+        // 按用户新原则——来源绑定后不切换、不尝试别的源。命中即只走这一条，
+        // 解析失败就明确报错，绝不回退到 flachi / 国内源去找替身。
+        if let forced = ForcedSource.forTrack(track), forced == "gequbao" {
+            let ok = SourcePrefs.shared.isEnabled("gequbao")
+            if ok, let url = await Gequbao.playURL(title: track.title, artist: track.artist),
+               let stream = await probe(url.absoluteString, timeout: 4) {
+                lastResolvedSource = "gequbao"
+                ResolvedSources.record(track.id, "gequbao")
+                return stream
+            }
+            // 自动换源模式：绑定源失败后继续走下面的兜底链；其余模式硬锁报错
+            if mode != .auto {
+                throw ApiError.unavailable(L("This song is pinned to Gequbao, which has no playable version right now. It will not switch to another source."))
+            }
         }
 
         // 默认首选 Hi·FLAC：它的会员凭据能给出 320 / flac，其余国内源匿名基本只到 128。
@@ -221,9 +206,7 @@ enum AudioSource {
         // 按歌名在国内源里找同一首。一次解析只做一次，别搜两遍。
         // 专辑曲目（strictSource）也允许走这一路 —— 以前在这里直接抛错，导致
         // 「专辑里的歌放不了、外面搜同一首却能放」；严格匹配默认开着，不会串歌。
-        var attemptedFallback = false
         if track.source != nil {
-            attemptedFallback = true
             // VIP 曲目（周杰伦基本全在此列）国内源要么给不出直链，要么给个 KTV /
             // 串烧 / 翻唱。歌曲宝是按「歌名 + 艺人」在酷我曲库里实搜再比对的，
             // 对上就是原唱，所以这类歌让它先上，别在国内源上白等一轮。
@@ -246,12 +229,6 @@ enum AudioSource {
             if track.strictSource {
                 throw ApiError.unavailable(L("This source has no playable version of this song."))
             }
-            // 已经确认 YouTube 被拦，就别再空等一轮了
-            if youtubeLikelyBlocked {
-                throw ApiError.unavailable(L("This song is not available on domestic sources right now.") + disabledSourcesHint())
-            }
-        } else if youtubeLikelyBlocked, let fallback = await domesticFallback(for: track) {
-            return fallback
         }
 
         // 用户自己在「关于 → 数据来源」里添加的音源：排在所有内置源之后
@@ -263,32 +240,10 @@ enum AudioSource {
             }
         }
 
-        // YouTube 也是在「数据来源」里可以关掉的；关掉就不要再走这一步
-        guard SourcePrefs.shared.isEnabled("youtube") else {
-            throw ApiError.unavailable(L("This song is not available on domestic sources right now.") + disabledSourcesHint())
-        }
-
-        do {
-            let stream = try await StreamResolver.resolve(videoId: track.videoId, quality: quality)
-            // 解析成功说明 YouTube 这条路已经恢复，清掉上一次失败留下的熔断标记
-            blockedAt = nil
-            lastResolvedSource = "youtube"
-            lastResolveTrusted = true
-            return stream
-        } catch {
-            if let typed = error as? ApiError, case .botCheck = typed {
-                noteYouTubeBlocked()
-            } else if error is URLError {
-                // 超时 / 连不上 / DNS 失败同样是"这条路走不通"，
-                // 以前只认 botCheck，所以熔断几乎从来没生效过
-                noteYouTubeBlocked()
-            }
-            // 上面已经搜过一次就别重复搜（QQ 歌在这条路径上最容易白等两轮）
-            if !attemptedFallback, let fallback = await domesticFallback(for: track) {
-                return fallback
-            }
-            throw error
-        }
+        // 走到这里说明是「按歌名搜出来的散歌」——它没有 videoId，无法走 YouTube。
+        // 旧代码在这里用一个空 videoId 调 YouTube 解析器（必然失败），再兜回国内源，
+        // 纯属绕圈子。新模型直接给出明确失败，不再空转。
+        throw ApiError.unavailable(L("This source has no playable version of this song.") + disabledSourcesHint())
     }
 
     // MARK: - 按歌名兜底国内音源

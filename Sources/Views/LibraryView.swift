@@ -82,6 +82,10 @@ struct LibraryView: View {
                 }
                 .navigationViewStyle(StackNavigationViewStyle())
             }
+            // Mac 两指下滑打开设置：由全局手势层发通知（能真正区分双指）
+            .onReceive(NotificationCenter.default.publisher(for: .meloOpenSettings)) { _ in
+                showSettingsSheet = true
+            }
             .onAppear {
                 if SmokeTest.opensImport {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
@@ -109,6 +113,7 @@ private enum AboutPage: String, Identifiable {
 struct SettingsView: View {
     @EnvironmentObject private var library: Library
     @Environment(\.openURL) private var openURL
+    @Environment(\.dismiss) private var dismiss
 
     @AppStorage("melo.appearance") private var appearance: String = AppearanceMode.system.rawValue
     @AppStorage(AudioCache.enabledKey) private var cacheAudio = true
@@ -320,8 +325,15 @@ struct SettingsView: View {
             }
         }
         .listStyle(InsetGroupedListStyle())
+        #if targetEnvironment(macCatalyst)
+        // Mac：滚到列表底部后继续下拉就退出设置
+        .background(SettingsOverScrollDetector { dismiss() })
+        #endif
         .navigationTitle(L("Settings"))
         .navigationBarTitleDisplayMode(.inline)
+        .onReceive(NotificationCenter.default.publisher(for: .meloDismissSettings)) { _ in
+            dismiss()
+        }
         .onAppear {
             refreshCacheSize()
             if SmokeTest.showsChangelog { aboutPage = .changelog }
@@ -500,3 +512,100 @@ struct SettingsView: View {
         showAlert = true
     }
 }
+
+#if targetEnvironment(macCatalyst)
+/// Mac：设置页滚到列表底部后，继续下拉就退出设置。
+/// SwiftUI List 没有 scroll offset API，这里沿响应链找到底层 UIScrollView，
+/// KVO 监听 contentOffset：当已经滚到底（contentOffset ≥ 最大）且还被继续下拉
+/// （overscroll 超过阈值）时回调 dismiss。单指滚动/触控板滚动都能触发。
+struct SettingsOverScrollDetector: UIViewRepresentable {
+    let onOverScroll: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onOverScroll: onOverScroll) }
+
+    func makeUIView(context: Context) -> UIView {
+        let probe = UIView(frame: .zero)
+        probe.backgroundColor = .clear
+        probe.isUserInteractionEnabled = false
+        return probe
+    }
+
+    func updateUIView(_ probe: UIView, context: Context) {
+        context.coordinator.onOverScroll = onOverScroll
+        DispatchQueue.main.async { context.coordinator.attach(to: probe) }
+    }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    final class Coordinator: NSObject {
+        var onOverScroll: () -> Void
+        private weak var scrollView: UIScrollView?
+        private var observation: NSKeyValueObservation?
+        private var didTrigger = false
+
+        init(onOverScroll: @escaping () -> Void) { self.onOverScroll = onOverScroll }
+
+        private func findScrollView(from view: UIView) -> UIScrollView? {
+            // 先沿 superview 链
+            var current: UIView? = view
+            while let v = current {
+                if let sv = v as? UIScrollView, sv.contentSize.height > sv.bounds.height + 1 {
+                    return sv
+                }
+                current = v.superview
+            }
+            // SwiftUI 的 List 底层的滚动视图不一定在 probe 的祖先链上，
+            // 再从 window 深搜一个真正可纵向滚动的（List 底层是 UICollectionView/UITableView，
+            // 都是 UIScrollView 子类）。
+            guard let root = view.window else { return nil }
+            return Self.deepestScrollView(in: root)
+        }
+
+        private static func deepestScrollView(in view: UIView) -> UIScrollView? {
+            if let sv = view as? UIScrollView, sv.contentSize.height > sv.bounds.height + 1 {
+                return sv
+            }
+            for sub in view.subviews {
+                if let found = deepestScrollView(in: sub) { return found }
+            }
+            return nil
+        }
+
+        func attach(to probe: UIView) {
+            guard let sv = findScrollView(from: probe) else {
+                // 视图层级可能还没建好，稍后再试（避免永远 attach 不上）
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak probe] in
+                    guard let self = self, let probe = probe else { return }
+                    self.attach(to: probe)
+                }
+                return
+            }
+            guard scrollView !== sv else { return }
+            detach()
+            scrollView = sv
+            observation = sv.observe(\.contentOffset, options: [.new]) { [weak self] scroll, _ in
+                guard let self = self else { return }
+                let maxY = scroll.contentSize.height - scroll.bounds.height
+                // 已经越过了底部最大偏移，且被继续往下拉超过 44pt
+                if maxY > 0 && scroll.contentOffset.y > maxY + 44 && !self.didTrigger {
+                    self.didTrigger = true
+                    Diagnostics.mark("settings overscroll -> dismiss")
+                    DispatchQueue.main.async { self.onOverScroll() }
+                }
+                // 回到正常范围内可再次触发
+                if scroll.contentOffset.y <= maxY + 10 {
+                    self.didTrigger = false
+                }
+            }
+            Diagnostics.mark("settings overscroll detector attached")
+        }
+
+        func detach() {
+            observation?.invalidate()
+            observation = nil
+        }
+    }
+}
+#endif

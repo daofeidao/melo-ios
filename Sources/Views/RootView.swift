@@ -74,7 +74,7 @@ struct RootView: View {
             Group {
                 if player.opensFullPlayer {
                     // environmentObject 会自动透传，这里不用再手动塞。
-                    // 必须显式撑满 overlay，否则 ZStack 缺尺寸约束会被压成 0×0 —— 
+                    // 必须显式撑满 overlay，否则 ZStack 缺尺寸约束会被压成 0×0 ——
                     // 这就是「播放器界面看不见」的根因。
                     PlayerView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -120,6 +120,10 @@ struct RootView: View {
     }
 
     private func runSmokeTestIfNeeded() {
+        // YouTube 链路自检：带 -yt-selftest <videoId> 启动时跑一遍，结果只写日志
+        if let vid = YouTubeSelfTest.videoId {
+            Task { await YouTubeSelfTest.run(vid) }
+        }
         // 各项冒烟动作互相独立，不能用 guard 提前返回
         if SmokeTest.opensYouTubeWebProbe {
             // 页面加载 + 等 player response，至少要 10 秒，这里只负责把页面弹出来
