@@ -674,7 +674,7 @@ enum DomesticSource {
 
     // MARK: - 网易云专辑 / 歌单搜索
 
-    struct DomesticAlbum: Identifiable, Hashable {
+    struct DomesticAlbum: Identifiable, Hashable, Codable {
         let id: String
         let name: String
         let artist: String

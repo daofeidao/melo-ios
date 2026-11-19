@@ -307,7 +307,8 @@ struct ArtistDetailView: View {
 
         // 缓存秒开：退出再进来时，先直接展示上次的结果，后台再静默刷新。
         // 这样二次进入不再是「转圈 + 全量重拉」，而是立即有内容。
-        if let cached = ArtistDetailCache.get(name) {
+        // 收藏的艺人跳过 12 小时期限：用户在意的歌手，任何时候打开都该秒开
+        if let cached = ArtistDetailCache.get(name, ignoreExpiry: Library.shared.isLikedArtist(name)) {
             await MainActor.run {
                 profile = cached.profile
                 albums = cached.albums
@@ -354,41 +355,52 @@ struct ArtistDetailView: View {
                 $0.trackCount == $1.trackCount ? $0.name < $1.name : $0.trackCount > $1.trackCount
             }
 
-        // 专辑曲目补上接口漏掉的曲目（有些歌只挂在专辑里，没进 artist/songs）。
-        // 依赖 cleanAlbums，必须等上面算完。
-        if !cleanAlbums.isEmpty {
-            collected += await DomesticSource.artistAlbumTracks(
-                albumIDs: Array(cleanAlbums.prefix(6).map(\.id))
-            )
+        // 先把「不依赖专辑曲目」的结果画出来。
+        // 专辑曲目那一步是第二个网络往返，慢网下要十几秒 —— 挡在首屏前面，
+        // 等于每次进来都先干等一轮。歌手本体 / 专辑 / 热门歌已经够撑起首屏了。
+        let firstPass = mergeTracks(collected)
+        await MainActor.run {
+            profile = p
+            albums = cleanAlbums
+            tracks = firstPass
+            loading = false
+            if cleanAlbums.isEmpty, firstPass.isEmpty, p == nil {
+                errorText = L("No artist info found. Try another name.")
+            }
         }
 
-        let all = dedup(collected).filter {
+        // 再补专辑里漏掉的歌（有些歌只挂在专辑里，没进 artist/songs）
+        if !cleanAlbums.isEmpty {
+            let extra = await DomesticSource.artistAlbumTracks(
+                albumIDs: Array(cleanAlbums.prefix(6).map(\.id))
+            )
+            let merged = mergeTracks(collected + extra)
+            await MainActor.run {
+                // 只在新结果确实更多时才替换，避免列表无谓跳动
+                if merged.count != tracks.count { tracks = merged }
+            }
+            ArtistDetailCache.set(name, profile: p, albums: cleanAlbums, tracks: merged)
+        } else {
+            ArtistDetailCache.set(name, profile: p, albums: cleanAlbums, tracks: firstPass)
+        }
+    }
+
+    /// 合并 + 去重 + 排序：本人主唱在前，合唱 / 助阵在后，同名只留第一次出现的版本。
+    private func mergeTracks(_ input: [Track]) -> [Track] {
+        let all = dedup(input).filter {
             artistMatches(term: name, artist: $0.artist)
                 && isCleanTitle($0.title)
                 && isCleanTitle($0.album ?? "")
         }
-        // 本人主唱排前面，和别人的合唱 / 助阵放后面；同名只留第一次出现的那版。
-        // 不再截断 50 首 —— 以前这里 break 掉，高产歌手永远只能看到 50 首。
         let own = all.filter { primaryArtistMatches(term: name, artist: $0.artist) }
         let collab = all.filter { !primaryArtistMatches(term: name, artist: $0.artist) }
-        var final: [Track] = []
+        var out: [Track] = []
         var seen = Set<String>()
         for track in own + collab {
             let key = normalize(track.title)
-            if seen.insert(key).inserted { final.append(track) }
+            if seen.insert(key).inserted { out.append(track) }
         }
-
-        await MainActor.run {
-            profile = p
-            albums = cleanAlbums
-            tracks = final
-            loading = false
-            if cleanAlbums.isEmpty, final.isEmpty, p == nil {
-                errorText = L("No artist info found. Try another name.")
-            }
-        }
-        // 结果落缓存，下次秒开
-        ArtistDetailCache.set(name, profile: p, albums: cleanAlbums, tracks: final)
+        return out
     }
 
     /// 后台静默刷新：已有缓存时，拉最新数据并更新缓存与界面。

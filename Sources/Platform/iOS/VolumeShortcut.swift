@@ -25,6 +25,18 @@ enum VolumeShortcut {
 
     static let enabledKey = "melo.volumeDoublePress"
 
+    /// 音量＋ 双击 = 上一首（默认）。关掉则音量＋ = 下一首。
+    static let plusIsPreviousKey = "melo.volumePlusPrevious"
+
+    static var plusIsPrevious: Bool {
+        get {
+            let defaults = UserDefaults.standard
+            if defaults.object(forKey: plusIsPreviousKey) == nil { return true }
+            return defaults.bool(forKey: plusIsPreviousKey)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: plusIsPreviousKey) }
+    }
+
     static var isEnabled: Bool {
         get {
             let defaults = UserDefaults.standard
@@ -208,7 +220,7 @@ final class VolumeShortcutMonitor {
         if direction > 0 {
             if now.timeIntervalSince(pendingUp) <= window {
                 pendingUp = .distantPast
-                fire(next: true)
+                fire(direction: 1)
             } else {
                 pendingUp = now
                 originVolume = before
@@ -216,7 +228,7 @@ final class VolumeShortcutMonitor {
         } else {
             if now.timeIntervalSince(pendingDown) <= window {
                 pendingDown = .distantPast
-                fire(next: false)
+                fire(direction: -1)
             } else {
                 pendingDown = now
                 originVolume = before
@@ -224,12 +236,15 @@ final class VolumeShortcutMonitor {
         }
     }
 
-    private func fire(next: Bool) {
+    private func fire(direction: Int) {
         guard canTrigger?() ?? true else { return }
-        Diagnostics.mark(next ? "volume-key: 双击 下一首" : "volume-key: 双击 上一首")
         // 先把音量拨回第一次按键之前的水平，再切歌：听感上只是「闪一下」
         if originVolume >= 0 { restoreVolume(to: originVolume) }
-        if next { onNext?() } else { onPrevious?() }
+        // 默认 音量＋ = 上一首；开关关掉则 音量＋ = 下一首
+        let plusIsPrevious = VolumeShortcut.plusIsPrevious
+        let goNext = direction > 0 ? !plusIsPrevious : plusIsPrevious
+        Diagnostics.mark(goNext ? "volume-key: 双击 下一首" : "volume-key: 双击 上一首")
+        if goNext { onNext?() } else { onPrevious?() }
     }
 
     // MARK: - 工具

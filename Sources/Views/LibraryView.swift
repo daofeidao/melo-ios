@@ -119,6 +119,7 @@ struct SettingsView: View {
     @AppStorage(AudioCache.enabledKey) private var cacheAudio = true
     @AppStorage(AudioCache.limitKey) private var cacheLimitMB = AudioCache.defaultLimitMB
     @AppStorage(VolumeShortcut.enabledKey) private var volumeSkipEnabled = true
+    @AppStorage(VolumeShortcut.plusIsPreviousKey) private var volumePlusPrevious = true
     #if targetEnvironment(macCatalyst)
     @AppStorage(MacGestureSettings.horizontalTabs) private var macGestureTabs = true
     @AppStorage(MacGestureSettings.horizontalTracks) private var macGestureTracks = true
@@ -199,10 +200,13 @@ struct SettingsView: View {
                     .onChange(of: volumeSkipEnabled) { value in
                         VolumeShortcut.isEnabled = value
                     }
+                if volumeSkipEnabled {
+                    Toggle(L("Volume up skips back"), isOn: $volumePlusPrevious)
+                }
             } header: {
                 Text(L("Playback"))
             } footer: {
-                Text(L("Double-press volume up for the next track, volume down for the previous one. Works while a track is playing; the volume itself is put back where it was."))
+                Text(L("Double-press volume up for the previous track, volume down for the next one. Works while a track is playing; the volume itself is put back where it was."))
             }
             #endif
 

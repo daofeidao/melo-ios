@@ -9,7 +9,8 @@ import Foundation
 /// 拿不到就返回 nil，艺人页照样能用搜索结果展示歌曲和专辑，只是没有简介。
 enum ArtistInfo {
 
-    struct Profile {
+    /// Codable：艺人页缓存要落盘，重启后仍能秒开
+    struct Profile: Codable {
         let name: String
         /// 网易云艺人 id：艺人页靠它去拉本人的真专辑和热门歌
         let id: Int

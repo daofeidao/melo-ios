@@ -462,3 +462,5 @@
 "Video" = "Video";
 "Audio" = "Audio";
 "YouTube serves picture and 130 kbps audio as two separate streams, so you can only have one at a time. Video shows the picture at 96 kbps. Audio keeps the better track and never shows the picture. Auto prefers the better audio and shows the picture when the stream has one." = "YouTube serves picture and 130 kbps audio as two separate streams, so you can only have one at a time. Video shows the picture at 96 kbps. Audio keeps the better track and never shows the picture. Auto prefers the better audio and shows the picture when the stream has one.";
+"Volume up skips back" = "Volume up skips back";
+"Double-press volume up for the previous track, volume down for the next one. Works while a track is playing; the volume itself is put back where it was." = "Double-press volume up for the previous track, volume down for the next one. Works while a track is playing; the volume itself is put back where it was.";

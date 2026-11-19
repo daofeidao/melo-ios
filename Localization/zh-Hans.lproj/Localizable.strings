@@ -463,3 +463,5 @@
 "Video" = "视频";
 "Audio" = "音频";
 "YouTube serves picture and 130 kbps audio as two separate streams, so you can only have one at a time. Video shows the picture at 96 kbps. Audio keeps the better track and never shows the picture. Auto prefers the better audio and shows the picture when the stream has one." = "YouTube 的画面和 130 kbps 音轨是两条独立的流，同一时刻只能取一条。视频：显示画面，音质 96 kbps；音频：保留更好的音轨，不显示画面；自动：优先更好的音轨，流里带画面就顺手显示。";
+"Volume up skips back" = "音量＋ 切上一首";
+"Double-press volume up for the previous track, volume down for the next one. Works while a track is playing; the volume itself is put back where it was." = "双击音量＋切上一首，双击音量－切下一首。仅在播放时生效，音量会被拨回原处。";
