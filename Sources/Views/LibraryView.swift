@@ -338,7 +338,11 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: .meloDismissSettings)) { _ in
             dismiss()
         }
+        .onDisappear { GestureContext.sheetOpen = false }
         .onAppear {
+            // 让全局手势层知道「卡片在最上层」：两指手势必须收手，
+            // 否则会穿透去切栏目 / 调音量，界面直接卡住。
+            GestureContext.sheetOpen = true
             refreshCacheSize()
             if SmokeTest.showsChangelog { aboutPage = .changelog }
             if SmokeTest.showsDataSources { aboutPage = .dataSources }

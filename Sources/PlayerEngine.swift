@@ -34,6 +34,9 @@ final class PlayerEngine: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var elapsed: Double = 0
     @Published private(set) var duration: Double = 0
+    /// 已缓冲到整首的百分比（0…1），进度条上用浅色垫在已播部分后面。
+    /// 音乐播放器的常规做法：用户能看出「还在缓冲」还是「网络真的断了」。
+    @Published private(set) var bufferedRatio: Double = 0
     @Published private(set) var errorText: String?
     /// 严格模式下被拒的同名版本，播放页用「切换音源」列出来
     @Published private(set) var alternatives: [Track] = []
@@ -154,6 +157,16 @@ final class PlayerEngine: ObservableObject {
             let seconds = time.seconds
             if seconds.isFinite {
                 self.elapsed = max(0, seconds)
+            }
+            // 缓冲比例：变化超过 0.5% 才写 @Published，避免每 0.5 秒刷一次视图
+            let bufferedSeconds = self.player.currentItem?.loadedTimeRanges.first?
+                .timeRangeValue.duration.seconds ?? 0
+            let total = self.duration
+            if bufferedSeconds.isFinite, total > 1 {
+                let ratio = min(1, max(0, bufferedSeconds / total))
+                if abs(ratio - self.bufferedRatio) > 0.005 {
+                    self.bufferedRatio = ratio
+                }
             }
             if let itemDuration = self.player.currentItem?.duration, itemDuration.isNumeric {
                 let value = itemDuration.seconds

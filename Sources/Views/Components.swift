@@ -396,6 +396,8 @@ struct AddArtistTile: View {
 
 struct Scrubber: View {
     var progress: Double
+    /// 已缓冲比例：垫在已播部分后面的一条浅色
+    var buffered: Double = 0
     var onSeek: (Double) -> Void
 
     @State private var dragging = false
@@ -410,6 +412,10 @@ struct Scrubber: View {
                 Capsule()
                     .fill(Color.white.opacity(0.28))
                     .frame(height: 4)
+                // 缓冲：比轨道亮、比已播暗，一眼看出「还在拉」还是「真断了」
+                Capsule()
+                    .fill(Color.white.opacity(0.45))
+                    .frame(width: width * CGFloat(min(1, max(value, buffered))), height: 4)
                 Capsule()
                     .fill(Color.white)
                     .frame(width: width * CGFloat(value), height: 4)

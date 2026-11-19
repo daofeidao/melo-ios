@@ -163,6 +163,17 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
         let isVertical   = abs(velocity.y) >= abs(velocity.x) * axisRatio
         let playerOpen   = PlayerEngine.shared.opensFullPlayer
 
+        // 卡片（设置等）盖在最上层时，手势绝不能穿透。
+        // 之前这里会照常切栏目 / 调音量，底下 tab 在卡片底下换掉，
+        // 卡片上两指一滑就整个卡住。这里只认「向右滑 = 退出卡片」。
+        if GestureContext.sheetOpen {
+            if isHorizontal, velocity.x > 0 {
+                Diagnostics.mark("gesture 2f: sheet right→dismiss")
+                NotificationCenter.default.post(name: .meloDismissSettings, object: nil)
+            }
+            return
+        }
+
         if isHorizontal {
             let goForward = velocity.x < 0
             if playerOpen {
@@ -200,6 +211,12 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
                 }
                 return
             }
+            // 鼠标落在可滚动内容上时，两指上下 = 滚动列表。
+            // 手势识别器和 ScrollView 是同时工作的（cancelsTouchesInView = false），
+            // 不拦的话每滚一下就顺手调一次系统音量，设置页那种长列表更是滚一路调一路，
+            // 频繁走 CoreAudio 直接把界面拖死。
+            if isOnScrollView(at: recognizer.location(in: view), in: view) { return }
+
             let tab = UserDefaults.standard.integer(forKey: "melo.mac.currentTab")
             // 资料库页（tab 2）双指下滑：打开设置；上滑仍是音量。
             if tab == 2 && velocity.y > 0 {
@@ -218,6 +235,8 @@ final class MacGestures: NSObject, UIGestureRecognizerDelegate {
     @objc private func handleThreeFinger(_ recognizer: UIPanGestureRecognizer) {
         guard recognizer.state == .ended || recognizer.state == .cancelled else { return }
         guard let view = recognizer.view else { return }
+        // 卡片在前时不切栏目
+        guard !GestureContext.sheetOpen else { return }
         guard MacGestureSettings.str(MacGestureSettings.tabSwipeMode, "two-bg") == "three" else { return }
 
         let velocity = recognizer.velocity(in: view)

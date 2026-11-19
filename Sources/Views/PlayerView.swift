@@ -410,20 +410,7 @@ struct PlayerView: View {
                     .buttonStyle(PlainButtonStyle())
                     // 一次性反馈：正在缓存 / 刚失败（3.5 秒后自动消失）。
                     // 「已缓存」不写文字，图标变实心红就够了
-                    if let progress = audioCache.progress[track.id] {
-                        // 有真实字节进度就画进度条；服务器没给总长度时退回下面的「缓存中…」
-                        VStack(spacing: 4) {
-                            ProgressView(value: progress)
-                                .progressViewStyle(.linear)
-                                .frame(width: 120)
-                                .tint(Theme.accent)
-                            Text(String(format: L("Caching %d%%"), Int(progress * 100)))
-                                .font(.system(size: 10))
-                                .foregroundColor(.white.opacity(0.5))
-                                .monospacedDigit()
-                        }
-                        .padding(.top, 3)
-                    } else if player.cacheBusy {
+                    if player.cacheBusy {
                         Text(L("Caching…"))
                             .font(.system(size: 11))
                             .foregroundColor(.white.opacity(0.55))
@@ -450,20 +437,8 @@ struct PlayerView: View {
                 Button {
                     player.cacheCurrent()
                 } label: {
-                    ZStack {
-                        if player.cacheBusy {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                .scaleEffect(0.62)
-                        } else {
-                            Image(systemName: player.isCached(track)
-                                  ? "arrow.down.circle.fill" : "arrow.down.circle")
-                                .font(.system(size: 19))
-                                .foregroundColor(player.isCached(track)
-                                                 ? Theme.accent : .white.opacity(0.85))
-                        }
-                    }
-                    .frame(width: 34, height: 34)
+                    cacheButton(track)
+                        .frame(width: 34, height: 34)
                 }
                 .buttonStyle(PlainButtonStyle())
             }
@@ -471,9 +446,40 @@ struct PlayerView: View {
         .padding(.horizontal, 28)
     }
 
+    /// 缓存按钮：不额外占一行进度条，就用按钮本身表示进度 ——
+    /// 下载中红色沿圆周走一圈，下完红色填满整个图标。
+    @ViewBuilder
+    private func cacheButton(_ track: Track) -> some View {
+        let cached = player.isCached(track)
+        let progress = audioCache.progress[track.id]
+
+        ZStack {
+            if let progress, !cached {
+                Circle()
+                    .stroke(Color.white.opacity(0.18), lineWidth: 2)
+                    .frame(width: 28, height: 28)
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(Theme.accent,
+                            style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .frame(width: 28, height: 28)
+                    .rotationEffect(.degrees(-90))
+                Image(systemName: "arrow.down")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.white.opacity(0.9))
+            } else {
+                Image(systemName: cached ? "arrow.down.circle.fill" : "arrow.down.circle")
+                    .font(.system(size: 19))
+                    .foregroundColor(cached ? Theme.accent : .white.opacity(0.85))
+            }
+        }
+        .animation(.easeOut(duration: 0.25), value: progress)
+        .animation(.easeOut(duration: 0.25), value: cached)
+    }
+
     private var progressBlock: some View {
         VStack(spacing: 2) {
-            Scrubber(progress: player.progress) { value in
+            Scrubber(progress: player.progress, buffered: player.bufferedRatio) { value in
                 player.seek(to: value * max(player.duration, 1))
             }
             HStack {
