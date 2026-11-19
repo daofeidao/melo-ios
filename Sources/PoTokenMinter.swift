@@ -314,10 +314,20 @@ final class PoTokenMinter {
     func prepareWebView(challenge: Challenge) async throws {
         // 尺寸给到 200×200、近乎透明但不 hidden：WebKit 对 1×1/隐藏页会冻结
         // rAF 与定时器，BotGuard 解算就永远挂起。
+        //
+        // 但「透明」不等于「看不见」：WKWebView 默认是不透明视图，白底会以
+        // alpha 0.02 的强度在窗口左上角透出一块 200×200 的浅方块（不仔细看看
+        // 不出来，但确实存在）。所以必须同时：关掉 isOpaque、把三层背景刷成
+        // clear、页面 body 也设透明，并压到视图层级最底层。
         if webView == nil {
+            let config = WKWebViewConfiguration()
             let view = WKWebView(frame: CGRect(x: 0, y: 0, width: 200, height: 200),
-                                 configuration: WKWebViewConfiguration())
+                                 configuration: config)
             view.alpha = 0.02
+            view.isOpaque = false
+            view.backgroundColor = .clear
+            view.scrollView.backgroundColor = .clear
+            view.isUserInteractionEnabled = false
             // 必须挂进窗口层级：脱离层级的 WKWebView 被 WebKit 当后台页挂起
             var host: UIWindow?
             if let key = UIApplication.shared.connectedScenes
@@ -329,7 +339,8 @@ final class PoTokenMinter {
                 host = any
             }
             if let host = host {
-                host.addSubview(view)
+                // 放最底层：即使有什么绘制漏出来也被上面的内容盖住
+                host.insertSubview(view, at: 0)
             }
             Diagnostics.mark("poToken: webview attached=\(host != nil)")
             webView = view
@@ -363,7 +374,7 @@ final class PoTokenMinter {
                 .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
         }
         return """
-        <!doctype html><html><head><script>\(esc(interpreter))</script><script>
+        <!doctype html><html style="background:transparent"><head><script>\(esc(interpreter))</script><script>
         window.__meloProgram = \(jsString(program));
         window.__meloGlobal = \(jsString(globalName));
 
@@ -416,7 +427,7 @@ final class PoTokenMinter {
           for (let i = 0; i < bytes.length; i++) { text += String.fromCharCode(bytes[i]); }
           return btoa(text).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
         };
-        </script></head><body></body></html>
+        </script></head><body style="background:transparent"></body></html>
         """
     }
 
