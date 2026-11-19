@@ -34,17 +34,25 @@ struct ArtistDetailView: View {
 
     var body: some View {
         ScrollView {
-            if loading {
-                ProgressView().padding(.top, 60)
-            } else if let errorText, albums.isEmpty, tracks.isEmpty, profile == nil {
+            // 首屏不再是一个转圈：头像位置用艺人名首字撑着，下面按区块出骨架，
+            // 数据到一块就填一块。用户看到的是「页面在长出来」，而不是白屏等。
+            if let errorText, albums.isEmpty, tracks.isEmpty, profile == nil {
                 ErrorBanner(message: errorText) { Task { await load() } }
             } else {
                 LazyVStack(alignment: .leading, spacing: 22) {
                     hero
                     // 简介紧跟头像：以前排在最底部，几乎滑不到，看着就像「没有简介」
                     if !bioText.isEmpty { bioSection }
-                    if !albums.isEmpty { albumSection }
-                    if !tracks.isEmpty { chartSection }
+                    if !albums.isEmpty {
+                        albumSection
+                    } else if loading {
+                        skeletonAlbums
+                    }
+                    if !tracks.isEmpty {
+                        chartSection
+                    } else if loading {
+                        skeletonTracks
+                    }
                 }
                 .padding(.bottom, Layout.contentBottomInset)
             }
@@ -322,6 +330,8 @@ struct ArtistDetailView: View {
 
         // 先把艺人本体解析出来（id / 头像 / 简介），专辑和歌曲都靠这个 id 直取
         let p = await ArtistInfo.load(name: name)
+        // 头像和名字一回来就上屏，不等专辑和歌曲 —— 这是最容易先到的一块
+        await MainActor.run { profile = p }
         let artistID = p?.id ?? 0
 
         var rawAlbums: [DomesticSource.DomesticAlbum] = []
@@ -330,30 +340,36 @@ struct ArtistDetailView: View {
         // 拿到 artistID 后，专辑列表 / 全量歌曲 / 热门榜 三路互不影响，并发取数。
         // 艺人页进入慢的根因是顺序 await：先把这一批并发跑起来，再处理依赖专辑的环节。
         if artistID > 0 {
-            async let albumsTask = DomesticSource.artistAlbums(artistID: artistID)
-            async let songsTask = DomesticSource.artistSongs(artistID: artistID)
-            async let topTask = DomesticSource.artistTopSongs(artistID: artistID)
+            // 三路并发，谁先回来谁先上屏：专辑网格和歌曲列表互不依赖，
+            // 等到齐再一起显示，等于让先到的那一路陪着最慢的干等。
+            await withTaskGroup(of: ArtistPart.self) { group in
+                group.addTask { .albums(await DomesticSource.artistAlbums(artistID: artistID)) }
+                group.addTask { .songs(await DomesticSource.artistSongs(artistID: artistID)) }
+                group.addTask { .top(await DomesticSource.artistTopSongs(artistID: artistID)) }
 
-            rawAlbums = await albumsTask
-            let ownSongs = await songsTask
-            let top = await topTask
-            collected += ownSongs
-            collected += top.filter { primaryArtistMatches(term: name, artist: $0.artist) }
+                for await part in group {
+                    switch part {
+                    case .albums(let list):
+                        rawAlbums = list
+                        let clean = cleanAlbumList(list)
+                        await MainActor.run { albums = clean }
+                    case .songs(let list):
+                        collected += list
+                        let merged = mergeTracks(collected)
+                        await MainActor.run { tracks = merged }
+                    case .top(let list):
+                        collected += list.filter { primaryArtistMatches(term: name, artist: $0.artist) }
+                        let merged = mergeTracks(collected)
+                        await MainActor.run { tracks = merged }
+                    }
+                }
+            }
         }
 
         if rawAlbums.isEmpty {
             rawAlbums = await DomesticSource.neteaseAlbumSearch(query: name, limit: 30)
         }
-        // 只认这位艺人本人的正版作品：同名合辑 / 翻唱 / Live / 原声带都剔掉
-        let cleanAlbums = rawAlbums
-            .filter {
-                ($0.artist.isEmpty || artistMatches(term: name, artist: $0.artist))
-                    && isCleanTitle($0.name)
-            }
-            // 大碟（曲目多的）排前面，单曲 / EP 往后
-            .sorted {
-                $0.trackCount == $1.trackCount ? $0.name < $1.name : $0.trackCount > $1.trackCount
-            }
+        let cleanAlbums = cleanAlbumList(rawAlbums)
 
         // 先把「不依赖专辑曲目」的结果画出来。
         // 专辑曲目那一步是第二个网络往返，慢网下要十几秒 —— 挡在首屏前面，
@@ -385,6 +401,24 @@ struct ArtistDetailView: View {
         }
     }
 
+    /// 三路并发各自的返回
+    private enum ArtistPart {
+        case albums([DomesticSource.DomesticAlbum])
+        case songs([Track])
+        case top([Track])
+    }
+
+    /// 只认这位艺人本人的正版作品：同名合辑 / 翻唱 / Live / 原声带都剔掉；大碟排前面
+    private func cleanAlbumList(_ raw: [DomesticSource.DomesticAlbum]) -> [DomesticSource.DomesticAlbum] {
+        raw.filter {
+            ($0.artist.isEmpty || artistMatches(term: name, artist: $0.artist))
+                && isCleanTitle($0.name)
+        }
+        .sorted {
+            $0.trackCount == $1.trackCount ? $0.name < $1.name : $0.trackCount > $1.trackCount
+        }
+    }
+
     /// 合并 + 去重 + 排序：本人主唱在前，合唱 / 助阵在后，同名只留第一次出现的版本。
     private func mergeTracks(_ input: [Track]) -> [Track] {
         let all = dedup(input).filter {
@@ -401,6 +435,47 @@ struct ArtistDetailView: View {
             if seen.insert(key).inserted { out.append(track) }
         }
         return out
+    }
+
+    // MARK: - 骨架
+
+    /// 专辑区骨架：一列灰卡片。数据到了就被真正的专辑区替换。
+    private var skeletonAlbums: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            skeletonBar(width: 90, height: 16)
+            HStack(spacing: 12) {
+                ForEach(0..<3, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Theme.secondaryLabel.opacity(0.10))
+                        .frame(width: 110, height: 110)
+                }
+            }
+        }
+    }
+
+    /// 歌曲区骨架：几行灰条
+    private var skeletonTracks: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            skeletonBar(width: 90, height: 16)
+            ForEach(0..<6, id: \.self) { _ in
+                HStack(spacing: 10) {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Theme.secondaryLabel.opacity(0.10))
+                        .frame(width: 44, height: 44)
+                    VStack(alignment: .leading, spacing: 6) {
+                        skeletonBar(width: 150, height: 12)
+                        skeletonBar(width: 90, height: 10)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+    }
+
+    private func skeletonBar(width: CGFloat, height: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 4, style: .continuous)
+            .fill(Theme.secondaryLabel.opacity(0.12))
+            .frame(width: width, height: height)
     }
 
     /// 后台静默刷新：已有缓存时，拉最新数据并更新缓存与界面。

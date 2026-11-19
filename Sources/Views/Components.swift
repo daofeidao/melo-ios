@@ -77,83 +77,84 @@ struct TrackRow: View {
     }
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 12) {
-                if showIndex {
-                    Text("\(index)")
-                        .font(.system(size: 15))
-                        .monospacedDigit()
-                        .foregroundColor(isCurrent ? Theme.accent : Theme.secondaryLabel)
-                        // 22pt 只够放两位数；100 以后会被挤成两行。
-                        // 放宽到 32pt + 单行 + 轻微缩放，四位数也不会换行。
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .frame(width: 32, alignment: .center)
-                }
-                if showArtwork {
-                    ArtworkView(url: track.artwork, size: 48, corner: 5)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(track.title)
-                        .font(.system(size: 16))
-                        .foregroundColor(isCurrent ? Theme.accent : Color.primary)
-                        .lineLimit(1)
-                    HStack(spacing: 4) {
-                        if isCurrent {
-                            Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "speaker.fill")
-                                .font(.system(size: 9))
-                                .foregroundColor(Theme.accent)
-                        }
-                        if let onArtistTap {
-                            Button(action: onArtistTap) {
-                                Text(track.artist)
-                                    .font(.system(size: 13))
-                                    .foregroundColor(Theme.accent)
-                                    .lineLimit(1)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                        } else {
+        HStack(spacing: 12) {
+            if showIndex {
+                Text("\(index)")
+                    .font(.system(size: 15))
+                    .monospacedDigit()
+                    .foregroundColor(isCurrent ? Theme.accent : Theme.secondaryLabel)
+                    // 22pt 只够放两位数；100 以后会被挤成两行。
+                    // 放宽到 32pt + 单行 + 轻微缩放，四位数也不会换行。
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .frame(width: 32, alignment: .center)
+            }
+            if showArtwork {
+                ArtworkView(url: track.artwork, size: 48, corner: 5)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(track.title)
+                    .font(.system(size: 16))
+                    .foregroundColor(isCurrent ? Theme.accent : Color.primary)
+                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    if isCurrent {
+                        Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "speaker.fill")
+                            .font(.system(size: 9))
+                            .foregroundColor(Theme.accent)
+                    }
+                    if let onArtistTap {
+                        Button(action: onArtistTap) {
                             Text(track.artist)
                                 .font(.system(size: 13))
-                                .foregroundColor(Theme.secondaryLabel)
+                                .foregroundColor(Theme.accent)
                                 .lineLimit(1)
                         }
+                        .buttonStyle(PlainButtonStyle())
+                    } else {
+                        Text(track.artist)
+                            .font(.system(size: 13))
+                            .foregroundColor(Theme.secondaryLabel)
+                            .lineLimit(1)
                     }
                 }
-                Spacer(minLength: 8)
-                // 【原唱】实心标：标题里没有翻唱 / DJ / Live / 伴奏等标记、且艺人对得上才打
-                if isOriginalVersion(track, contextArtist: contextArtist) {
-                    Text("原唱")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1.5)
-                        .background(
-                            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                .fill(Theme.accent)
-                        )
-                }
-                // 不传 badge 时默认按音源显示（酷狗 / 酷我 / 网易云 …），覆盖所有用到 TrackRow 的列表
-                if let badge = badge ?? sourceBadge(track) {
-                    Text(badge)
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundColor(Theme.accent)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1.5)
-                        .background(
-                            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                .stroke(Theme.accent.opacity(0.7), lineWidth: 0.8)
-                        )
-                }
-                Text(track.durationText)
-                    .font(.system(size: 13))
-                    .foregroundColor(Theme.secondaryLabel)
-                    .monospacedDigit()
             }
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
+            Spacer(minLength: 8)
+            // 【原唱】实心标：标题里没有翻唱 / DJ / Live / 伴奏等标记、且艺人对得上才打
+            if isOriginalVersion(track, contextArtist: contextArtist) {
+                Text("原唱")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1.5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(Theme.accent)
+                    )
+            }
+            // 不传 badge 时默认按音源显示（酷狗 / 酷我 / 网易云 …），覆盖所有用到 TrackRow 的列表
+            if let badge = badge ?? sourceBadge(track) {
+                Text(badge)
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(Theme.accent)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1.5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .stroke(Theme.accent.opacity(0.7), lineWidth: 0.8)
+                    )
+            }
+            Text(track.durationText)
+                .font(.system(size: 13))
+                .foregroundColor(Theme.secondaryLabel)
+                .monospacedDigit()
         }
-        .buttonStyle(PlainButtonStyle())
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        // 整行点击用普通手势、而不是外层 Button：行内还有「点艺人名」的小按钮，
+        // Button 套 Button 时两个都会响应 —— 点艺人名会顺手把这首歌播了，
+        // 播放页随即盖上来，看着就是「想进艺人页，结果退回到列表」。
+        .onTapGesture(perform: onTap)
         .contextMenu {
             Button {
                 library.toggleFavorite(track)
