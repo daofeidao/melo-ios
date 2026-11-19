@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import Combine
 
 /// 音频本体缓存：播过的曲目落一份到本地，二次播放不再联网。
 ///
@@ -12,9 +13,19 @@ import CryptoKit
 /// 两条硬约束：
 /// 1. **只有手动清理才删**（目录在 Documents，不是会被系统回收的 Caches）。
 /// 2. **满了先删最久没播的**，不是最早缓存的：淘汰严格按 `lastPlayed` 升序。
-final class AudioCache {
+final class AudioCache: ObservableObject {
 
     static let shared = AudioCache()
+
+    /// 正在下载的曲目进度（0…1），key = track.id。
+    ///
+    /// 播放页据此画进度条。以前只有一句静止的「缓存中…」，慢网下一首歌要下两三分钟，
+    /// 用户完全看不出是在动还是卡死了。进度不可知时（服务器没给 Content-Length）
+    /// 干脆不写进来，界面回落到不确定样式，不假装 0%。
+    @Published private(set) var progress: [String: Double] = [:]
+
+    /// 进度观察句柄，按 track.id 存，下完/失败时一并释放
+    private var progressWatches: [String: NSKeyValueObservation] = [:]
 
     static let enabledKey = "melo.cacheAudio"
     static let limitKey = "melo.audioCacheLimitMB"
@@ -266,12 +277,17 @@ final class AudioCache {
             request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         }
 
-        URLSession.shared.downloadTask(with: request) { [weak self] temp, response, _ in
+        let trackID = track.id
+        let task = URLSession.shared.downloadTask(with: request) { [weak self] temp, response, _ in
             guard let self = self else { return }
             defer {
                 self.lock.lock()
                 self.inFlight.remove(key)
+                let watch = self.progressWatches.removeValue(forKey: trackID)
                 self.lock.unlock()
+                watch?.invalidate()
+                // 收尾：无论成功失败，进度条都要消失（成功后改成「已保存」）
+                DispatchQueue.main.async { self.progress.removeValue(forKey: trackID) }
             }
 
             guard let temp = temp,
@@ -329,7 +345,21 @@ final class AudioCache {
                 try? FileManager.default.removeItem(at: temp)
                 fail()
             }
-        }.resume()
+        }
+
+        // 真实字节进度：URLSessionTask.progress 会随 received/total 更新，
+        // KVO 它比自建 delegate 侵入小（不动现有 downloadTask 的落盘逻辑）。
+        // total 未知时 fractionCompleted 一直是 0，那就当作「没有进度」不写入。
+        let watch = task.progress.observe(\.fractionCompleted, options: [.new]) { [weak self] prog, _ in
+            guard let self = self else { return }
+            let value = prog.fractionCompleted
+            guard value > 0, value < 1 else { return }
+            DispatchQueue.main.async { self.progress[trackID] = value }
+        }
+        lock.lock()
+        progressWatches[trackID] = watch
+        lock.unlock()
+        task.resume()
     }
 
     // MARK: - 统计 / 清理

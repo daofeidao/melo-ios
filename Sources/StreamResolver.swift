@@ -89,13 +89,32 @@ enum StreamResolver {
 
     /// 用 YouTubeKit 解析一次，按优先级排出候选：
     /// ① 目标音质的 m4a 纯音频（要 pot）→ ② 其余 m4a → ③ 渐进式 mp4（format 18，免 pot）
-    /// 开启后优先选「带画面」的 muxed 流（format 18，96k），
-    /// 关闭时优先纯音频（130k）。YouTube 这两条流互斥，只能二选一。
-    static let preferVideoKey = "melo.youtube.preferVideo"
+    /// YouTube 的画面与音轨是两条互斥的流，取哪条由用户决定：
+    ///   - 纯音频（itag 140 等，约 130k）—— 音质好，但没有画面
+    ///   - muxed（format 18，96k AAC + 360p）—— 有画面，音质差
+    enum VideoPreference: String, CaseIterable {
+        /// 只看画面：直接选带画面的合体流
+        case video
+        /// 只听声音：优先纯音频；万一只能拿到合体流，播放页也不显示画面
+        case audio
+        /// 自动：优先纯音频（音质优先），拿到带画面的流就顺手把画面显示出来
+        case auto
+    }
 
-    static var prefersVideo: Bool {
-        get { UserDefaults.standard.bool(forKey: preferVideoKey) }
-        set { UserDefaults.standard.set(newValue, forKey: preferVideoKey) }
+    static let videoModeKey = "melo.youtube.videoMode"
+    /// 3.1.2 只有一个布尔开关，开过的人迁移到「视频」
+    private static let legacyPreferVideoKey = "melo.youtube.preferVideo"
+
+    static var videoMode: VideoPreference {
+        get {
+            if let raw = UserDefaults.standard.string(forKey: videoModeKey),
+               let mode = VideoPreference(rawValue: raw) {
+                return mode
+            }
+            if UserDefaults.standard.bool(forKey: legacyPreferVideoKey) { return .video }
+            return .auto
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: videoModeKey) }
     }
 
     private static func candidates(
@@ -134,14 +153,13 @@ enum StreamResolver {
         // 只留三条候选，别把 4 个音质档都排上：受保护视频它们会以同样的方式 403，
         // 每多探一条就多等 5 秒。顺序 = 首选音质(带 pot) → 同一档不带 pot → 免 token 兜底。
         //
-        // 唯一的例外是「画面优先」：YouTube 的纯音频流（itag 140 等）没有视频轨，
-        // 播放页只能显示封面；只有 muxed 的 format 18 自带画面（360p），代价是 96k。
-        // 两者互斥，所以做成开关由用户选，而不是替用户决定。
-        let preferVideo = UserDefaults.standard.bool(forKey: Self.preferVideoKey)
+        // 唯一的例外是「只看画面」：YouTube 的纯音频流没有视频轨，播放页只能显示封面；
+        // 只有 muxed 的 format 18 自带画面（360p），代价是 96k。
+        // 选 audio / auto 时仍以纯音频优先，auto 拿到合体流会顺手显示画面。
         let muxed = progressive.min(by: { bitrate($0) < bitrate($1) })
 
         var list: [Candidate] = []
-        if preferVideo, let muxed = muxed {
+        if Self.videoMode == .video, let muxed = muxed {
             list.append(Candidate(stream: muxed, bitrate: bitrate(muxed), needsPot: false))
         } else if let top = sortedAudio.first {
             list.append(Candidate(stream: top, bitrate: bitrate(top), needsPot: true))

@@ -147,8 +147,6 @@ struct SettingsView: View {
     @State private var showAlert = false
 
     // 版本号彩蛋：7 次连点（间隔超过 2.5 秒重新计数）
-    @State private var versionTaps = 0
-    @State private var lastVersionTap = Date.distantPast
     /// 两个「关于」页共用一个 sheet：iOS 15 上同一视图叠两个 .sheet 会互相顶掉
     @State private var aboutPage: AboutPage?
 
@@ -291,7 +289,9 @@ struct SettingsView: View {
                             .foregroundColor(Theme.secondaryLabel)
                     }
                     .contentShape(Rectangle())
-                    .onTapGesture { registerVersionTap() }
+                    // 以前是连点 7 次才出更新记录（彩蛋式入口），用户根本找不到。
+                    // 现在点一次就进，更新记录里再往下就是高级诊断。
+                    .onTapGesture { aboutPage = .changelog }
 
                     Button {
                         checkForUpdates()
@@ -472,15 +472,6 @@ struct SettingsView: View {
         }
     }
 
-    private func registerVersionTap() {        let now = Date()
-        if now.timeIntervalSince(lastVersionTap) > 2.5 { versionTaps = 0 }
-        lastVersionTap = now
-        versionTaps += 1
-        if versionTaps >= 7 {
-            versionTaps = 0
-            aboutPage = .changelog
-        }
-    }
 
     private func prepareExport() {
         do {

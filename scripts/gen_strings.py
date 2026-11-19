@@ -685,6 +685,14 @@ TABLE = [
     ("YouTube rejected the request. This usually means the proxy's exit IP is being rate-limited — switch node and retry.",
      "YouTube 拒绝了这个请求，通常是代理出口 IP 被风控。换个节点再试一次。"),
 
+    ("Caching %d%%", "缓存中 %d%%"),
+
+    ("YouTube playback", "播放方式"),
+    ("Video", "视频"),
+    ("Audio", "音频"),
+    ("YouTube serves picture and 130 kbps audio as two separate streams, so you can only have one at a time. Video shows the picture at 96 kbps. Audio keeps the better track and never shows the picture. Auto prefers the better audio and shows the picture when the stream has one.",
+     "YouTube 的画面和 130 kbps 音轨是两条独立的流，同一时刻只能取一条。视频：显示画面，音质 96 kbps；音频：保留更好的音轨，不显示画面；自动：优先更好的音轨，流里带画面就顺手显示。"),
+
 ]
 
 HEADER = """/*

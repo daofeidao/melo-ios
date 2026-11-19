@@ -775,8 +775,9 @@ final class PlayerEngine: ObservableObject {
 
         currentStream = stream
         currentStreamSource = cacheSource ?? activeSource
-        // 只有 muxed 流（format 18）才有画面；纯音频流保持封面
-        showsVideo = stream.mime.hasPrefix("video")
+        // 只有 muxed 流（format 18）才有画面；纯音频流保持封面。
+        // 用户选了「只听声音」时，即使兜底落到了合体流，也不要冒出画面。
+        showsVideo = stream.mime.hasPrefix("video") && StreamResolver.videoMode != .audio
         Diagnostics.mark("showsVideo=\(showsVideo) mime=\(stream.mime)")
 
         // YouTube 直链必须经本地代理：AVPlayer 会用自己的 UA 请求 googlevideo，

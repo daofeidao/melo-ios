@@ -8,24 +8,19 @@ import UIKit
 
 /// 音量键双击手势（iOS）。
 ///
-/// iOS 不给第三方 App 任何「硬件按键」接口。业界（含网易云 / Spotify 这类）的通行做法
-/// 是监听系统内部那条音量变化通知，而不是 KVO `AVAudioSession.outputVolume`：
+/// **iOS 没有给第三方 App 任何「按键事件」接口**，Apple 只开放了「音量变了」这一条路。
+/// 能拿到原始硬件按下事件的只有私有 `IOHIDEventSystemClient`，非越狱设备的沙箱会挡掉，
+/// 所以业界（含网易云、Spotify）能用的只有下面两套，而且必须同时上：
 ///
-///   - 通知名：iOS 15 起叫 `SystemVolumeDidChange`，之前叫
-///     `AVSystemController_SystemVolumeDidChangeNotification`，两个都注册。
-///   - userInfo 里 `Reason`（旧键 `AVSystemController_AudioVolumeChangeReasonNotificationParameter`）
-///     为 `ExplicitVolumeChange` 才是「用户亲手按的」；程序改音量、切音频路由、
-///     调起 Siri 都会发通知，但 reason 不同 —— 这条判据替掉了原来那套靠时间窗
-///     猜「是不是我自己拨回去的」的写法。
-///   - iOS 15 按一下会连发两次通知，用 `SequenceNumber` 去重。
+///   1. **KVO `AVAudioSession.outputVolume`** —— 一定有效，但音量到顶/到底时值不变，
+///      压根不回调，双击在那两种情况下失灵。
+///   2. **系统音量变化通知**（iOS 15 起叫 `SystemVolumeDidChange`，旧名
+///      `AVSystemController_SystemVolumeDidChangeNotification`）—— 音量不变也会发，
+///      带 `Reason = ExplicitVolumeChange` 能区分「用户亲手按的」，但这条通知不是
+///      公开 API，不同系统版本上能不能收到并不稳定。
 ///
-/// 相比旧实现（KVO outputVolume）的实际改进：
-///   1. 音量已在最大 / 最小时，KVO 根本不触发，通知照样发 —— 双击不再「到顶就失灵」；
-///   2. 不需要 0.35 秒的抑制窗口，两次快速双击不会被吃掉；
-///   3. 不会把程序自己拨回去的动作误判成用户按键。
-///
-/// 仍然存在的物理限制：音量到顶时通知里只有「当前音量 = 1.0」，没有方向信息，
-/// 无法区分用户按的是 + 还是 −，这种情况只能忽略。
+/// 所以这里两套都挂：谁先报就按谁处理，用 0.18 秒同方向去重把它们合并成一次按键。
+/// 通知能收到时，端点（音量满格）也能用；收不到时 KVO 保证基本功能不掉。
 enum VolumeShortcut {
 
     static let enabledKey = "melo.volumeDoublePress"
@@ -48,30 +43,43 @@ enum VolumeShortcut {
 final class VolumeShortcutMonitor {
 
     #if !targetEnvironment(macCatalyst)
+    private var observation: NSKeyValueObservation?
     private var tokens: [NSObjectProtocol] = []
     private var volumeView: MPVolumeView?
-    private var lastUp = Date.distantPast
-    private var lastDown = Date.distantPast
-    /// 上一次已知音量。第一次通知只用来对齐基线。
+
+    /// 上一次已知音量。第一次回调只用来对齐基线。
     private var lastVolume: Float = -1
-    /// 已经处理过的通知序号（iOS 15 一次按键会发两遍）
+    /// 程序自己拨回音量的瞬间，短暂忽略 KVO 回调
+    private var ignoreUntil = Date.distantPast
+
+    /// 同一次按键会被 KVO 和通知各报一次，用它合并
+    private var lastKeyAt = Date.distantPast
+    private var lastKeyDirection = 0
+    /// 上一次按键之后的音量。同一次按键被两路各报一遍时音量完全相同；
+    /// 用户真的连按两次时音量必然不同 —— 比单靠时间窗精准，
+    /// 不会把「手速很快的双击」误当成重复上报吞掉。
+    private var lastKeyVolume: Float = -1
+
+    /// 双击判定：同方向的第一次按键时刻
+    private var pendingUp = Date.distantPast
+    private var pendingDown = Date.distantPast
+    /// 这一轮「第一次按键」之前的音量，双击成立时还原到它
+    private var originVolume: Float = -1
+
+    /// 通知序号（iOS 15 一次按键连发两条）
     private var seenSequences = Set<Int>()
     private var seenOrder: [Int] = []
-    /// 程序拨回音量的瞬间，短暂忽略，避免把 1.0 → 0.5 当成用户按了「−」
-    private var ignoreUntil = Date.distantPast
-    /// 上一次真正处理通知的时刻。两套通知名可能对同一次按键各发一条，
-    /// 靠它压掉重复，避免一次按键被算成「双击」。
-    private var lastHandledAt = Date.distantPast
     #endif
 
     private var onNext: (() -> Void)?
     private var onPrevious: (() -> Void)?
     private var canTrigger: (() -> Bool)?
 
-    /// 人手双击的间隔通常在 0.25~0.5 秒；0.45 偏紧，放宽到 0.6
+    /// 人手双击间隔通常 0.25~0.5 秒
     private let window: TimeInterval = 0.6
+    /// 同一按键被多路上报的合并窗口
+    private let mergeWindow: TimeInterval = 0.18
 
-    /// 两套通知名：iOS 15 之后系统给的是短名，老的私有名仍可能生效
     private static let notificationNames = [
         "SystemVolumeDidChange",
         "AVSystemController_SystemVolumeDidChangeNotification"
@@ -90,23 +98,16 @@ final class VolumeShortcutMonitor {
 
     func resume() {
         #if !targetEnvironment(macCatalyst)
-        guard VolumeShortcut.isEnabled, tokens.isEmpty else { return }
-        lastVolume = AVAudioSession.sharedInstance().outputVolume
-        for name in Self.notificationNames {
-            let token = NotificationCenter.default.addObserver(
-                forName: Notification.Name(rawValue: name),
-                object: nil,
-                queue: .main
-            ) { [weak self] note in
-                self?.handle(note.userInfo as? [String: Any] ?? [:])
-            }
-            tokens.append(token)
-        }
+        guard VolumeShortcut.isEnabled else { return }
+        if observation == nil { startKVO() }
+        if tokens.isEmpty { startNotifications() }
         #endif
     }
 
     func suspend() {
         #if !targetEnvironment(macCatalyst)
+        observation?.invalidate()
+        observation = nil
         for token in tokens { NotificationCenter.default.removeObserver(token) }
         tokens.removeAll()
         #endif
@@ -114,8 +115,45 @@ final class VolumeShortcutMonitor {
 
     #if !targetEnvironment(macCatalyst)
 
-    private func handle(_ info: [String: Any]) {
-        // 只认「用户亲手按的」。程序调音量、路由切换、Siri 都会发通知，但 reason 不同。
+    // MARK: - 通道一：KVO（一定有效）
+
+    private func startKVO() {
+        let session = AVAudioSession.sharedInstance()
+        lastVolume = session.outputVolume
+        observation = session.observe(\.outputVolume, options: [.new]) { [weak self] _, change in
+            guard let self = self, let volume = change.newValue else { return }
+            // 回调可能在任意线程，切歌/改 UI 必须回主线程
+            DispatchQueue.main.async { self.handleKVO(volume) }
+        }
+    }
+
+    private func handleKVO(_ volume: Float) {
+        let previous = lastVolume
+        lastVolume = volume
+        if Date() < ignoreUntil { return }
+        guard previous >= 0 else { return }
+        let delta = volume - previous
+        guard abs(delta) > 0.005 else { return }
+        noteKey(direction: delta > 0 ? 1 : -1, before: previous, after: volume)
+    }
+
+    // MARK: - 通道二：系统通知（能拿到端点与按键原因）
+
+    private func startNotifications() {
+        for name in Self.notificationNames {
+            let token = NotificationCenter.default.addObserver(
+                forName: Notification.Name(rawValue: name),
+                object: nil,
+                queue: .main
+            ) { [weak self] note in
+                self?.handleNotification(note.userInfo as? [String: Any] ?? [:])
+            }
+            tokens.append(token)
+        }
+    }
+
+    private func handleNotification(_ info: [String: Any]) {
+        // 只认「用户亲手按的」；程序调音量、切路由、Siri 都会发通知，但 reason 不同
         let reason = (info["Reason"] as? String)
             ?? (info["AVSystemController_AudioVolumeChangeReasonNotificationParameter"] as? String)
         guard reason == "ExplicitVolumeChange" else { return }
@@ -136,68 +174,71 @@ final class VolumeShortcutMonitor {
             ?? Self.floatValue(info["AVSystemController_AudioVolumeNotificationParameter"])
             ?? AVAudioSession.sharedInstance().outputVolume
 
-        let now = Date()
         let previous = lastVolume
         lastVolume = volume
-
-        if now < ignoreUntil { return }
-        // 两套通知名可能对同一次按键各发一条（且音量完全相同）：0.12 秒内
-        // 同值的第二次直接丢掉，否则一次按键就被算成双击，歌会莫名其妙跳走。
-        if now.timeIntervalSince(lastHandledAt) < 0.12, abs(volume - previous) <= 0.001 {
-            return
-        }
-        lastHandledAt = now
-        guard previous >= 0 else { return }
+        if Date() < ignoreUntil { return }
 
         let delta = volume - previous
-
-        // 音量没变，只有一种情况能确定方向：已经顶到头 / 到底了。
-        //   音量 = 1.0 还收到「用户按键」，那必然是按的 +（按 − 会变小）；
-        //   音量 = 0.0 同理必然是 −。
-        // 这一条正是旧实现最大的毛病：KVO 在音量不变时压根不回调，
-        // 「音量开到最大之后双击切歌就没反应了」。
-        // 中间音量却不变（比如系统里关了「用按钮调整」）无法判断方向，只能忽略。
-        let direction: Int
-        if abs(delta) > 0.001 {
-            direction = delta > 0 ? 1 : -1
+        if abs(delta) > 0.005 {
+            noteKey(direction: delta > 0 ? 1 : -1, before: previous, after: volume)
         } else if volume >= 0.999 {
-            direction = 1
+            // 已经满格还收到按键，那只可能是 +
+            noteKey(direction: 1, before: volume, after: volume)
         } else if volume <= 0.001 {
-            direction = -1
-        } else {
+            noteKey(direction: -1, before: volume, after: volume)
+        }
+    }
+
+    // MARK: - 双击判定
+
+    private func noteKey(direction: Int, before: Float, after: Float) {
+        let now = Date()
+        // KVO 与通知会为同一次按键各报一次，合并掉。
+        // 判据是「同方向 + 同音量值」，不是单看时间：手速快的人 0.15 秒内连按两次
+        // 也想切歌，只看时间窗会把它当成重复上报吞掉。
+        if now.timeIntervalSince(lastKeyAt) < mergeWindow,
+           direction == lastKeyDirection,
+           abs(after - lastKeyVolume) < 0.002 {
             return
         }
+        lastKeyAt = now
+        lastKeyDirection = direction
+        lastKeyVolume = after
 
         if direction > 0 {
-            if now.timeIntervalSince(lastUp) <= window {
-                lastUp = .distantPast
-                fire(next: true, restoreTo: previous)
+            if now.timeIntervalSince(pendingUp) <= window {
+                pendingUp = .distantPast
+                fire(next: true)
             } else {
-                lastUp = now
+                pendingUp = now
+                originVolume = before
             }
         } else {
-            if now.timeIntervalSince(lastDown) <= window {
-                lastDown = .distantPast
-                fire(next: false, restoreTo: previous)
+            if now.timeIntervalSince(pendingDown) <= window {
+                pendingDown = .distantPast
+                fire(next: false)
             } else {
-                lastDown = now
+                pendingDown = now
+                originVolume = before
             }
         }
     }
+
+    private func fire(next: Bool) {
+        guard canTrigger?() ?? true else { return }
+        Diagnostics.mark(next ? "volume-key: 双击 下一首" : "volume-key: 双击 上一首")
+        // 先把音量拨回第一次按键之前的水平，再切歌：听感上只是「闪一下」
+        if originVolume >= 0 { restoreVolume(to: originVolume) }
+        if next { onNext?() } else { onPrevious?() }
+    }
+
+    // MARK: - 工具
 
     /// userInfo 里的数值既可能是 NSNumber，也可能是字符串（老格式是 `"0.5625"`）
     private static func floatValue(_ any: Any?) -> Float? {
         if let number = any as? NSNumber { return number.floatValue }
         if let text = any as? String { return Float(text) }
         return nil
-    }
-
-    private func fire(next: Bool, restoreTo target: Float) {
-        guard canTrigger?() ?? true else { return }
-        // 先把音量拨回第一次按键之前的水平，再把动作发出去。
-        // 顺序不能反：切歌会触发 UI 刷新，先把音量稳下来，听感上才只是「闪一下」。
-        restoreVolume(to: target)
-        if next { onNext?() } else { onPrevious?() }
     }
 
     /// 用 MPVolumeView 的滑块把音量拨回去（公开 API 里唯一能改系统音量的路子）

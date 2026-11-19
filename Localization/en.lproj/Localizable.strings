@@ -457,3 +457,8 @@
 "This video is private and cannot be played." = "This video is private and cannot be played.";
 "This video is for channel members only." = "This video is for channel members only.";
 "YouTube rejected the request. This usually means the proxy's exit IP is being rate-limited — switch node and retry." = "YouTube rejected the request. This usually means the proxy's exit IP is being rate-limited — switch node and retry.";
+"Caching %d%%" = "Caching %d%%";
+"YouTube playback" = "YouTube playback";
+"Video" = "Video";
+"Audio" = "Audio";
+"YouTube serves picture and 130 kbps audio as two separate streams, so you can only have one at a time. Video shows the picture at 96 kbps. Audio keeps the better track and never shows the picture. Auto prefers the better audio and shows the picture when the stream has one." = "YouTube serves picture and 130 kbps audio as two separate streams, so you can only have one at a time. Video shows the picture at 96 kbps. Audio keeps the better track and never shows the picture. Auto prefers the better audio and shows the picture when the stream has one.";

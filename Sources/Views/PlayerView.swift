@@ -27,6 +27,8 @@ struct PlayerView: View {
     @State private var showLyrics = false
     /// 歌曲宝被 Cloudflare 风控时显示「完成验证」按钮，可观察
     @StateObject private var verifyState = GequbaoVerificationState.shared
+    /// 缓存下载进度（正在下的那首才有值）
+    @ObservedObject private var audioCache = AudioCache.shared
 
     private enum PlayerSheet: String, Identifiable {
         /// 播放历史 + 待播清单，同一个浮层里分段切换
@@ -408,7 +410,20 @@ struct PlayerView: View {
                     .buttonStyle(PlainButtonStyle())
                     // 一次性反馈：正在缓存 / 刚失败（3.5 秒后自动消失）。
                     // 「已缓存」不写文字，图标变实心红就够了
-                    if player.cacheBusy {
+                    if let progress = audioCache.progress[track.id] {
+                        // 有真实字节进度就画进度条；服务器没给总长度时退回下面的「缓存中…」
+                        VStack(spacing: 4) {
+                            ProgressView(value: progress)
+                                .progressViewStyle(.linear)
+                                .frame(width: 120)
+                                .tint(Theme.accent)
+                            Text(String(format: L("Caching %d%%"), Int(progress * 100)))
+                                .font(.system(size: 10))
+                                .foregroundColor(.white.opacity(0.5))
+                                .monospacedDigit()
+                        }
+                        .padding(.top, 3)
+                    } else if player.cacheBusy {
                         Text(L("Caching…"))
                             .font(.system(size: 11))
                             .foregroundColor(.white.opacity(0.55))

@@ -63,25 +63,23 @@ struct DataSourceSettingsView: View {
                 Text(L("Each kind of content has one fixed source. The app never switches to a different source, even when playback fails."))
             }
 
-            // MARK: YouTube 播放选项
+            // MARK: YouTube 播放方式
             Section {
-                Toggle(isOn: Binding(
-                    get: { StreamResolver.prefersVideo },
-                    set: { StreamResolver.prefersVideo = $0 }
+                Picker(selection: Binding(
+                    get: { StreamResolver.videoMode },
+                    set: { StreamResolver.videoMode = $0 }
                 )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(L("Prefer video picture"))
-                            .font(.system(size: 16))
-                        Text(L("Show the original video inside the player. YouTube serves picture and 130 kbps audio as separate streams, so this drops audio to 96 kbps."))
-                            .font(.system(size: 12))
-                            .foregroundColor(Theme.secondaryLabel)
-                    }
+                    Text(L("Video")).tag(StreamResolver.VideoPreference.video)
+                    Text(L("Audio")).tag(StreamResolver.VideoPreference.audio)
+                    Text(L("Auto")).tag(StreamResolver.VideoPreference.auto)
+                } label: {
+                    Text(L("YouTube playback"))
                 }
-                .tint(Theme.accent)
+                .pickerStyle(.segmented)
             } header: {
                 Text("YouTube")
             } footer: {
-                Text(L("Off keeps the better audio. Turn it on when you want to watch the video."))
+                Text(L("YouTube serves picture and 130 kbps audio as two separate streams, so you can only have one at a time. Video shows the picture at 96 kbps. Audio keeps the better track and never shows the picture. Auto prefers the better audio and shows the picture when the stream has one."))
             }
 
             // MARK: 登录 / 验证
