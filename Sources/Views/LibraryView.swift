@@ -76,12 +76,23 @@ struct LibraryView: View {
             .sheet(isPresented: $showImport) {
                 ImportPlaylistView()
             }
+            #if targetEnvironment(macCatalyst)
+            // Mac 用全屏，不用卡片：卡片上两指手势会穿透到下面的栏目，
+            // 界面直接卡死；桌面端弹个居中卡片本身也不合习惯。
+            .fullScreenCover(isPresented: $showSettingsSheet) {
+                NavigationView {
+                    SettingsView()
+                }
+                .navigationViewStyle(StackNavigationViewStyle())
+            }
+            #else
             .sheet(isPresented: $showSettingsSheet) {
                 NavigationView {
                     SettingsView()
                 }
                 .navigationViewStyle(StackNavigationViewStyle())
             }
+            #endif
             // Mac 两指下滑打开设置：由全局手势层发通知（能真正区分双指）
             .onReceive(NotificationCenter.default.publisher(for: .meloOpenSettings)) { _ in
                 showSettingsSheet = true
@@ -335,6 +346,14 @@ struct SettingsView: View {
         #endif
         .navigationTitle(L("Settings"))
         .navigationBarTitleDisplayMode(.inline)
+        #if targetEnvironment(macCatalyst)
+        // 全屏覆盖没有下拉手势可关，必须给一个明确的出口
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(L("Done")) { dismiss() }
+            }
+        }
+        #endif
         .onReceive(NotificationCenter.default.publisher(for: .meloDismissSettings)) { _ in
             dismiss()
         }

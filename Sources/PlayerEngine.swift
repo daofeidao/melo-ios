@@ -155,7 +155,13 @@ final class PlayerEngine: ObservableObject {
             // 正在解析新歌时，player 里还挂着上一首的 item，别拿它的时间覆盖界面
             if self.isLoading { return }
             let seconds = time.seconds
-            if seconds.isFinite {
+            if let pending = self.pendingSeekSeconds {
+                // seek 就位前 AVPlayer 还会报旧时间：照原样写回去就是进度条闪回
+                if seconds >= pending - 0.4 {
+                    self.pendingSeekSeconds = nil
+                    self.elapsed = max(0, seconds)
+                }
+            } else if seconds.isFinite {
                 self.elapsed = max(0, seconds)
             }
             // 缓冲比例：变化超过 0.5% 才写 @Published，避免每 0.5 秒刷一次视图
@@ -164,7 +170,9 @@ final class PlayerEngine: ObservableObject {
             let total = self.duration
             if bufferedSeconds.isFinite, total > 1 {
                 let ratio = min(1, max(0, bufferedSeconds / total))
-                if abs(ratio - self.bufferedRatio) > 0.005 {
+                // 只增不减：seek 后 AVPlayer 的 loadedTimeRanges 会重置成一小段，
+                // 原样画出来就是「缓冲倒退、重新缓冲」。换歌时在 loadCurrent 里清零。
+                if ratio > self.bufferedRatio + 0.005 {
                     self.bufferedRatio = ratio
                 }
             }
@@ -310,6 +318,14 @@ final class PlayerEngine: ObservableObject {
 
     func play(tracks: [Track], startAt startIndex: Int) {
         guard !tracks.isEmpty else { return }
+        let bounded = min(max(0, startIndex), tracks.count - 1)
+        // 列表里点「当前正在播放/暂停的这一首」：只回到播放页，不要重新解析、从头播。
+        // 以前无条件 loadCurrent，用户以为只是打开播放页，结果歌被重启了（三端同样的 bug）。
+        if let now = currentTrack, now.id == tracks[bounded].id, player.currentItem != nil {
+            if !isPlaying { resume() }
+            if !SmokeTest.suppressesAutoPlayer { opensFullPlayer = true }
+            return
+        }
         // 从列表主动点播：回到自动选源，不沿用上一首的手动锁定
         preferredSource = nil
         queue = tracks
@@ -332,6 +348,11 @@ final class PlayerEngine: ObservableObject {
 
     func jump(to target: Int) {
         guard target >= 0, target < queue.count else { return }
+        // 同一首在队列里被点到：恢复播放即可，别从头开始
+        if target == index, let now = currentTrack, now.id == queue[target].id, player.currentItem != nil {
+            if !isPlaying { resume() }
+            return
+        }
         index = target
         loadCurrent(autoPlay: true)
     }
@@ -406,11 +427,23 @@ final class PlayerEngine: ObservableObject {
         loadCurrent(autoPlay: true)
     }
 
+    /** seek 就位前的时间观察值不能覆盖界面，否则进度条会「闪回旧位置」 */
+    private var pendingSeekSeconds: Double?
+
     func seek(to seconds: Double) {
         guard seconds.isFinite else { return }
-        let target = CMTime(seconds: max(0, seconds), preferredTimescale: 600)
-        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+        let value = max(0, seconds)
+        // 乐观更新：界面先走到目标位置，不等 seek 完成回调
+        pendingSeekSeconds = value
+        elapsed = value
+        // 缓冲条也不许因为 seek 后的 loadedTimeRanges 重置而倒退
+        if duration > 0 {
+            bufferedRatio = max(bufferedRatio, min(1, value / duration))
+        }
+        let target = CMTime(seconds: value, preferredTimescale: 600)
+        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
             guard let self = self else { return }
+            if finished { self.pendingSeekSeconds = nil }
             self.elapsed = max(0, seconds)
             self.updateNowPlaying()
         }
@@ -654,6 +687,8 @@ final class PlayerEngine: ObservableObject {
         if !keepError { errorText = nil }
         alternatives = []
         elapsed = 0
+        bufferedRatio = 0
+        pendingSeekSeconds = nil
         duration = Double(track.duration)
         updateNowPlaying()
 

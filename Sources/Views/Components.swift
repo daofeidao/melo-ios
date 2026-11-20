@@ -425,6 +425,10 @@ struct Scrubber: View {
                     .offset(x: width * CGFloat(value) - (dragging ? 6.5 : 4.5))
                     .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
             }
+            // seek 后位置从旧值直接跳到新值会「闪一下」；短动画把跳变抹平，
+            // 但 0.1 秒足够短，拖动时仍然跟手。
+            .animation(.easeOut(duration: 0.10), value: value)
+            .animation(.easeOut(duration: 0.10), value: buffered)
             // 24 太窄，手指点偏一点就落到进度条外面；加到 30 更好按
             .frame(height: 30)
             .contentShape(Rectangle())
