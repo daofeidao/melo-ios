@@ -12,6 +12,16 @@ struct ChangelogEntry: Identifiable {
 enum Changelog {
     static var entries: [ChangelogEntry] {
         [
+            ChangelogEntry(version: "3.2.1", date: "2026-11-24", notes: [
+                "备份现在包含所有音源的网页登录 Cookie（YouTube、网易云、QQ、酷我、歌曲宝等）。以前备份只存收藏和歌单，卸载重装后登录态全丢、要逐个重新登录；现在导出一次备份，重装后导入，资料和登录一起恢复。",
+                "恢复登录态时只覆盖备份里有的平台，不会清掉当前已经登录的其他账号。",
+                "提醒：备份文件含登录凭据，请只存在自己能访问的位置（如自己的 iCloud Drive），不要发给别人或放公共网盘。",
+            ]),
+            ChangelogEntry(version: "3.2.0", date: "2026-11-20", notes: [
+                "修「列表里点正在播放的歌会从头重播」：现在只回到播放页，暂停状态直接续播。",
+                "进度条与缓冲条稳定性：seek 后位置立即乐观更新、短动画过渡，不再闪动回跳；缓冲位置只增不减，不再倒退重新缓冲。",
+                "歌曲宝「网页验证通过但 App 放不了」：改用已验证的浏览器会话通道取流，cf_clearance 这类 HttpOnly Cookie 终于能生效。",
+            ]),
             ChangelogEntry(version: "2.0.12", date: "2026-11-16", notes: [
                 "修复 YouTube 不能播放：PO Token（Proof of Origin）正式接入播放链路。YouTube 2024 年起对 player 接口强制要求 PO Token，没有就返回 LOGIN_REQUIRED / format=0。此前 PO Token 铸造只在高级诊断里验证过，没接进播放流程。现在起播前自动铸 Token（BotGuard 挑战 → integrityToken → PO Token），缓存约 20 分钟，过期或收到 LOGIN_REQUIRED 自动重铸。",
             ]),
