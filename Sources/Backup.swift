@@ -12,19 +12,24 @@ struct MeloBackup: Codable {
     var playlists: [ImportedPlaylist]
     /// 搜索结果里收藏的歌单 / 专辑。老备份没有这个字段，解码时按空数组处理
     var collections: [MediaCollection]
+    /// 各音源的网页登录 Cookie。用于卸载重装 / 换设备后免重新登录。
+    /// 这是敏感凭据：备份文件请只存在自己能访问的位置。
+    var cookies: [String: String]
 
     private enum CodingKeys: String, CodingKey {
-        case formatVersion, exportedAt, favorites, recent, playlists, collections
+        case formatVersion, exportedAt, favorites, recent, playlists, collections, cookies
     }
 
     init(formatVersion: Int, exportedAt: Date, favorites: [Track], recent: [Track],
-         playlists: [ImportedPlaylist], collections: [MediaCollection]) {
+         playlists: [ImportedPlaylist], collections: [MediaCollection],
+         cookies: [String: String] = [:]) {
         self.formatVersion = formatVersion
         self.exportedAt = exportedAt
         self.favorites = favorites
         self.recent = recent
         self.playlists = playlists
         self.collections = collections
+        self.cookies = cookies
     }
 
     init(from decoder: Decoder) throws {
@@ -35,6 +40,7 @@ struct MeloBackup: Codable {
         recent = (try? container.decode([Track].self, forKey: .recent)) ?? []
         playlists = (try? container.decode([ImportedPlaylist].self, forKey: .playlists)) ?? []
         collections = (try? container.decode([MediaCollection].self, forKey: .collections)) ?? []
+        cookies = (try? container.decode([String: String].self, forKey: .cookies)) ?? [:]
     }
 
     /// 写了自定义 init(from:) 之后显式补上编码，避免依赖编译器合成行为
@@ -46,6 +52,7 @@ struct MeloBackup: Codable {
         try container.encode(recent, forKey: .recent)
         try container.encode(playlists, forKey: .playlists)
         try container.encode(collections, forKey: .collections)
+        try container.encode(cookies, forKey: .cookies)
     }
 }
 
@@ -59,8 +66,8 @@ struct MeloBackup: Codable {
 /// 这条路不需要任何 entitlement，卸载 App 也不会连「文件」里的备份一起删。
 enum BackupService {
 
-    /// v2：新增 collections（搜索结果收藏的歌单 / 专辑）
-    static let currentFormatVersion = 2
+    /// v3：新增 cookies（各音源网页登录态，卸载重装后免重新登录）
+    static let currentFormatVersion = 3
 
     struct Summary {
         var favorites: Int
@@ -80,7 +87,8 @@ enum BackupService {
             favorites: Library.shared.favorites,
             recent: Library.shared.recent,
             playlists: PlaylistStore.shared.playlists,
-            collections: Library.shared.savedCollections
+            collections: Library.shared.savedCollections,
+            cookies: SourcePrefs.shared.cookies
         )
     }
 
@@ -111,7 +119,8 @@ enum BackupService {
 
         // 一个都没解出来时不要装作成功：多半是选错了文件或格式被改过
         if backup.favorites.isEmpty && backup.recent.isEmpty
-            && backup.playlists.isEmpty && backup.collections.isEmpty {
+            && backup.playlists.isEmpty && backup.collections.isEmpty
+            && backup.cookies.isEmpty {
             throw BackupError.unreadable
         }
 
@@ -121,6 +130,11 @@ enum BackupService {
             collections: backup.collections
         )
         PlaylistStore.shared.replaceAll(backup.playlists)
+        // 登录态恢复：只写入备份里有的键，不清空当前已登录的其他平台。
+        // setCookie 内部会写 UserDefaults，下次启动 SourcePrefs 就能读到。
+        for (id, value) in backup.cookies {
+            SourcePrefs.shared.setCookie(id, value)
+        }
 
         return Summary(
             favorites: backup.favorites.count,
