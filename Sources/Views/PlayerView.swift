@@ -392,15 +392,27 @@ struct PlayerView: View {
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundColor(.white)
                         .lineLimit(1)
-                    // 点艺名进艺人页：先记住名字并关掉播放页，再由「现在就听」里那个
-                    // 隐藏的 NavigationLink 推进去（fullScreenCover 里推不动主栈）
+                    // 点艺名进艺人页：发全局通知让 RootView 切回「现在就听」并推栈。
+                    // 以前只设 ArtistRouter.pending，但跳板藏在「现在就听」里——
+                    // 从搜索/资料库打开播放页时关掉后回的是那个 tab，跳板根本不消费，
+                    // 表现就是「点了没反应」。
                     Button {
                         let first = track.artist
                             .components(separatedBy: CharacterSet(charactersIn: ",，、/&"))
                             .first?
                             .trimmingCharacters(in: .whitespacesAndNewlines) ?? track.artist
-                        ArtistRouter.shared.pending = first.isEmpty ? track.artist : first
+                        let name = first.isEmpty ? track.artist : first
+                        // 先关播放层，等 fullScreenCover 的 dismiss 动画走完再通知 RootView
+                        // 切 tab + 推艺人页。太早通知会和 dismiss 竞争，表现成「点了没反应」，
+                        // 艺人页其实推到了「现在就听」，只是当时看不见。
                         close()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            NotificationCenter.default.post(
+                                name: .meloOpenArtist,
+                                object: nil,
+                                userInfo: ["name": name]
+                            )
+                        }
                     } label: {
                         Text(track.artist)
                             .font(.system(size: 18))

@@ -193,11 +193,13 @@ struct ChartsView: View {
         if let job = ytJob {
             do {
                 yt = try await job.value
+                feed.markShelvesAttempted()
             } catch {
                 yt = []
                 failures["youtube"] = describe(error)
+                // 失败不再标记为就绪：否则一次没代理失败后，榜单永远不再重试
+                feed.markShelvesFailed()
             }
-            feed.markShelvesAttempted()
         } else {
             yt = []
         }

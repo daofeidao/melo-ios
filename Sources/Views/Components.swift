@@ -45,7 +45,7 @@ struct ArtworkView: View {
         // UIScreen.main.scale 在部分 SDK 上是 MainActor 隔离的，非隔离 async 上下文里要显式取
         let scale = await MainActor.run { UIScreen.main.scale }
         let maxPixel = min(max(size * scale, 60), 600)
-        if let cached = ImageLoader.shared.cached(for: target) {
+        if let cached = ImageLoader.shared.cached(for: target, maxPixel: maxPixel) {
             await MainActor.run { self.image = cached }
             return
         }

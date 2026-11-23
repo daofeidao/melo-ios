@@ -76,6 +76,11 @@ struct LibraryView: View {
             .sheet(isPresented: $showImport) {
                 ImportPlaylistView()
             }
+            #if !targetEnvironment(macCatalyst)
+            // iOS：在列表顶部继续下拉超过阈值打开设置。
+            // Mac 走全局双指手势，不挂这个，避免两种手势叠加误触。
+            .background(TopPullDetector { showSettingsSheet = true })
+            #endif
             #if targetEnvironment(macCatalyst)
             // Mac 用全屏，不用卡片：卡片上两指手势会穿透到下面的栏目，
             // 界面直接卡死；桌面端弹个居中卡片本身也不合习惯。
@@ -164,6 +169,25 @@ struct SettingsView: View {
 
     var body: some View {
         List {
+            // 快速返回资料库：设置页可能从任何 tab 打开（下拉手势 / 齿轮），
+            // 关掉后统一回到资料库。dismiss 后发通知切 tab。
+            Section {
+                Button {
+                    dismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                        NotificationCenter.default.post(
+                            name: .meloSwitchTab, object: nil, userInfo: ["index": 2]
+                        )
+                    }
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "folder.fill").foregroundColor(Theme.accent)
+                        Text(L("Back to Library")).foregroundColor(Theme.accent)
+                        Spacer()
+                    }
+                }
+            }
+
             // 外观排到最顶：换主题是最常用的设置项（说明文字已按要求去掉）
             Section {
                 Picker(L("Appearance"), selection: $appearance) {
@@ -627,3 +651,103 @@ struct SettingsOverScrollDetector: UIViewRepresentable {
     }
 }
 #endif
+
+/// 资料库页「顶部下拉打开设置」检测器。
+///
+/// SwiftUI List 没有 scroll offset API，沿响应链找到底层 UIScrollView，KVO 监听 contentOffset：
+/// 只有当列表**已经滚到最顶**（contentOffset.y ≤ 0）且被继续往下拉超过阈值（默认 90pt）
+/// 才触发——这样歌单正常下滑、滚动列表都不会误触。松手回弹后重置，可再次触发。
+/// 两端通用（iOS 真机 + Mac Catalyst）。
+struct TopPullDetector: UIViewRepresentable {
+    var threshold: CGFloat = 90
+    let onPull: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(threshold: threshold, onPull: onPull) }
+
+    func makeUIView(context: Context) -> UIView {
+        let probe = UIView(frame: .zero)
+        probe.backgroundColor = .clear
+        probe.isUserInteractionEnabled = false
+        return probe
+    }
+
+    func updateUIView(_ probe: UIView, context: Context) {
+        context.coordinator.onPull = onPull
+        context.coordinator.threshold = threshold
+        DispatchQueue.main.async { context.coordinator.attach(to: probe) }
+    }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    final class Coordinator: NSObject {
+        var onPull: () -> Void
+        var threshold: CGFloat
+        private weak var scrollView: UIScrollView?
+        private var observation: NSKeyValueObservation?
+        private var armed = false
+
+        init(threshold: CGFloat, onPull: @escaping () -> Void) {
+            self.threshold = threshold; self.onPull = onPull
+        }
+
+        private func findScrollView(from view: UIView) -> UIScrollView? {
+            var current: UIView? = view
+            while let v = current {
+                if let sv = v as? UIScrollView, sv.contentSize.height > sv.bounds.height + 1 {
+                    return sv
+                }
+                current = v.superview
+            }
+            guard let root = view.window else { return nil }
+            return Self.deepestScrollView(in: root)
+        }
+
+        private static func deepestScrollView(in view: UIView) -> UIScrollView? {
+            if let sv = view as? UIScrollView, sv.contentSize.height > sv.bounds.height + 1 {
+                return sv
+            }
+            for sub in view.subviews {
+                if let found = deepestScrollView(in: sub) { return found }
+            }
+            return nil
+        }
+
+        func attach(to probe: UIView) {
+            guard let sv = findScrollView(from: probe) else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak probe] in
+                    guard let self = self, let probe = probe else { return }
+                    self.attach(to: probe)
+                }
+                return
+            }
+            guard scrollView !== sv else { return }
+            detach()
+            scrollView = sv
+            observation = sv.observe(\.contentOffset, options: [.new]) { [weak self] scroll, _ in
+                guard let self = self else { return }
+                let y = scroll.contentOffset.y
+                // 只有真正拖到顶部以下（overscroll，y<0）才武装，避免列表中间下滑误触
+                if y <= 0 {
+                    self.armed = true
+                    if y <= -self.threshold && scroll.isDragging {
+                        self.armed = false
+                        Diagnostics.mark("library top pull -> open settings")
+                        // 触发瞬间给一次轻震动反馈（iOS 真机；Mac Catalyst 无 Taptic 自动忽略）
+                        let feedback = UIImpactFeedbackGenerator(style: .medium)
+                        feedback.impactOccurred()
+                        DispatchQueue.main.async { self.onPull() }
+                    }
+                } else if y > 8 {
+                    self.armed = false
+                }
+            }
+        }
+
+        func detach() {
+            observation?.invalidate()
+            observation = nil
+        }
+    }
+}

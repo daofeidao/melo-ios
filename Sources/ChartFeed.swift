@@ -23,9 +23,13 @@ final class ChartFeed: ObservableObject {
     /// YouTube 榜单只放内存：ShelfItem 是带关联值的枚举，没有 Codable，
     /// 落盘要手写一整套编解码。同一次 App 会话内切 tab 复用它就够了。
     private var shelves: [Shelf] = []
-    /// 即使 YouTube 抓失败也记一次「本次会话已经试过」，
-    /// 否则被墙的用户每次切回排行榜都会白等一轮超时。
+    /// YouTube 榜单只在内存、不落盘。以前这里记的是「试过没有」——失败也记，
+    /// 于是第一次没代理失败一次后，shelvesReady 永远为 true，之后进页面再也不请求，
+    /// 榜单就一直空着。现在改成：只有真正拿到数据才算 ready；失败只记一个短冷却，
+    /// 冷却过后允许重试，既能恢复榜单，又不会断网时每次切回都白等超时。
     private var shelvesAttempted = false
+    private var shelvesFailedAt: Date?
+    private let retryCooldown: TimeInterval = 5 * 60
 
     private let ttl: TimeInterval = 6 * 3600
     private var savedAt: Date?
@@ -43,11 +47,28 @@ final class ChartFeed: ObservableObject {
 
     var shelvesReady: Bool {
         lock.lock(); defer { lock.unlock() }
-        return shelvesAttempted
+        // 失败冷却内一律不再请求，避免断网时每次切回都白等一轮超时
+        if let failedAt = shelvesFailedAt,
+           Date().timeIntervalSince(failedAt) < retryCooldown {
+            return true
+        }
+        // 从没失败过、且确实拿到过数据，才算就绪
+        return shelvesAttempted && !shelves.isEmpty && shelvesFailedAt == nil
     }
 
+    /// 抓成功了：清掉失败标记，正常缓存
     func markShelvesAttempted() {
-        lock.lock(); shelvesAttempted = true; lock.unlock()
+        lock.lock()
+        shelvesAttempted = true
+        shelvesFailedAt = nil
+        lock.unlock()
+    }
+
+    /// 抓失败了：记时间做短冷却，但不把榜单标成「就绪」
+    func markShelvesFailed() {
+        lock.lock()
+        shelvesFailedAt = Date()
+        lock.unlock()
     }
 
     func cached(_ platform: PlaylistPlatform) -> [ExternalPlaylist]? {

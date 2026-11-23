@@ -20,6 +20,8 @@ struct WebLoginView: View {
     /// 会被丢掉 —— 现在合并进同一个页面，用顶部按钮切换，不会再出现点了没反应。
     @State private var mode: Mode = .web
     @State private var saved = false
+    /// 验证型平台：验证通过后给成功提示，但不自动退出（还要留着页面供重新验证）
+    @State private var verified = false
     @State private var pageLoading = true
     @State private var pasted = ""
 
@@ -57,12 +59,19 @@ struct WebLoginView: View {
                 urlString: prefs.loginURL(platform.id),
                 domain: prefs.cookieDomain(platform.id),
                 hint: prefs.cookieHint(platform.id),
+                clearCookiesFirst: platform.login == .verify,
                 onCookieFound: { header in
                     prefs.setCookie(platform.id, header)
                     // 歌曲宝是「人机验证」不是「登录」：验证通过（拿到 cf_clearance）
                     // 就清掉待验证状态，播放页的提示按钮自动消失。
                     if platform.id == "gequbao" { Gequbao.onVerified() }
-                    saved = true
+                    // 验证型平台不自动收起：旧 Cookie 可能还在、Cloudflare 也会自动续期，
+                    // 一命中就退出会让用户没法重新过验证。只提示成功，由用户自己点 Done。
+                    if platform.login == .verify {
+                        verified = true
+                    } else {
+                        saved = true
+                    }
                 },
                 onLoaded: { pageLoading = false }
             )
@@ -74,6 +83,7 @@ struct WebLoginView: View {
             }
 
             if saved {
+                // 登录型：全屏提示，马上自动退出
                 VStack(spacing: 6) {
                     Text(L("Sign-in saved"))
                         .font(.system(size: 17, weight: .semibold))
@@ -83,6 +93,21 @@ struct WebLoginView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Theme.groupedBackground.opacity(0.94))
+            } else if verified {
+                // 验证型：只给顶部小横幅，不遮挡页面 —— 过期后用户能在同一页重新过验证
+                VStack(spacing: 2) {
+                    Text(L("Verification passed · you can verify again anytime"))
+                        .font(.system(size: 13, weight: .medium))
+                    Text(L("Tap Done when finished"))
+                        .font(.system(size: 11))
+                        .foregroundColor(Theme.secondaryLabel)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Theme.accent.opacity(0.14))
+                .cornerRadius(10)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
             }
         }
     }
@@ -123,6 +148,7 @@ private struct LoginWebView: UIViewRepresentable {
     let urlString: String
     let domain: String
     let hint: String?
+    var clearCookiesFirst: Bool = false
     let onCookieFound: (String) -> Void
     let onLoaded: () -> Void
 
@@ -148,7 +174,24 @@ private struct LoginWebView: UIViewRepresentable {
         }
 
         if let url = URL(string: urlString) {
-            web.load(URLRequest(url: url))
+            if clearCookiesFirst {
+                // 验证型平台每次进入先清旧 Cookie：歌曲宝 cf_clearance 很容易过期，
+                // 旧值还在的话一进页面就命中 hint，用户没机会重新过人机验证。
+                // 清完再 load，强制 Cloudflare 重新下发验证。
+                let store = WKWebsiteDataStore.default().httpCookieStore
+                store.getAllCookies { cookies in
+                    let stale = cookies.filter { cookie in
+                        url.host.map { cookie.domain.hasSuffix($0) } ?? false
+                    }
+                    let group = DispatchGroup()
+                    for cookie in stale { group.enter(); store.delete(cookie) { group.leave() } }
+                    group.notify(queue: .main) {
+                        web.load(URLRequest(url: url))
+                    }
+                }
+            } else {
+                web.load(URLRequest(url: url))
+            }
         }
 
         context.coordinator.start(domain: domain, hint: hint, onFound: onCookieFound)

@@ -95,13 +95,25 @@ struct RootView: View {
             }
             .navigationViewStyle(StackNavigationViewStyle())
         }
-        #if targetEnvironment(macCatalyst)
-        // 触控板手势切栏目：MacGestures 发通知，这里接
+        // 切栏目：Mac 手势、播放页跳艺人页都走这个通知。两端都要接，
+        // 以前放在 #if macCatalyst 里，iOS 真机上发通知没人收。
         .onReceive(NotificationCenter.default.publisher(for: .meloSwitchTab)) { note in
             if let index = note.userInfo?["index"] as? Int {
                 selection = index
             }
         }
+        // 播放页点艺人：先切回「现在就听」再把名字交给隐藏 NavigationLink 推栈。
+        // 这样无论从哪个 tab 打开播放页，关掉后都能进艺人页。
+        .onReceive(NotificationCenter.default.publisher(for: .meloOpenArtist)) { note in
+            guard let name = note.userInfo?["name"] as? String, !name.isEmpty else { return }
+            selection = 0
+            // 先清再设：万一上一次的 pending 没被消费干净，清一下保证这次一定能推栈
+            ArtistRouter.shared.pending = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                ArtistRouter.shared.pending = name
+            }
+        }
+        #if targetEnvironment(macCatalyst)
         // 点击 tab 也要同步记录，否则手势切栏目会算错目标
         .onChange(of: selection) { newValue in
             UserDefaults.standard.set(newValue, forKey: "melo.mac.currentTab")

@@ -23,6 +23,8 @@ extension Notification.Name {
     static let meloOpenPlayerSource = Notification.Name("melo.openPlayerSource")
     /// Mac 在资料库页两指下滑打开「设置」
     static let meloOpenSettings = Notification.Name("melo.openSettings")
+    /// 播放页点艺人名 → 全局跳到艺人页（任何 tab 都能接，不再只依赖「现在就听」）
+    static let meloOpenArtist = Notification.Name("melo.openArtist")
     /// Mac 设置页滚到底继续下滑退出设置
     static let meloDismissSettings = Notification.Name("melo.dismissSettings")
     /// Mac 两指下滑关闭播放页上的浮层（播放源/待播清单）

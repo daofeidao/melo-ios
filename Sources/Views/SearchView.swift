@@ -451,6 +451,37 @@ struct SearchView: View {
         value.lowercased().replacingOccurrences(of: " ", with: "")
     }
 
+    /// 用艺人页刷新出来的「正确歌曲」给搜索结果排序加权。
+    ///
+    /// 艺人页（ArtistDetailView）用网易云 artistID 直取真曲目，比搜索接口的模糊结果更可靠。
+    /// 若本地已有该艺人的缓存，命中真曲目的搜索结果按在艺人页里的顺序提到前面；
+    /// 没有缓存时保持原排序（不额外发请求，避免拖慢搜索）。
+    private func rankedByArtistPage(_ tracks: [Track], term: String) -> [Track] {
+        let artist = ArtistName.primary(term).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !artist.isEmpty,
+              let cached = ArtistDetailCache.get(artist, ignoreExpiry: true),
+              !cached.tracks.isEmpty else { return tracks }
+
+        // 艺人页里的真曲目标题 → 序号（越小越靠前）
+        var rank: [String: Int] = [:]
+        for (index, track) in cached.tracks.enumerated() {
+            let key = normalize(track.title)
+            if rank[key] == nil { rank[key] = index }
+        }
+        guard !rank.isEmpty else { return tracks }
+
+        return tracks.enumerated().sorted { a, b in
+            let ra = rank[normalize(a.element.title)]
+            let rb = rank[normalize(b.element.title)]
+            switch (ra, rb) {
+            case let (x?, y?): return x < y          // 都在艺人页里：按艺人页顺序
+            case (_?, nil): return true              // 命中艺人页的排前
+            case (nil, _?): return false
+            default: return a.offset < b.offset      // 都没命中：保持原顺序
+            }
+        }.map(\.element)
+    }
+
     private func performSearch(_ raw: String) async {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -496,10 +527,13 @@ struct SearchView: View {
         // 歌曲区排序：① 可播排前、VIP 排后；② 同一查询下「原唱者本人」的版本排最前，
         // 其次才是别的艺人的翻唱 / 合唱版本（搜周杰伦先放周杰伦本人唱的）。
         let vipSplit = combined.filter { !$0.isVip } + combined.filter { $0.isVip }
-        let ordered = vipSplit.sorted {
+        let primaryOrdered = vipSplit.sorted {
             primaryArtistMatches(term: trimmed, artist: $0.artist)
             && !primaryArtistMatches(term: trimmed, artist: $1.artist)
         }
+        // 再按艺人页刷新出的正确曲目顺序加权：搜到的人和艺人页对得上时，
+        // 用艺人页那份可靠数据决定歌曲顺序，而不是搜索接口的模糊排序。
+        let ordered = rankedByArtistPage(primaryOrdered, term: trimmed)
 
         var merged = SearchResults()
         merged.domestic = ordered

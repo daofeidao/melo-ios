@@ -24,9 +24,11 @@ final class ImageLoader {
         self.diskDir = dir
     }
 
-    /// 内存缓存，给 SwiftUI 的 .task 快速命中用
-    func cached(for url: URL) -> UIImage? {
-        cache.object(forKey: cacheKey(url, maxPixel: 420))
+    /// 内存缓存，给 SwiftUI 的 .task 快速命中用。
+    /// maxPixel 必须和实际加载时一致——列表行是 48pt（约 96px），
+    /// 以前写死 420，key 永远对不上，缓存从不命中，快速滑动时每行都要重解一遍。
+    func cached(for url: URL, maxPixel: CGFloat = 420) -> UIImage? {
+        cache.object(forKey: cacheKey(url, maxPixel: min(max(maxPixel, 60), 600)))
     }
 
     /// maxPixel：按显示尺寸解码封面。滚动卡顿的根因是封面原图动辄 1500~3000px，
