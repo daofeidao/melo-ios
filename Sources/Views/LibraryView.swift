@@ -10,6 +10,9 @@ struct LibraryView: View {
     @State private var showImport = false
     @State private var showSettingsSheet = false
 
+    /// 底部「资料库」重选时把导航栈拆回根界面（歌单详情 / 设置页在栈里也一并退掉）
+    @ObservedObject private var coordinator = LibraryCoordinator.shared
+
     var body: some View {
         NavigationView {
             List {
@@ -116,6 +119,7 @@ struct LibraryView: View {
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
+        .id(coordinator.resetToken)
     }
 }
 
@@ -692,24 +696,28 @@ struct TopPullDetector: UIViewRepresentable {
             self.threshold = threshold; self.onPull = onPull
         }
 
+        /// 只在 probe 自己的祖先子树里找滚动视图，逐层往外扫，命中第一层就停。
+        ///
+        /// **绝不能回退到整窗搜索**：设置页被 push / 弹出后，全窗口最深的滚动视图
+        /// 会变成设置页自己的 List，检测器就绑到设置页上——结果是在设置页里下拉
+        /// 又开出一个设置页（同时也是「下拉打开设置」在别的栏目乱触发的根源）。
         private func findScrollView(from view: UIView) -> UIScrollView? {
-            var current: UIView? = view
-            while let v = current {
-                if let sv = v as? UIScrollView, sv.contentSize.height > sv.bounds.height + 1 {
-                    return sv
-                }
-                current = v.superview
+            var ancestor: UIView? = view.superview
+            var depth = 0
+            while let v = ancestor, depth < 12 {
+                if let sv = Self.firstScrollView(in: v) { return sv }
+                ancestor = v.superview
+                depth += 1
             }
-            guard let root = view.window else { return nil }
-            return Self.deepestScrollView(in: root)
+            return nil
         }
 
-        private static func deepestScrollView(in view: UIView) -> UIScrollView? {
-            if let sv = view as? UIScrollView, sv.contentSize.height > sv.bounds.height + 1 {
-                return sv
-            }
+        /// 取子树里第一个滚动视图。不再要求 contentSize 超出高度：
+        /// 资料库歌单少的时候列表本来就撑不满，仍需要能下拉回弹触发。
+        private static func firstScrollView(in view: UIView) -> UIScrollView? {
+            if let sv = view as? UIScrollView { return sv }
             for sub in view.subviews {
-                if let found = deepestScrollView(in: sub) { return found }
+                if let found = firstScrollView(in: sub) { return found }
             }
             return nil
         }
@@ -727,6 +735,10 @@ struct TopPullDetector: UIViewRepresentable {
             scrollView = sv
             observation = sv.observe(\.contentOffset, options: [.new]) { [weak self] scroll, _ in
                 guard let self = self else { return }
+                // 只认自己的那个列表：别的列表（设置页等）卷动一律不理
+                guard scroll === self.scrollView else { return }
+                // 列表被移出屏幕（push 了别的页面）时别再触发
+                guard scroll.window != nil, !scroll.isHidden else { return }
                 let y = scroll.contentOffset.y
                 // 只有真正拖到顶部以下（overscroll，y<0）才武装，避免列表中间下滑误触
                 if y <= 0 {

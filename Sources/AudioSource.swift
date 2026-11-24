@@ -179,8 +179,12 @@ enum AudioSource {
         // 默认首选 Hi·FLAC：它的会员凭据能给出 320 / flac，其余国内源匿名基本只到 128。
         // 严格匹配（艺人 + 标题 + 时长）对不上就返回 nil 降级，绝不硬选翻唱 / Live 版。
         // 这一路是「按歌名搜出来的」，标记不可信，不落盘缓存。
-        // 专辑曲目必须按自带的平台 id 取原曲，不能让按歌名搜索的源插队
-        if SourcePrefs.shared.isEnabled("flachi"), !track.strictSource,
+        // 专辑曲目通常按自带平台 id 取原曲，不让按歌名搜索的源插队。
+        // 但付费曲目（isVip）例外：它的平台 id 已证实取不到免费流，
+        // 此时就该允许按歌名 + 艺人严格匹配去 Hi·FLAC 找免费版——
+        // 否则整张付费数字专辑全灰、全「没有音源」，明明别的源有同一首。
+        let allowFlacForAlbumTrack = !track.strictSource || track.isVip || track.isUnavailable
+        if SourcePrefs.shared.isEnabled("flachi"), allowFlacForAlbumTrack,
            let url = await FlacHiSource.streamURL(
             title: track.title,
             artist: track.artist,

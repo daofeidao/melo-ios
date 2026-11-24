@@ -18,3 +18,26 @@ final class SearchCoordinator: ObservableObject {
 
     private init() {}
 }
+
+/// 让「已选中的 Library tab 再点一次」回到资料库首页。
+///
+/// 和 Search 同一套令牌机制：`RootView` 在重选 Library tab（tag 2）时调用
+/// `popToRoot()`，`LibraryView` 用令牌给 `NavigationView` 换 `id`，把整条栈拆掉，
+/// 无论当前在歌单详情、本地音乐、还是设置页，都会回到资料库根界面。
+final class LibraryCoordinator: ObservableObject {
+    static let shared = LibraryCoordinator()
+
+    @Published private(set) var resetToken = 0
+    /// 重选事件可能从两条路同时来（SwiftUI selection 绑定 + tab bar 兜底识别），
+    /// 短时间内重复调用只生效一次，避免导航栈被连拆两遍导致闪一下。
+    private var lastPop = Date.distantPast
+
+    func popToRoot() {
+        let now = Date()
+        guard now.timeIntervalSince(lastPop) > 0.3 else { return }
+        lastPop = now
+        resetToken += 1
+    }
+
+    private init() {}
+}

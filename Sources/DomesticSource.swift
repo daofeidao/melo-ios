@@ -942,8 +942,14 @@ enum DomesticSource {
             .compactMap { JS.string($0["name"]) }
             .joined(separator: ", ")
 
-        // 专辑曲目表要完整：没有平台 id、或需要付费的曲目照样占一行，
-        // 只是标成灰显不可播。绝不拿同名翻唱 / Live / 别的版本来补位。
+        // 专辑曲目表要完整：每一首都占一行、都能点。
+        //
+        // 以前把 fee==1/4 的曲目直接标 isUnavailable（整首灰掉、不让点），
+        // 于是「整张专辑都是付费歌」的艺人页面全灰、全写「没有音源」，看着像 bug。
+        // 实测这些歌在网易云确实取不到免费流，但很多在 Hi·FLAC / 酷狗等源有免费版
+        // （例如「出外的囡仔」在 Hi·FLAC 就有同曲同艺人的可播版本）。
+        // 所以付费只标记为 VIP（保留角标提示），不再剥夺点击和兜底选源的机会；
+        // 只有当一首歌连平台 id 都没有（无法定位）时才判不可用。
         let songs = (JS.array(album["songs"]) ?? []).enumerated().compactMap { index, raw -> Track? in
             guard let song = JS.dict(raw),
                   let title = JS.string(song["name"]), !title.isEmpty else { return nil }
@@ -961,7 +967,8 @@ enum DomesticSource {
                 source: PlaylistPlatform.netease.rawValue,
                 sourceID: sid ?? "unavailable:\(id):\(index)",
                 isVip: paid,
-                isUnavailable: sid == nil || paid,
+                // 只把「连 id 都没有」的判不可用；付费歌仍可点击走其他音源兜底
+                isUnavailable: sid == nil,
                 strictSource: true
             )
         }

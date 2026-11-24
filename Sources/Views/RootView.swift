@@ -15,9 +15,12 @@ struct RootView: View {
             get: { selection },
             set: { newValue in
                 if newValue == selection {
-                    // 重选了同一个 tab：只有 Search 需要 pop 回根
+                    // 重选了同一个 tab：Search / Library 都要 pop 回自己的根界面
+                    Diagnostics.mark("tab reselect -> \(newValue)")
                     if newValue == 3 {
                         SearchCoordinator.shared.popToRoot()
+                    } else if newValue == 2 {
+                        LibraryCoordinator.shared.popToRoot()
                     }
                 } else {
                     selection = newValue
@@ -66,6 +69,15 @@ struct RootView: View {
             // 后台导入的进度条：导入改成后台任务后，这里是唯一的进度出口
             ImportBanner()
         }
+        // 兜底识别「再点一次当前 tab」：SwiftUI 的 selection 绑定在部分系统版本上
+        // 重选同值不一定回调，这里直接在 UITabBar 上收一层点击，两条路都能回根页。
+        .background(
+            TabBarReselectCatcher { index in
+                Diagnostics.mark("tab bar reselect -> \(index)")
+                if index == 2 { LibraryCoordinator.shared.popToRoot() }
+                if index == 3 { SearchCoordinator.shared.popToRoot() }
+            }
+        )
         #if targetEnvironment(macCatalyst)
         // Mac：改用 overlay 打开播放页。fullScreenCover 在 Catalyst 上的呈现
         // 链路（转场 + presented VC）是「一点播放条就退」的另一嫌疑，直接绕开。
@@ -279,6 +291,126 @@ struct RootView: View {
             NSLog("SMOKE_BACKUP ok bytes=\(data.count) favorites=\(summary.favorites) recent=\(summary.recent) playlists=\(summary.playlists)")
         } catch {
             NSLog("SMOKE_BACKUP failed \(error)")
+        }
+    }
+}
+
+/// 在 UITabBar 上补一层「再点一次当前 tab」识别。
+///
+/// SwiftUI 的 `TabView` 在部分系统版本上重选同值不会回调 selection 绑定的 setter，
+/// 「点资料库回首页」就完全没反应。这里用一条独立通道兜底：找到窗口里的 `UITabBar`，
+/// 加一个不吞事件的点击手势，命中当前选中项就回调。
+/// 只用公开 API（items / selectedItem / subviews 布局），不依赖私有类名；
+/// Mac Catalyst 的 TabView 不是 UITabBar，找不到就自然不生效。
+struct TabBarReselectCatcher: UIViewRepresentable {
+    let onReselect: (Int) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onReselect: onReselect) }
+
+    func makeUIView(context: Context) -> UIView {
+        let probe = UIView(frame: .zero)
+        probe.backgroundColor = .clear
+        probe.isUserInteractionEnabled = false
+        return probe
+    }
+
+    func updateUIView(_ probe: UIView, context: Context) {
+        context.coordinator.onReselect = onReselect
+        DispatchQueue.main.async { context.coordinator.install(from: probe) }
+    }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.remove()
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var onReselect: (Int) -> Void
+        private weak var tabBar: UITabBar?
+        private var tap: UILongPressGestureRecognizer?
+        private var attempts = 0
+        /// 按下瞬间的命中项与「当时是否已选中」——抬手前系统还没改选中项，判定才准
+        private var pendingIndex: Int?
+        private var pendingWasSelected = false
+
+        init(onReselect: @escaping (Int) -> Void) { self.onReselect = onReselect }
+
+        func install(from probe: UIView) {
+            if tabBar != nil { return }
+            guard attempts < 20 else { return }
+            guard let window = probe.window, let bar = Self.findTabBar(in: window) else {
+                attempts += 1
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak probe] in
+                    guard let self = self, let probe = probe else { return }
+                    self.install(from: probe)
+                }
+                return
+            }
+            let gesture = UILongPressGestureRecognizer(target: self, action: #selector(handle(_:)))
+            // 用 0 秒长按当「按下/抬起」探针：能在触摸开始时就读到旧的选中项，
+            // 而 UITapGestureRecognizer 只在抬手后回调，那时选中项可能已经变了。
+            gesture.minimumPressDuration = 0
+            gesture.cancelsTouchesInView = false   // 点击照常传给 tab bar，不影响正常切换
+            gesture.delegate = self
+            bar.addGestureRecognizer(gesture)
+            tabBar = bar
+            tap = gesture
+        }
+
+        func remove() {
+            if let tap = tap, let bar = tabBar { bar.removeGestureRecognizer(tap) }
+            tap = nil
+            tabBar = nil
+        }
+
+        private static func findTabBar(in view: UIView) -> UITabBar? {
+            if let bar = view as? UITabBar, !bar.isHidden, (bar.items?.count ?? 0) > 0 { return bar }
+            for sub in view.subviews {
+                if let found = findTabBar(in: sub) { return found }
+            }
+            return nil
+        }
+
+        @objc private func handle(_ gesture: UILongPressGestureRecognizer) {
+            guard let bar = tabBar, let items = bar.items, !items.isEmpty else { return }
+            switch gesture.state {
+            case .began:
+                // 触摸刚落下：这时选中项还是旧的，记下来当判定基准
+                let point = gesture.location(in: bar)
+                guard let index = itemIndex(at: point, in: bar, count: items.count) else {
+                    pendingIndex = nil
+                    return
+                }
+                pendingIndex = index
+                pendingWasSelected = (bar.selectedItem === items[index])
+            case .ended:
+                defer { pendingIndex = nil }
+                guard let index = pendingIndex, pendingWasSelected, index < items.count else { return }
+                // 抬手位置必须还在同一个 item 上，避免「从 tab bar 上划走」被算成点击
+                let point = gesture.location(in: bar)
+                guard itemIndex(at: point, in: bar, count: items.count) == index else { return }
+                onReselect(index)
+            default:
+                pendingIndex = nil
+            }
+        }
+
+        /// 命中第几个 tab。item 按钮宽度远小于整条 bar，背景视图是全宽的，用宽度把背景筛掉。
+        private func itemIndex(at point: CGPoint, in bar: UITabBar, count: Int) -> Int? {
+            let buttons = bar.subviews
+                .filter { !$0.isHidden && $0.bounds.width > 0 && $0.bounds.width < bar.bounds.width * 0.5 }
+                .sorted { $0.frame.minX < $1.frame.minX }
+            if let hit = buttons.firstIndex(where: { $0.frame.contains(point) }) {
+                return hit < count ? hit : nil
+            }
+            // 布局解析不出来（系统改版）就按等分宽度估算，4 个 tab 足够准
+            let step = bar.bounds.width / CGFloat(count)
+            guard step > 0, point.x >= 0, point.x <= bar.bounds.width else { return nil }
+            return min(count - 1, max(0, Int(point.x / step)))
+        }
+
+        func gestureRecognizer(_ gesture: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            true
         }
     }
 }
